@@ -1,0 +1,8 @@
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    main: ./cmd/myapp
+release:
+  use_existing_draft: true
