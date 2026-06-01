@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"html"
 	"regexp"
 	"strings"
 	"text/template"
@@ -22,6 +23,30 @@ type SpecMetadata struct {
 	Version string
 	Date    string
 	Body    string
+}
+
+// Pre-compiled global regular expressions to avoid runtime compilation overhead.
+var (
+	mermaidRegex   = regexp.MustCompile(`(?s)<pre><code class="language-mermaid">(.*?)</code></pre>`)
+	calloutRegex   = regexp.MustCompile(`(?s)<blockquote>\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*?)\s*</p>(.*?)</blockquote>`)
+	codeBlockRegex = regexp.MustCompile(`(?s)<code>.*?</code>|<pre>.*?</pre>`)
+)
+
+type badgeRegex struct {
+	reBracket *regexp.Regexp
+	reStrong  *regexp.Regexp
+	repl      string
+}
+
+// Static pre-compiled regex badges
+var precompiledBadges = []badgeRegex{
+	{regexp.MustCompile(`\[Must\]`), regexp.MustCompile(`<strong>Must</strong>`), `<span class="badge badge-must">Must</span>`},
+	{regexp.MustCompile(`\[Should\]`), regexp.MustCompile(`<strong>Should</strong>`), `<span class="badge badge-should">Should</span>`},
+	{regexp.MustCompile(`\[Could\]`), regexp.MustCompile(`<strong>Could</strong>`), `<span class="badge badge-could">Could</span>`},
+	{regexp.MustCompile(`\[Wont\]`), regexp.MustCompile(`<strong>Wont</strong>`), `<span class="badge badge-wont">Wont</span>`},
+	{regexp.MustCompile(`\[Confirmed\]`), regexp.MustCompile(`<strong>Confirmed</strong>`), `<span class="badge badge-confirmed">Confirmed</span>`},
+	{regexp.MustCompile(`\[Inferred\]`), regexp.MustCompile(`<strong>Inferred</strong>`), `<span class="badge badge-inferred">Inferred</span>`},
+	{regexp.MustCompile(`\[Assumption\]`), regexp.MustCompile(`<strong>Assumption</strong>`), `<span class="badge badge-assumption">Assumption</span>`},
 }
 
 // RenderSpec compiles markdown to fully designed interactive HTML
@@ -55,10 +80,11 @@ func RenderSpec(mdContent []byte) ([]byte, error) {
 
 	htmlBody := postProcessHTML(buf.String())
 
+	// Escape strings to prevent potential XSS injection through text/template
 	specMeta := SpecMetadata{
-		Title:   title,
-		Version: version,
-		Date:    date,
+		Title:   html.EscapeString(title),
+		Version: html.EscapeString(version),
+		Date:    html.EscapeString(date),
 		Body:    htmlBody,
 	}
 
@@ -75,14 +101,10 @@ func RenderSpec(mdContent []byte) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func postProcessHTML(html string) string {
-	// 1. Spec Tables
-	html = strings.ReplaceAll(html, "<table>", `<table class="spec-table">`)
-
-	// 2. Mermaid Blocks
-	// Goldmark outputs mermaid blocks as: <pre><code class="language-mermaid">...</code></pre>
-	mermaidRegex := regexp.MustCompile(`(?s)<pre><code class="language-mermaid">(.*?)</code></pre>`)
-	html = mermaidRegex.ReplaceAllStringFunc(html, func(match string) string {
+func postProcessHTML(htmlStr string) string {
+	// 1. Process Mermaid Blocks first
+	// (Converts mermaid pre/code blocks to figcaption/div wrapper, avoiding standard code masking)
+	htmlStr = mermaidRegex.ReplaceAllStringFunc(htmlStr, func(match string) string {
 		submatches := mermaidRegex.FindStringSubmatch(match)
 		if len(submatches) < 2 {
 			return match
@@ -97,31 +119,24 @@ func postProcessHTML(html string) string {
 		return fmt.Sprintf(`<figure class="diagram-container"><div class="mermaid">%s</div><figcaption>Architecture & Flow Diagram</figcaption></figure>`, strings.TrimSpace(content))
 	})
 
-	// 3. Priority & Status Badges
-	badges := map[string]string{
-		"Must":       `<span class="badge badge-must">Must</span>`,
-		"Should":     `<span class="badge badge-should">Should</span>`,
-		"Could":      `<span class="badge badge-could">Could</span>`,
-		"Wont":       `<span class="badge badge-wont">Wont</span>`,
-		"Confirmed":  `<span class="badge badge-confirmed">Confirmed</span>`,
-		"Inferred":   `<span class="badge badge-inferred">Inferred</span>`,
-		"Assumption": `<span class="badge badge-assumption">Assumption</span>`,
+	// 2. Mask remaining standard <code> and <pre> blocks to protect them from regex pollution
+	var maskedBlocks []string
+	htmlStr = codeBlockRegex.ReplaceAllStringFunc(htmlStr, func(match string) string {
+		maskedBlocks = append(maskedBlocks, match)
+		return fmt.Sprintf("<!--CODE_BLOCK_PLACEHOLDER_%d-->", len(maskedBlocks)-1)
+	})
+
+	// 3. Spec Tables
+	htmlStr = strings.ReplaceAll(htmlStr, "<table>", `<table class="spec-table">`)
+
+	// 4. Priority & Status Badges
+	for _, badge := range precompiledBadges {
+		htmlStr = badge.reBracket.ReplaceAllString(htmlStr, badge.repl)
+		htmlStr = badge.reStrong.ReplaceAllString(htmlStr, badge.repl)
 	}
 
-	for key, val := range badges {
-		// Replace [Must], [Should]
-		reBracket := regexp.MustCompile(fmt.Sprintf(`\[%s\]`, key))
-		html = reBracket.ReplaceAllString(html, val)
-
-		// Replace <strong>Must</strong>, <strong>Should</strong>
-		reStrong := regexp.MustCompile(fmt.Sprintf(`<strong>%s</strong>`, key))
-		html = reStrong.ReplaceAllString(html, val)
-	}
-
-	// 4. Callout Cards
-	// Matches blockquotes starting with [!NOTE], etc.
-	calloutRegex := regexp.MustCompile(`(?s)<blockquote>\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*?)\s*</p>(.*?)</blockquote>`)
-	html = calloutRegex.ReplaceAllStringFunc(html, func(match string) string {
+	// 5. Callout Cards
+	htmlStr = calloutRegex.ReplaceAllStringFunc(htmlStr, func(match string) string {
 		submatches := calloutRegex.FindStringSubmatch(match)
 		if len(submatches) < 4 {
 			return match
@@ -141,5 +156,11 @@ func postProcessHTML(html string) string {
 		return fmt.Sprintf(`<div class="callout %s"><div class="callout-title">%s</div><p>%s</p>%s</div>`, class, cType, body, extra)
 	})
 
-	return html
+	// 6. Restore the masked code blocks
+	for i, block := range maskedBlocks {
+		placeholder := fmt.Sprintf("<!--CODE_BLOCK_PLACEHOLDER_%d-->", i)
+		htmlStr = strings.Replace(htmlStr, placeholder, block, 1)
+	}
+
+	return htmlStr
 }

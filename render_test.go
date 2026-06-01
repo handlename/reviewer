@@ -23,6 +23,12 @@ This is a [Must] priority. And **Should** is also a priority.
 |---|---|
 | A | [Confirmed] |
 
+Here is an inline code block: ` + "`[Must]`" + `.
+And a standard fenced code block:
+` + "```go" + `
+// [Confirmed] and **Should** should remain raw
+` + "```" + `
+
 ` + "```" + `mermaid
 graph TD
   A -> B
@@ -55,6 +61,12 @@ graph TD
 	}
 	if !strings.Contains(html, `<span class="badge badge-should">Should</span>`) {
 		t.Errorf("missing Should badge")
+	}
+	if !strings.Contains(html, `<code>[Must]</code>`) {
+		t.Errorf("expected raw '[Must]' inside inline code block to be preserved, got replaced or missing")
+	}
+	if !strings.Contains(html, "[Confirmed] and **Should** should remain raw") {
+		t.Errorf("expected raw code block content to remain unmodified, got replaced or missing")
 	}
 	if !strings.Contains(html, `<div class="callout callout-warning"><div class="callout-title">WARNING</div>`) {
 		t.Errorf("missing callout block")
