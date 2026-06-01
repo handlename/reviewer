@@ -279,7 +279,77 @@
             color: var(--badge-could);
             font-weight: 600;
             text-align: center;
-            margin-top: 1rem;
+        }
+
+        /* Dynamic element commenting styling */
+        .commentable-element {
+            position: relative;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .commentable-element:hover {
+            background-color: rgba(56, 189, 248, 0.05) !important;
+        }
+        .comment-bubble-btn {
+            position: absolute;
+            left: -28px;
+            top: 50%;
+            transform: translateY(-50%) scale(0.9);
+            cursor: pointer;
+            font-size: 0.95rem;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+            user-select: none;
+            z-index: 10;
+        }
+        .commentable-element:hover .comment-bubble-btn {
+            opacity: 1;
+            transform: translateY(-50%) scale(1.15);
+        }
+        .commentable-element.active-comment-target {
+            background-color: rgba(56, 189, 248, 0.08) !important;
+            border-left: 3px solid var(--accent-color) !important;
+            padding-left: 0.5rem;
+        }
+        .commentable-element.has-comments-highlight {
+            border-left: 2px dashed var(--accent-color);
+            padding-left: 0.5rem;
+        }
+        .element-comment-indicator {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent-color);
+            color: var(--bg-primary);
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.1rem 0.4rem;
+            border-radius: 999px;
+            margin-left: 0.5rem;
+            cursor: pointer;
+            vertical-align: middle;
+            user-select: none;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        .element-comment-indicator:hover {
+            transform: scale(1.1);
+            background-color: var(--accent-hover);
+        }
+        .sidebar-comment-target {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--accent-color);
+            background: rgba(56, 189, 248, 0.08);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            margin-bottom: 0.4rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            transition: background-color 0.2s;
+        }
+        .sidebar-comment-target:hover {
+            background: rgba(56, 189, 248, 0.15);
         }
     </style>
 </head>
@@ -302,6 +372,11 @@
         <!-- Feedback Panel visible in Serve mode -->
         <aside class="feedback-panel" id="feedbackPanel" style="display: none;">
             <div class="feedback-header">Review Comments</div>
+            <div id="commentContextContainer" style="display: none; font-size: 0.8rem; background: var(--bg-primary); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 0.5rem;">
+                <span style="font-weight: 600; color: var(--accent-color);">Target:</span>
+                <span id="commentContextText" style="color: var(--text-primary); margin-left: 0.25rem; display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;"></span>
+                <span id="clearContextBtn" style="float: right; cursor: pointer; color: var(--badge-must); font-weight: bold; font-size: 1.1rem; line-height: 1;" title="Clear targeting">&times;</span>
+            </div>
             <div class="comment-box">
                 <textarea id="commentInput" placeholder="Type a comment or request changes..."></textarea>
             </div>
@@ -324,14 +399,166 @@
         }
 
         let comments = [];
+        let activeAnchor = "";
+        let activeContext = "";
+
+        // Tag commentable elements on load
+        function initializeCommentableElements() {
+            const container = document.querySelector('.main-content');
+            if (!container) return;
+
+            // Target block elements inside main spec body
+            const selectors = 'p, li, tr, h1, h2, h3, h4, h5, h6, .callout, .diagram-container';
+            const elements = container.querySelectorAll(selectors);
+            
+            let elementIdx = 0;
+            elements.forEach(el => {
+                // Skip if inside a code block
+                if (el.closest('pre') || el.closest('code')) {
+                    return;
+                }
+
+                const anchorId = `spec-element-${elementIdx++}`;
+                el.setAttribute('data-anchor', anchorId);
+                el.classList.add('commentable-element');
+
+                // Create hover comment bubble button
+                const bubble = document.createElement('span');
+                bubble.className = 'comment-bubble-btn';
+                bubble.innerHTML = '💬';
+                bubble.title = 'Add comment to this element';
+                bubble.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setCommentTarget(anchorId, el.textContent.trim());
+                });
+
+                el.appendChild(bubble);
+            });
+        }
+
+        // Set active target for next comment
+        function setCommentTarget(anchorId, text) {
+            // Remove previous active state
+            document.querySelectorAll('.active-comment-target').forEach(el => {
+                el.classList.remove('active-comment-target');
+            });
+
+            activeAnchor = anchorId;
+            // Shorten context snippet
+            activeContext = text.replace(/💬\s*$/, '').trim();
+            if (activeContext.length > 60) {
+                activeContext = activeContext.substring(0, 57) + '...';
+            }
+
+            const targetEl = document.querySelector(`[data-anchor="${anchorId}"]`);
+            if (targetEl) {
+                targetEl.classList.add('active-comment-target');
+            }
+
+            const contextText = document.getElementById("commentContextText");
+            contextText.textContent = activeContext;
+            document.getElementById("commentContextContainer").style.display = "block";
+            document.getElementById("commentInput").focus();
+        }
+
+        // Clear active target
+        function clearCommentTarget() {
+            document.querySelectorAll('.active-comment-target').forEach(el => {
+                el.classList.remove('active-comment-target');
+            });
+            activeAnchor = "";
+            activeContext = "";
+            document.getElementById("commentContextContainer").style.display = "none";
+        }
+
+        document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
+
+        // Fetch existing comments on load
+        function loadExistingComments() {
+            if (!isServed) return;
+
+            fetch("/api/feedback")
+                .then(res => res.json())
+                .then(data => {
+                    comments = data || [];
+                    renderComments();
+                    updateInlineIndicators();
+                })
+                .catch(err => console.error("Error loading feedback comments:", err));
+        }
+
+        // Render inline indicators next to commented elements
+        function updateInlineIndicators() {
+            // Clear existing indicators
+            document.querySelectorAll('.element-comment-indicator').forEach(el => el.remove());
+            document.querySelectorAll('.has-comments-highlight').forEach(el => el.classList.remove('has-comments-highlight'));
+
+            const countsByAnchor = {};
+            comments.forEach(c => {
+                if (c.anchor) {
+                    countsByAnchor[c.anchor] = (countsByAnchor[c.anchor] || 0) + 1;
+                }
+            });
+
+            Object.entries(countsByAnchor).forEach(([anchorId, count]) => {
+                const targetEl = document.querySelector(`[data-anchor="${anchorId}"]`);
+                if (targetEl) {
+                    targetEl.classList.add('has-comments-highlight');
+
+                    const indicator = document.createElement('span');
+                    indicator.className = 'element-comment-indicator';
+                    indicator.innerHTML = `💬 ${count}`;
+                    indicator.title = `Click to view ${count} comment(s)`;
+                    indicator.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        scrollToSidebarComment(anchorId);
+                    });
+
+                    // Prepend or append depending on tag to avoid text breakages
+                    targetEl.appendChild(indicator);
+                }
+            });
+        }
+
+        // Scroll sidebar to first comment matching anchor
+        function scrollToSidebarComment(anchorId) {
+            const commentItems = Array.from(document.querySelectorAll('.feedback-item'));
+            const match = commentItems.find(item => item.getAttribute('data-anchor') === anchorId);
+            if (match) {
+                match.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                match.style.outline = "2px solid var(--accent-color)";
+                setTimeout(() => {
+                    match.style.outline = "none";
+                }, 2000);
+            }
+        }
+
+        // Scroll spec body to target element
+        function scrollToSpecElement(anchorId) {
+            const targetEl = document.querySelector(`[data-anchor="${anchorId}"]`);
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                targetEl.classList.add('active-comment-target');
+                setTimeout(() => {
+                    targetEl.classList.remove('active-comment-target');
+                }, 2000);
+            }
+        }
 
         document.getElementById("addCommentBtn").addEventListener("click", () => {
             const input = document.getElementById("commentInput");
             const text = input.value.trim();
             if (text) {
-                comments.push({ text: text, timestamp: new Date().toISOString() });
+                comments.push({
+                    text: text,
+                    timestamp: new Date().toISOString(),
+                    anchor: activeAnchor,
+                    context: activeContext
+                });
                 input.value = "";
+                clearCommentTarget();
                 renderComments();
+                updateInlineIndicators();
             }
         });
 
@@ -347,15 +574,29 @@
             comments.forEach((c, idx) => {
                 const item = document.createElement("div");
                 item.className = "feedback-item";
+                if (c.anchor) {
+                    item.setAttribute('data-anchor', c.anchor);
+                }
 
                 const deleteBtn = document.createElement("span");
                 deleteBtn.className = "delete-btn";
                 deleteBtn.innerHTML = "&times;";
                 deleteBtn.onclick = () => deleteComment(idx);
 
+                // Add context target indicator if present
+                if (c.anchor && c.context) {
+                    const targetIndicator = document.createElement("div");
+                    targetIndicator.className = "sidebar-comment-target";
+                    targetIndicator.innerHTML = `💬 On: ${c.context}`;
+                    targetIndicator.addEventListener('click', () => {
+                        scrollToSpecElement(c.anchor);
+                    });
+                    item.appendChild(targetIndicator);
+                }
+
                 const p = document.createElement("p");
                 p.style.marginBottom = "0";
-                p.textContent = c.text; // Safe from HTML injection!
+                p.textContent = c.text;
 
                 item.appendChild(deleteBtn);
                 item.appendChild(p);
@@ -366,6 +607,7 @@
         window.deleteComment = function(idx) {
             comments.splice(idx, 1);
             renderComments();
+            updateInlineIndicators();
         };
 
         document.getElementById("submitFeedbackBtn").addEventListener("click", () => {
@@ -395,6 +637,10 @@
                 document.getElementById("submitFeedbackBtn").disabled = false;
             });
         });
+
+        // Initialize elements and load existing comments on page start
+        initializeCommentableElements();
+        loadExistingComments();
     </script>
 </body>
 </html>
