@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <meta name="color-scheme" content="dark light">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+    <style>
+        :root {
+            /* HSL tailored dark mode colors */
+            --bg-primary: hsl(222, 47%, 11%);
+            --bg-secondary: hsl(217, 33%, 17%);
+            --bg-tertiary: hsl(215, 25%, 27%);
+            --text-primary: hsl(210, 40%, 98%);
+            --text-secondary: hsl(215, 20%, 65%);
+            --accent-color: hsl(199, 89%, 48%);
+            --accent-hover: hsl(201, 96%, 32%);
+            --border-color: hsl(215, 25%, 27%);
+            --card-bg: hsla(217, 33%, 17%, 0.7);
+            --glass-border: hsla(0, 0%, 100%, 0.05);
+            
+            --badge-must: hsl(0, 84%, 60%);
+            --badge-should: hsl(38, 92%, 50%);
+            --badge-could: hsl(162, 78%, 39%);
+            --badge-wont: hsl(220, 9%, 46%);
+            
+            --callout-info: hsl(199, 89%, 48%);
+            --callout-warning: hsl(38, 92%, 50%);
+            --callout-danger: hsl(0, 84%, 60%);
+
+            scrollbar-color: hsl(215, 25%, 27%) hsl(222, 47%, 11%);
+        }
+
+        /* Light mode overrides (using native light-dark or prefers-color-scheme) */
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-primary: hsl(210, 20%, 98%);
+                --bg-secondary: hsl(0, 0%, 100%);
+                --bg-tertiary: hsl(214, 16%, 85%);
+                --text-primary: hsl(222, 47%, 11%);
+                --text-secondary: hsl(215, 16%, 47%);
+                --accent-color: hsl(201, 96%, 32%);
+                --accent-hover: hsl(199, 89%, 48%);
+                --border-color: hsl(214, 16%, 85%);
+                --card-bg: hsla(0, 0%, 100%, 0.8);
+                --glass-border: hsla(222, 47%, 11%, 0.08);
+
+                scrollbar-color: hsl(214, 16%, 85%) hsl(210, 20%, 98%);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            display: flex;
+            min-height: 100vh;
+            overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Layout */
+        .layout {
+            display: flex;
+            width: 100%;
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .sidebar {
+            width: 320px;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            background-color: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 2rem 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 3rem 4rem;
+            max-width: 960px;
+            overflow-y: auto;
+        }
+
+        .feedback-panel {
+            width: 360px;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            background-color: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            overflow-y: auto;
+        }
+
+        /* Typography & Elements */
+        h1, h2, h3, h4 {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        h1 { font-size: 2.5rem; border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem; }
+        h2 { font-size: 1.75rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem; }
+        h3 { font-size: 1.35rem; }
+
+        p { margin-bottom: 1rem; color: var(--text-secondary); }
+
+        a { color: var(--accent-color); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            border-radius: 9999px;
+            color: white;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+        .badge-must { background-color: var(--badge-must); }
+        .badge-should { background-color: var(--badge-should); }
+        .badge-could { background-color: var(--badge-could); }
+        .badge-wont { background-color: var(--badge-wont); }
+        .badge-confirmed { background-color: #22c55e; }
+        .badge-inferred { background-color: #3b82f6; }
+        .badge-assumption { background-color: #a855f7; }
+
+        /* Callout cards */
+        .callout {
+            padding: 1rem 1.5rem;
+            border-left: 4px solid var(--accent-color);
+            background: var(--card-bg);
+            border-radius: 0 8px 8px 0;
+            margin: 1.5rem 0;
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--glass-border);
+            border-left-width: 4px;
+        }
+        .callout-info { border-left-color: var(--callout-info); }
+        .callout-warning { border-left-color: var(--callout-warning); }
+        .callout-danger { border-left-color: var(--callout-danger); }
+        .callout-title {
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+        }
+
+        /* Tables */
+        .spec-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+        }
+        .spec-table th, .spec-table td {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            text-align: left;
+        }
+        .spec-table th {
+            background-color: var(--bg-secondary);
+            font-weight: 600;
+        }
+        .spec-table tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Diagram Container */
+        .diagram-container {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1.5rem 0;
+            text-align: center;
+        }
+        .diagram-container figcaption {
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+            color: #475569;
+            font-weight: 500;
+        }
+
+        /* Feedback Form */
+        .feedback-header {
+            font-size: 1.25rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+        .comment-box {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .comment-box textarea {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            resize: vertical;
+            font-family: inherit;
+            outline: none;
+            min-height: 80px;
+        }
+        .btn {
+            display: inline-block;
+            width: 100%;
+            padding: 0.75rem;
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            text-align: center;
+        }
+        .btn:hover {
+            background-color: var(--accent-hover);
+        }
+        .feedback-item {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            padding: 0.75rem;
+            border-radius: 6px;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            position: relative;
+        }
+        .feedback-item .delete-btn {
+            position: absolute;
+            top: 5px;
+            right: 8px;
+            cursor: pointer;
+            color: var(--badge-must);
+            font-weight: bold;
+        }
+        .feedback-success {
+            color: var(--badge-could);
+            font-weight: 600;
+            text-align: center;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <h2>{{.Title}}</h2>
+            <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
+            <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
+            <nav style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
+                <a href="#">Overview</a>
+                <!-- Navigation elements dynamically filled if needed -->
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            {{.Body}}
+        </main>
+
+        <!-- Feedback Panel visible in Serve mode -->
+        <aside class="feedback-panel" id="feedbackPanel" style="display: none;">
+            <div class="feedback-header">Review Comments</div>
+            <div class="comment-box">
+                <textarea id="commentInput" placeholder="Type a comment or request changes..."></textarea>
+            </div>
+            <button class="btn" id="addCommentBtn">Add Comment</button>
+            
+            <div id="commentsList" style="margin-top: 1rem; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
+                <!-- Comments appear here -->
+            </div>
+            
+            <button class="btn" style="background-color: #22c55e; color: white;" id="submitFeedbackBtn">Submit Review</button>
+            <div id="statusMsg" class="feedback-success" style="display: none;">Feedback submitted successfully! Closing session...</div>
+        </aside>
+    </div>
+
+    <script>
+        // Enable feedback UI if served
+        const isServed = window.location.port !== "";
+        if (isServed) {
+            document.getElementById("feedbackPanel").style.display = "flex";
+        }
+
+        let comments = [];
+
+        document.getElementById("addCommentBtn").addEventListener("click", () => {
+            const input = document.getElementById("commentInput");
+            const text = input.value.trim();
+            if (text) {
+                comments.push({ text: text, timestamp: new Date().toISOString() });
+                input.value = "";
+                renderComments();
+            }
+        });
+
+        function renderComments() {
+            const container = document.getElementById("commentsList");
+            container.innerHTML = "";
+            comments.forEach((c, idx) => {
+                const item = document.createElement("div");
+                item.className = "feedback-item";
+                item.innerHTML = `<span class="delete-btn" onclick="deleteComment(${idx})">&times;</span><p style="margin-bottom: 0;">${c.text}</p>`;
+                container.appendChild(item);
+            });
+        }
+
+        window.deleteComment = function(idx) {
+            comments.splice(idx, 1);
+            renderComments();
+        };
+
+        document.getElementById("submitFeedbackBtn").addEventListener("click", () => {
+            if (comments.length === 0) {
+                alert("Please add at least one comment before submitting.");
+                return;
+            }
+            
+            document.getElementById("submitFeedbackBtn").disabled = true;
+            fetch("/api/feedback", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(comments)
+            }).then(res => {
+                if (res.ok) {
+                    document.getElementById("statusMsg").style.display = "block";
+                    setTimeout(() => {
+                        window.close();
+                    }, 1000);
+                } else {
+                    alert("Error submitting feedback.");
+                    document.getElementById("submitFeedbackBtn").disabled = false;
+                }
+            }).catch(err => {
+                alert("Error: " + err);
+                document.getElementById("submitFeedbackBtn").disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>
