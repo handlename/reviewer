@@ -418,6 +418,20 @@
                     return;
                 }
 
+                // Skip nested elements inside other commentable elements (e.g. p inside .callout, p inside tr)
+                let isNested = false;
+                let parent = el.parentElement;
+                while (parent && parent !== container) {
+                    if (parent.matches(selectors)) {
+                        isNested = true;
+                        break;
+                    }
+                    parent = parent.parentElement;
+                }
+                if (isNested) {
+                    return;
+                }
+
                 const anchorId = `spec-element-${elementIdx++}`;
                 el.setAttribute('data-anchor', anchorId);
                 el.classList.add('commentable-element');
