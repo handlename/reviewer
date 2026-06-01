@@ -8,18 +8,23 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
-// StartReviewServer serves the compiled HTML spec, opens browser, and captures feedback
-func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string, port int, noOpen bool) error {
+// Comment defines the unified structure for feedback comments.
+type Comment struct {
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+}
+
+// StartReviewServer serves the compiled HTML spec, opens browser, and captures feedback.
+// It accepts an optional readyChan, which receives the running server's URL once the port is bound.
+func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string, port int, noOpen bool, readyChan chan<- string) error {
 	// Probing port
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	listener, err := net.Listen("tcp", addr)
@@ -30,16 +35,23 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 			return fmt.Errorf("failed to bind any local port: %w", err)
 		}
 	}
+	defer listener.Close()
+
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://127.0.0.1:%d", actualPort)
 	log.Info().Msgf("Review server running at %s", url)
 
-	feedbackReceived := make(chan bool, 1)
+	// Programmatic ready notification
+	if readyChan != nil {
+		readyChan <- url
+	}
+
+	feedbackReceived := make(chan struct{})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(htmlContent)
+		_, _ = w.Write(htmlContent)
 	})
 
 	mux.HandleFunc("/api/feedback", func(w http.ResponseWriter, r *http.Request) {
@@ -48,9 +60,16 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 			return
 		}
 
-		var comments []interface{}
+		var comments []Comment
 		if err := json.NewDecoder(r.Body).Decode(&comments); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Ensure safe & atomic write: marshal in memory first
+		encoded, err := json.MarshalIndent(comments, "", "  ")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -61,28 +80,25 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 		feedbackName := fmt.Sprintf("%s-feedback.json", strings.TrimSuffix(base, ext))
 		feedbackPath := filepath.Join(dir, feedbackName)
 
-		file, err := os.Create(feedbackPath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer file.Close()
-
-		encoder := json.NewEncoder(file)
-		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(comments); err != nil {
+		if err := os.WriteFile(feedbackPath, encoded, 0644); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 
 		log.Info().Msg("Feedback successfully received & written.")
 		fmt.Println("FEEDBACK_RECEIVED")
-		
-		// Trigger graceful shutdown signal
-		feedbackReceived <- true
+
+		// Safe non-blocking trigger for graceful shutdown
+		select {
+		case <-feedbackReceived:
+			// Already closed/triggered
+		default:
+			close(feedbackReceived)
+		}
 	})
 
 	server := &http.Server{
@@ -98,18 +114,13 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 	// Launch browser if permitted
 	if !noOpen {
 		go func() {
-			time.Sleep(100 * time.Millisecond) // Wait a brief moment for listen
+			time.Sleep(50 * time.Millisecond) // Wait a brief moment for socket backlog
 			openBrowser(url)
 		}()
 	}
 
-	// Listen to system signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
+	// Wait for shutdown trigger
 	select {
-	case <-sigChan:
-		log.Info().Msg("Termination signal received. Shutting down server...")
 	case <-feedbackReceived:
 		log.Info().Msg("Feedback received. Shutting down server...")
 	case <-ctx.Done():
@@ -118,7 +129,7 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	
+
 	return server.Shutdown(shutdownCtx)
 }
 

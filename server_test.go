@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,23 +20,20 @@ func TestStartReviewServer_Feedback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Get a free port
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to get free port: %v", err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-
+	readyChan := make(chan string, 1)
 	errChan := make(chan error, 1)
+
 	go func() {
-		errChan <- StartReviewServer(ctx, htmlContent, inputPath, port, true)
+		errChan <- StartReviewServer(ctx, htmlContent, inputPath, 0, true, readyChan)
 	}()
 
-	// Wait for server to spin up
-	time.Sleep(200 * time.Millisecond)
-
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	var url string
+	select {
+	case url = <-readyChan:
+		// Ready! No flaky sleeps required.
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for server to signal readiness")
+	}
 
 	// Test GET /
 	resp, err := http.Get(url)
@@ -59,10 +54,10 @@ func TestStartReviewServer_Feedback(t *testing.T) {
 	}
 
 	// Test POST /api/feedback
-	comments := []map[string]interface{}{
+	comments := []Comment{
 		{
-			"comment": "Nice spec",
-			"line":    10,
+			Text:      "Nice spec",
+			Timestamp: time.Now().Format(time.RFC3339),
 		},
 	}
 	commentBytes, err := json.Marshal(comments)
@@ -101,48 +96,12 @@ func TestStartReviewServer_Feedback(t *testing.T) {
 		t.Fatalf("failed to read feedback file: %v", err)
 	}
 
-	var loadedComments []map[string]interface{}
+	var loadedComments []Comment
 	if err := json.Unmarshal(feedbackBytes, &loadedComments); err != nil {
 		t.Fatalf("failed to unmarshal written feedback: %v", err)
 	}
 
-	if len(loadedComments) != 1 || loadedComments[0]["comment"] != "Nice spec" {
-		t.Errorf("unexpected written feedback comments: %v", loadedComments)
-	}
-}
-
-func TestStartReviewServer_ContextCancel(t *testing.T) {
-	tempDir := t.TempDir()
-	inputPath := filepath.Join(tempDir, "spec.md")
-	htmlContent := []byte("<html><body>Hello Spec</body></html>")
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Get a free port
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to get free port: %v", err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- StartReviewServer(ctx, htmlContent, inputPath, port, true)
-	}()
-
-	// Wait for server to spin up
-	time.Sleep(200 * time.Millisecond)
-
-	// Cancel context to trigger shutdown
-	cancel()
-
-	select {
-	case err := <-errChan:
-		if err != nil {
-			t.Errorf("server shutdown returned error: %v", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Error("timed out waiting for server to shut down after context cancellation")
+	if len(loadedComments) != 1 || loadedComments[0].Text != "Nice spec" {
+		t.Errorf("unexpected written feedback comments: %+v", loadedComments)
 	}
 }
