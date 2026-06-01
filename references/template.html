@@ -285,13 +285,14 @@
         .commentable-element {
             position: relative;
             transition: background-color 0.2s, border-color 0.2s;
+            padding-right: 36px !important; /* Space on the right for comment icons */
         }
         .commentable-element:hover {
             background-color: rgba(56, 189, 248, 0.05) !important;
         }
         .comment-bubble-btn {
             position: absolute;
-            left: -28px;
+            right: 12px;
             top: 50%;
             transform: translateY(-50%) scale(0.9);
             cursor: pointer;
@@ -314,7 +315,15 @@
             border-left: 2px dashed var(--accent-color);
             padding-left: 0.5rem;
         }
+        .commentable-element.has-comments-highlight:hover .comment-bubble-btn {
+            opacity: 0 !important;
+            pointer-events: none;
+        }
         .element-comment-indicator {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -322,16 +331,15 @@
             color: var(--bg-primary);
             font-size: 0.7rem;
             font-weight: 700;
-            padding: 0.1rem 0.4rem;
+            padding: 0.15rem 0.45rem;
             border-radius: 999px;
-            margin-left: 0.5rem;
             cursor: pointer;
-            vertical-align: middle;
             user-select: none;
             transition: transform 0.2s, background-color 0.2s;
+            z-index: 11;
         }
         .element-comment-indicator:hover {
-            transform: scale(1.1);
+            transform: translateY(-50%) scale(1.1);
             background-color: var(--accent-hover);
         }
         .sidebar-comment-target {
