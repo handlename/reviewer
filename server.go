@@ -20,6 +20,8 @@ import (
 type Comment struct {
 	Text      string `json:"text"`
 	Timestamp string `json:"timestamp"`
+	Anchor    string `json:"anchor,omitempty"`  // Element selector ID/anchor
+	Context   string `json:"context,omitempty"` // Preview text context of the commented element
 }
 
 // StartReviewServer serves the compiled HTML spec, opens browser, and captures feedback.
@@ -55,6 +57,27 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 	})
 
 	mux.HandleFunc("/api/feedback", func(w http.ResponseWriter, r *http.Request) {
+		dir := filepath.Dir(inputPath)
+		base := filepath.Base(inputPath)
+		ext := filepath.Ext(base)
+		feedbackName := fmt.Sprintf("%s-feedback.json", strings.TrimSuffix(base, ext))
+		feedbackPath := filepath.Join(dir, feedbackName)
+
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			if _, err := os.Stat(feedbackPath); os.IsNotExist(err) {
+				_, _ = w.Write([]byte("[]"))
+				return
+			}
+			encoded, err := os.ReadFile(feedbackPath)
+			if err != nil {
+				http.Error(w, "Failed to read feedback: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write(encoded)
+			return
+		}
+
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -66,19 +89,11 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 			return
 		}
 
-		// Ensure safe & atomic write: marshal in memory first
 		encoded, err := json.MarshalIndent(comments, "", "  ")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
-		// Write to feedback.json
-		dir := filepath.Dir(inputPath)
-		base := filepath.Base(inputPath)
-		ext := filepath.Ext(base)
-		feedbackName := fmt.Sprintf("%s-feedback.json", strings.TrimSuffix(base, ext))
-		feedbackPath := filepath.Join(dir, feedbackName)
 
 		if err := os.WriteFile(feedbackPath, encoded, 0644); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -92,10 +107,8 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 		log.Info().Msg("Feedback successfully received & written.")
 		fmt.Println("FEEDBACK_RECEIVED")
 
-		// Safe non-blocking trigger for graceful shutdown
 		select {
 		case <-feedbackReceived:
-			// Already closed/triggered
 		default:
 			close(feedbackReceived)
 		}
@@ -123,6 +136,7 @@ func StartReviewServer(ctx context.Context, htmlContent []byte, inputPath string
 	select {
 	case <-feedbackReceived:
 		log.Info().Msg("Feedback received. Shutting down server...")
+		time.Sleep(100 * time.Millisecond)
 	case <-ctx.Done():
 		log.Info().Msg("Context cancelled. Shutting down server...")
 	}

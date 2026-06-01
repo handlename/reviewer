@@ -75,6 +75,25 @@ func TestStartReviewServer_Feedback(t *testing.T) {
 		t.Errorf("expected POST feedback to return 200 OK, got %d", postResp.StatusCode)
 	}
 
+	// Test GET /api/feedback on the running server
+	getResp, err := http.Get(url + "/api/feedback")
+	if err != nil {
+		t.Fatalf("failed to GET feedback: %v", err)
+	}
+	defer getResp.Body.Close()
+
+	if getResp.StatusCode != http.StatusOK {
+		t.Errorf("expected GET feedback to return 200 OK, got %d", getResp.StatusCode)
+	}
+
+	var getComments []Comment
+	if err := json.NewDecoder(getResp.Body).Decode(&getComments); err != nil {
+		t.Fatalf("failed to parse GET feedback body: %v", err)
+	}
+	if len(getComments) != 1 || getComments[0].Text != "Nice spec" {
+		t.Errorf("unexpected comments returned by GET: %+v", getComments)
+	}
+
 	// Wait for server to shutdown gracefully (since POST /api/feedback triggers shutdown)
 	select {
 	case err := <-errChan:
