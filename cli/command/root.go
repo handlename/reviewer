@@ -7,8 +7,9 @@ type Root struct {
 	Version  kong.VersionFlag `help:"Show version."`
 
 	Build Build `cmd:"" help:"Build static HTML spec file."`
+	Serve Serve `cmd:"" help:"Serve interactive review server."`
 }
 
 func (r *Root) Run(c *Context) error {
-	return c.App.Run(c.Ctx)
+	return nil
 }
