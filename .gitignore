@@ -25,3 +25,6 @@ go.work
 
 # GoReleaser dist directory
 dist/*
+
+# Generated HTML spec files
+examples/sample.html
