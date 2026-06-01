@@ -1,9 +1,9 @@
-package myapp
+package reviewer
 
 import (
 	"context"
 
-	errcode "github.com/handlename/my-golang-template/internal/errorcode"
+	errcode "github.com/handlename/reviewer/internal/errorcode"
 	"github.com/morikuni/failure/v2"
 )
 

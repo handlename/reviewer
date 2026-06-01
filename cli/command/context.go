@@ -3,10 +3,10 @@ package command
 import (
 	"context"
 
-	myapp "github.com/handlename/my-golang-template"
+	"github.com/handlename/reviewer"
 )
 
 type Context struct {
 	Ctx context.Context
-	App *myapp.App
+	App *reviewer.App
 }

@@ -3,6 +3,6 @@ version: 2
 builds:
   - env:
       - CGO_ENABLED=0
-    main: ./cmd/myapp
+    main: ./cmd/reviewer
 release:
   use_existing_draft: true

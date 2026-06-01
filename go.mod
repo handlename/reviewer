@@ -1,4 +1,4 @@
-module github.com/handlename/my-golang-template
+module github.com/handlename/reviewer
 
 go 1.24.0
 

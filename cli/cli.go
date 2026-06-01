@@ -8,8 +8,8 @@ import (
 	"os/signal"
 
 	"github.com/alecthomas/kong"
-	myapp "github.com/handlename/my-golang-template"
-	"github.com/handlename/my-golang-template/cli/command"
+	"github.com/handlename/reviewer"
+	"github.com/handlename/reviewer/cli/command"
 	"github.com/morikuni/failure/v2"
 	"github.com/rs/zerolog/log"
 )
@@ -23,13 +23,13 @@ const (
 
 func Run() ExitCode {
 	var root command.Root
-	ktx := kong.Parse(&root, kong.Vars{"version": fmt.Sprintf("myapp v%s", myapp.Version)})
+	ktx := kong.Parse(&root, kong.Vars{"version": fmt.Sprintf("reviewer v%s", reviewer.Version)})
 
-	myapp.InitLogger(root.LogLevel)
+	reviewer.InitLogger(root.LogLevel)
 
 	// TODO: build options for new App
 
-	app := myapp.New()
+	app := reviewer.New()
 
 	// TODO: build options to run App
 
