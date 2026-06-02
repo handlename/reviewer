@@ -11,8 +11,16 @@ $ reviewer serve <input.md> -p <port>
 
 ## Installation
 
+Using Homebrew:
+
 ```console
 $ brew install handlename/tap/reviewer
+```
+
+Or using `go install`:
+
+```console
+$ go install github.com/handlename/reviewer/cmd/reviewer@latest
 ```
 
 ## License
