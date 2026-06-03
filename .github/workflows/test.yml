@@ -7,6 +7,7 @@ jobs:
   test:
     name: build
     permissions:
+      contents: read
       checks: write
       pull-requests: write
     runs-on: ubuntu-latest
