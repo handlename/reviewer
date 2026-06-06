@@ -358,6 +358,48 @@
         .sidebar-comment-target:hover {
             background: rgba(56, 189, 248, 0.15);
         }
+
+        /* Sidebar Table of Contents */
+        .sidebar-toc {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+        .sidebar-toc-item {
+            display: block;
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 0.25rem 0.5rem;
+            border-left: 2px solid transparent;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+        .sidebar-toc-item:hover {
+            color: var(--accent-color);
+            text-decoration: none;
+            background: rgba(56, 189, 248, 0.04);
+        }
+        .sidebar-toc-item.active {
+            color: var(--accent-color);
+            font-weight: 600;
+            border-left-color: var(--accent-color);
+            background: rgba(56, 189, 248, 0.08);
+        }
+        .sidebar-toc-h1 {
+            padding-left: 0.5rem;
+            font-weight: 500;
+        }
+        .sidebar-toc-h2 {
+            padding-left: 1.25rem;
+            font-size: 0.8rem;
+        }
+        .sidebar-toc-h3 {
+            padding-left: 2rem;
+            font-size: 0.75rem;
+        }
     </style>
 </head>
 <body>
@@ -366,9 +408,8 @@
             <h2>{{.Title}}</h2>
             <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
             <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
-            <nav style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
-                <a href="#">Overview</a>
-                <!-- Navigation elements dynamically filled if needed -->
+            <nav class="sidebar-toc" id="sidebarToc">
+                <!-- Dynamic headings loaded via JS -->
             </nav>
         </aside>
 
@@ -659,9 +700,158 @@
             });
         });
 
+        let isProgrammaticScroll = false; // Flag to prevent scroll-spy hijacking during clicks
+        let programmaticScrollTimeout = null;
+        let activeScrollEndHandler = null;
+
+        // Helper to clean up programmatic scroll state safely
+        function clearProgrammaticScrollState() {
+            if (programmaticScrollTimeout) {
+                clearTimeout(programmaticScrollTimeout);
+                programmaticScrollTimeout = null;
+            }
+            if (activeScrollEndHandler) {
+                window.removeEventListener("scrollend", activeScrollEndHandler);
+                activeScrollEndHandler = null;
+            }
+            isProgrammaticScroll = false;
+        }
+
+        function initializeTableOfContents() {
+            const tocContainer = document.getElementById("sidebarToc");
+            const mainContent = document.querySelector(".main-content");
+            if (!tocContainer || !mainContent) return;
+
+            tocContainer.innerHTML = "";
+
+            // 1. Fetch all headings (h1, h2, h3)
+            const headings = Array.from(mainContent.querySelectorAll("h1, h2, h3"));
+            
+            // Pre-fill usedIds with all existing DOM IDs to prevent collisions
+            const usedIds = new Set(Array.from(document.querySelectorAll("[id]")).map(el => el.id));
+
+            function slugify(text) {
+                const cleanText = text.replace(/💬/g, "").replace(/\[.*?\]/g, "").trim();
+                let slug = cleanText.toLowerCase()
+                    .replace(/[^\w\s-]/g, "")
+                    .replace(/\s+/g, "-")
+                    .replace(/-+/g, "-");
+                if (!slug) slug = "section";
+                
+                let uniqueSlug = slug;
+                let counter = 1;
+                while (usedIds.has(uniqueSlug)) {
+                    uniqueSlug = `${slug}-${counter}`;
+                    counter++;
+                }
+                usedIds.add(uniqueSlug);
+                return uniqueSlug;
+            }
+
+            headings.forEach((heading, idx) => {
+                // Ensure heading has ID for anchoring
+                if (!heading.id) {
+                    heading.id = slugify(heading.textContent);
+                } else {
+                    usedIds.add(heading.id);
+                }
+
+                // Create TOC link
+                const link = document.createElement("a");
+                link.href = `#${heading.id}`;
+                link.className = `sidebar-toc-item sidebar-toc-${heading.tagName.toLowerCase()}`;
+                if (idx === 0) {
+                    link.classList.add("active");
+                }
+                
+                // Clean heading text for display in TOC
+                const text = heading.textContent.replace(/💬/g, "").trim();
+                link.textContent = text;
+
+                link.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    clearProgrammaticScrollState();
+
+                    isProgrammaticScroll = true;
+                    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+                    history.pushState(null, null, `#${heading.id}`);
+                    setActiveTOCItem(link);
+
+                    activeScrollEndHandler = () => clearProgrammaticScrollState();
+                    window.addEventListener("scrollend", activeScrollEndHandler);
+                    programmaticScrollTimeout = setTimeout(clearProgrammaticScrollState, 1000);
+                });
+
+                tocContainer.appendChild(link);
+            });
+
+            function setActiveTOCItem(activeLink) {
+                tocContainer.querySelectorAll(".sidebar-toc-item").forEach(item => {
+                    item.classList.remove("active");
+                });
+                activeLink.classList.add("active");
+            }
+
+            // 2. Scroll-Spy implementation using IntersectionObserver
+            const observerOptions = {
+                root: null,
+                rootMargin: "0px 0px -80% 0px",
+                threshold: 0
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                if (isProgrammaticScroll) return; // Ignore observer events while scrolling from click
+
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.id;
+                        const activeLink = tocContainer.querySelector(`a[href="#${id}"]`);
+                        if (activeLink) {
+                            setActiveTOCItem(activeLink);
+                            activeLink.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        }
+                    }
+                });
+            }, observerOptions);
+
+            headings.forEach(heading => observer.observe(heading));
+
+            // Cache the first and last links to avoid DOM queries on scroll
+            const firstLink = tocContainer.querySelector(".sidebar-toc-item");
+            const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
+
+            // Fallback for highlighting the first item near top of the page, or the last item at the bottom
+            window.addEventListener("scroll", () => {
+                if (isProgrammaticScroll) return;
+
+                if (window.scrollY < 50) {
+                    if (firstLink) {
+                        setActiveTOCItem(firstLink);
+                    }
+                } else if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 10) {
+                    if (lastLink) {
+                        setActiveTOCItem(lastLink);
+                    }
+                }
+            });
+        }
+
         // Initialize elements and load existing comments on page start
         initializeCommentableElements();
         loadExistingComments();
+        // Initialize Table of Contents
+        initializeTableOfContents();
+
+        // Handle initial URL hash scroll if present
+        if (window.location.hash) {
+            const targetId = decodeURIComponent(window.location.hash.substring(1));
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) {
+                setTimeout(() => {
+                    targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 200); // Small delay to let browser stabilize layout
+            }
+        }
     </script>
 </body>
 </html>
