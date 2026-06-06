@@ -700,9 +700,117 @@
             });
         });
 
+        function initializeTableOfContents() {
+            const tocContainer = document.getElementById("sidebarToc");
+            const mainContent = document.querySelector(".main-content");
+            if (!tocContainer || !mainContent) return;
+
+            tocContainer.innerHTML = "";
+
+            // 1. Create default Overview link pointing to top
+            const overviewLink = document.createElement("a");
+            overviewLink.href = "#";
+            overviewLink.className = "sidebar-toc-item sidebar-toc-h1 active";
+            overviewLink.textContent = "Overview";
+            overviewLink.addEventListener("click", (e) => {
+                e.preventDefault();
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                history.pushState(null, null, " ");
+                setActiveTOCItem(overviewLink);
+            });
+            tocContainer.appendChild(overviewLink);
+
+            // 2. Fetch all headings (h1, h2, h3)
+            const headings = Array.from(mainContent.querySelectorAll("h1, h2, h3"));
+            const usedIds = new Set();
+
+            function slugify(text) {
+                const cleanText = text.replace(/💬/g, "").replace(/\[.*?\]/g, "").trim();
+                let slug = cleanText.toLowerCase()
+                    .replace(/[^\w\s-]/g, "")
+                    .replace(/\s+/g, "-")
+                    .replace(/-+/g, "-");
+                if (!slug) slug = "section";
+                
+                let uniqueSlug = slug;
+                let counter = 1;
+                while (usedIds.has(uniqueSlug)) {
+                    uniqueSlug = `${slug}-${counter}`;
+                    counter++;
+                }
+                usedIds.add(uniqueSlug);
+                return uniqueSlug;
+            }
+
+            headings.forEach(heading => {
+                // Ensure heading has ID for anchoring
+                if (!heading.id) {
+                    heading.id = slugify(heading.textContent);
+                } else {
+                    usedIds.add(heading.id);
+                }
+
+                // Create TOC link
+                const link = document.createElement("a");
+                link.href = `#${heading.id}`;
+                link.className = `sidebar-toc-item sidebar-toc-${heading.tagName.toLowerCase()}`;
+                
+                // Clean heading text for display in TOC
+                const text = heading.textContent.replace(/💬/g, "").trim();
+                link.textContent = text;
+
+                link.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+                    history.pushState(null, null, `#${heading.id}`);
+                    setActiveTOCItem(link);
+                });
+
+                tocContainer.appendChild(link);
+            });
+
+            function setActiveTOCItem(activeLink) {
+                tocContainer.querySelectorAll(".sidebar-toc-item").forEach(item => {
+                    item.classList.remove("active");
+                });
+                activeLink.classList.add("active");
+            }
+
+            // 3. Scroll-Spy implementation using IntersectionObserver
+            const observerOptions = {
+                root: null,
+                rootMargin: "0px 0px -80% 0px",
+                threshold: 0
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.id;
+                        const activeLink = tocContainer.querySelector(`a[href="#${id}"]`);
+                        if (activeLink) {
+                            setActiveTOCItem(activeLink);
+                            activeLink.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                        }
+                    }
+                });
+            }, observerOptions);
+
+            headings.forEach(heading => observer.observe(heading));
+
+            // Fallback for highlighting Overview when near top of the page
+            window.addEventListener("scroll", () => {
+                if (window.scrollY < 50) {
+                    setActiveTOCItem(overviewLink);
+                }
+            });
+        }
+
         // Initialize elements and load existing comments on page start
         initializeCommentableElements();
         loadExistingComments();
+        // Initialize Table of Contents
+        initializeTableOfContents();
     </script>
 </body>
 </html>
