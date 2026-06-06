@@ -701,6 +701,21 @@
         });
 
         let isProgrammaticScroll = false; // Flag to prevent scroll-spy hijacking during clicks
+        let programmaticScrollTimeout = null;
+        let activeScrollEndHandler = null;
+
+        // Helper to clean up programmatic scroll state safely
+        function clearProgrammaticScrollState() {
+            if (programmaticScrollTimeout) {
+                clearTimeout(programmaticScrollTimeout);
+                programmaticScrollTimeout = null;
+            }
+            if (activeScrollEndHandler) {
+                window.removeEventListener("scrollend", activeScrollEndHandler);
+                activeScrollEndHandler = null;
+            }
+            isProgrammaticScroll = false;
+        }
 
         function initializeTableOfContents() {
             const tocContainer = document.getElementById("sidebarToc");
@@ -716,21 +731,16 @@
             overviewLink.textContent = "Overview";
             overviewLink.addEventListener("click", (e) => {
                 e.preventDefault();
+                clearProgrammaticScrollState();
+                
                 isProgrammaticScroll = true;
                 window.scrollTo({ top: 0, behavior: "smooth" });
                 history.pushState(null, null, " ");
                 setActiveTOCItem(overviewLink);
                 
-                // Clear programmatic scroll state once scrolling stops
-                const handleScrollEnd = () => {
-                    isProgrammaticScroll = false;
-                    window.removeEventListener("scrollend", handleScrollEnd);
-                };
-                window.addEventListener("scrollend", handleScrollEnd);
-                setTimeout(() => {
-                    isProgrammaticScroll = false;
-                    window.removeEventListener("scrollend", handleScrollEnd);
-                }, 1000);
+                activeScrollEndHandler = () => clearProgrammaticScrollState();
+                window.addEventListener("scrollend", activeScrollEndHandler);
+                programmaticScrollTimeout = setTimeout(clearProgrammaticScrollState, 1000);
             });
             tocContainer.appendChild(overviewLink);
 
@@ -758,7 +768,13 @@
                 return uniqueSlug;
             }
 
-            headings.forEach(heading => {
+            headings.forEach((heading, idx) => {
+                // Skip duplicate Overview heading if it matches the default top Overview link
+                if (idx === 0 && heading.textContent.replace(/💬/g, "").trim().toLowerCase() === "overview") {
+                    if (!heading.id) heading.id = "overview";
+                    return;
+                }
+
                 // Ensure heading has ID for anchoring
                 if (!heading.id) {
                     heading.id = slugify(heading.textContent);
@@ -777,21 +793,16 @@
 
                 link.addEventListener("click", (e) => {
                     e.preventDefault();
+                    clearProgrammaticScrollState();
+
                     isProgrammaticScroll = true;
                     heading.scrollIntoView({ behavior: "smooth", block: "start" });
                     history.pushState(null, null, `#${heading.id}`);
                     setActiveTOCItem(link);
 
-                    // Clear programmatic scroll state once scrolling stops
-                    const handleScrollEnd = () => {
-                        isProgrammaticScroll = false;
-                        window.removeEventListener("scrollend", handleScrollEnd);
-                    };
-                    window.addEventListener("scrollend", handleScrollEnd);
-                    setTimeout(() => {
-                        isProgrammaticScroll = false;
-                        window.removeEventListener("scrollend", handleScrollEnd);
-                    }, 1000);
+                    activeScrollEndHandler = () => clearProgrammaticScrollState();
+                    window.addEventListener("scrollend", activeScrollEndHandler);
+                    programmaticScrollTimeout = setTimeout(clearProgrammaticScrollState, 1000);
                 });
 
                 tocContainer.appendChild(link);
@@ -828,6 +839,9 @@
 
             headings.forEach(heading => observer.observe(heading));
 
+            // Cache the last link selector to avoid DOM queries on scroll
+            const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
+
             // Fallback for highlighting Overview near top of the page, or the last item at the bottom
             window.addEventListener("scroll", () => {
                 if (isProgrammaticScroll) return;
@@ -835,7 +849,6 @@
                 if (window.scrollY < 50) {
                     setActiveTOCItem(overviewLink);
                 } else if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 10) {
-                    const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
                     if (lastLink) {
                         setActiveTOCItem(lastLink);
                     }
@@ -848,6 +861,17 @@
         loadExistingComments();
         // Initialize Table of Contents
         initializeTableOfContents();
+
+        // Handle initial URL hash scroll if present
+        if (window.location.hash) {
+            const targetId = decodeURIComponent(window.location.hash.substring(1));
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) {
+                setTimeout(() => {
+                    targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 200); // Small delay to let browser stabilize layout
+            }
+        }
     </script>
 </body>
 </html>
