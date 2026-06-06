@@ -358,6 +358,48 @@
         .sidebar-comment-target:hover {
             background: rgba(56, 189, 248, 0.15);
         }
+
+        /* Sidebar Table of Contents */
+        .sidebar-toc {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+        .sidebar-toc-item {
+            display: block;
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 0.25rem 0.5rem;
+            border-left: 2px solid transparent;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+        .sidebar-toc-item:hover {
+            color: var(--accent-color);
+            text-decoration: none;
+            background: rgba(56, 189, 248, 0.04);
+        }
+        .sidebar-toc-item.active {
+            color: var(--accent-color);
+            font-weight: 600;
+            border-left-color: var(--accent-color);
+            background: rgba(56, 189, 248, 0.08);
+        }
+        .sidebar-toc-h1 {
+            padding-left: 0.5rem;
+            font-weight: 500;
+        }
+        .sidebar-toc-h2 {
+            padding-left: 1.25rem;
+            font-size: 0.8rem;
+        }
+        .sidebar-toc-h3 {
+            padding-left: 2rem;
+            font-size: 0.75rem;
+        }
     </style>
 </head>
 <body>
@@ -366,9 +408,8 @@
             <h2>{{.Title}}</h2>
             <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
             <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
-            <nav style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
-                <a href="#">Overview</a>
-                <!-- Navigation elements dynamically filled if needed -->
+            <nav class="sidebar-toc" id="sidebarToc">
+                <!-- Dynamic headings loaded via JS -->
             </nav>
         </aside>
 
