@@ -724,27 +724,7 @@
 
             tocContainer.innerHTML = "";
 
-            // 1. Create default Overview link pointing to top
-            const overviewLink = document.createElement("a");
-            overviewLink.href = "#";
-            overviewLink.className = "sidebar-toc-item sidebar-toc-h1 active";
-            overviewLink.textContent = "Overview";
-            overviewLink.addEventListener("click", (e) => {
-                e.preventDefault();
-                clearProgrammaticScrollState();
-                
-                isProgrammaticScroll = true;
-                window.scrollTo({ top: 0, behavior: "smooth" });
-                history.pushState(null, null, " ");
-                setActiveTOCItem(overviewLink);
-                
-                activeScrollEndHandler = () => clearProgrammaticScrollState();
-                window.addEventListener("scrollend", activeScrollEndHandler);
-                programmaticScrollTimeout = setTimeout(clearProgrammaticScrollState, 1000);
-            });
-            tocContainer.appendChild(overviewLink);
-
-            // 2. Fetch all headings (h1, h2, h3)
+            // 1. Fetch all headings (h1, h2, h3)
             const headings = Array.from(mainContent.querySelectorAll("h1, h2, h3"));
             
             // Pre-fill usedIds with all existing DOM IDs to prevent collisions
@@ -769,12 +749,6 @@
             }
 
             headings.forEach((heading, idx) => {
-                // Skip duplicate Overview heading if it matches the default top Overview link
-                if (idx === 0 && heading.textContent.replace(/💬/g, "").trim().toLowerCase() === "overview") {
-                    if (!heading.id) heading.id = "overview";
-                    return;
-                }
-
                 // Ensure heading has ID for anchoring
                 if (!heading.id) {
                     heading.id = slugify(heading.textContent);
@@ -786,6 +760,9 @@
                 const link = document.createElement("a");
                 link.href = `#${heading.id}`;
                 link.className = `sidebar-toc-item sidebar-toc-${heading.tagName.toLowerCase()}`;
+                if (idx === 0) {
+                    link.classList.add("active");
+                }
                 
                 // Clean heading text for display in TOC
                 const text = heading.textContent.replace(/💬/g, "").trim();
@@ -815,7 +792,7 @@
                 activeLink.classList.add("active");
             }
 
-            // 3. Scroll-Spy implementation using IntersectionObserver
+            // 2. Scroll-Spy implementation using IntersectionObserver
             const observerOptions = {
                 root: null,
                 rootMargin: "0px 0px -80% 0px",
@@ -839,15 +816,18 @@
 
             headings.forEach(heading => observer.observe(heading));
 
-            // Cache the last link selector to avoid DOM queries on scroll
+            // Cache the first and last links to avoid DOM queries on scroll
+            const firstLink = tocContainer.querySelector(".sidebar-toc-item");
             const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
 
-            // Fallback for highlighting Overview near top of the page, or the last item at the bottom
+            // Fallback for highlighting the first item near top of the page, or the last item at the bottom
             window.addEventListener("scroll", () => {
                 if (isProgrammaticScroll) return;
 
                 if (window.scrollY < 50) {
-                    setActiveTOCItem(overviewLink);
+                    if (firstLink) {
+                        setActiveTOCItem(firstLink);
+                    }
                 } else if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 10) {
                     if (lastLink) {
                         setActiveTOCItem(lastLink);
