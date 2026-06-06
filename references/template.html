@@ -700,6 +700,8 @@
             });
         });
 
+        let isProgrammaticScroll = false; // Flag to prevent scroll-spy hijacking during clicks
+
         function initializeTableOfContents() {
             const tocContainer = document.getElementById("sidebarToc");
             const mainContent = document.querySelector(".main-content");
@@ -714,15 +716,29 @@
             overviewLink.textContent = "Overview";
             overviewLink.addEventListener("click", (e) => {
                 e.preventDefault();
+                isProgrammaticScroll = true;
                 window.scrollTo({ top: 0, behavior: "smooth" });
                 history.pushState(null, null, " ");
                 setActiveTOCItem(overviewLink);
+                
+                // Clear programmatic scroll state once scrolling stops
+                const handleScrollEnd = () => {
+                    isProgrammaticScroll = false;
+                    window.removeEventListener("scrollend", handleScrollEnd);
+                };
+                window.addEventListener("scrollend", handleScrollEnd);
+                setTimeout(() => {
+                    isProgrammaticScroll = false;
+                    window.removeEventListener("scrollend", handleScrollEnd);
+                }, 1000);
             });
             tocContainer.appendChild(overviewLink);
 
             // 2. Fetch all headings (h1, h2, h3)
             const headings = Array.from(mainContent.querySelectorAll("h1, h2, h3"));
-            const usedIds = new Set();
+            
+            // Pre-fill usedIds with all existing DOM IDs to prevent collisions
+            const usedIds = new Set(Array.from(document.querySelectorAll("[id]")).map(el => el.id));
 
             function slugify(text) {
                 const cleanText = text.replace(/💬/g, "").replace(/\[.*?\]/g, "").trim();
@@ -761,9 +777,21 @@
 
                 link.addEventListener("click", (e) => {
                     e.preventDefault();
+                    isProgrammaticScroll = true;
                     heading.scrollIntoView({ behavior: "smooth", block: "start" });
                     history.pushState(null, null, `#${heading.id}`);
                     setActiveTOCItem(link);
+
+                    // Clear programmatic scroll state once scrolling stops
+                    const handleScrollEnd = () => {
+                        isProgrammaticScroll = false;
+                        window.removeEventListener("scrollend", handleScrollEnd);
+                    };
+                    window.addEventListener("scrollend", handleScrollEnd);
+                    setTimeout(() => {
+                        isProgrammaticScroll = false;
+                        window.removeEventListener("scrollend", handleScrollEnd);
+                    }, 1000);
                 });
 
                 tocContainer.appendChild(link);
@@ -784,6 +812,8 @@
             };
 
             const observer = new IntersectionObserver((entries) => {
+                if (isProgrammaticScroll) return; // Ignore observer events while scrolling from click
+
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         const id = entry.target.id;
@@ -798,10 +828,17 @@
 
             headings.forEach(heading => observer.observe(heading));
 
-            // Fallback for highlighting Overview when near top of the page
+            // Fallback for highlighting Overview near top of the page, or the last item at the bottom
             window.addEventListener("scroll", () => {
+                if (isProgrammaticScroll) return;
+
                 if (window.scrollY < 50) {
                     setActiveTOCItem(overviewLink);
+                } else if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 10) {
+                    const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
+                    if (lastLink) {
+                        setActiveTOCItem(lastLink);
+                    }
                 }
             });
         }
