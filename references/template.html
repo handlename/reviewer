@@ -150,13 +150,17 @@
         }
         pre code, pre[class*="language-"] code[class*="language-"] {
             font-size: 1em !important;
+            display: block;
+            overflow-x: auto; /* Handle horizontal code scrolling on code element */
+            width: 100%;
         }
         /* Custom overrides for Prism's Tomorrow theme container padding & margins */
-        pre[class*="language-"] {
+        pre, pre[class*="language-"] {
             margin: 1.5rem 0 !important;
             border-radius: 8px;
             background: var(--bg-primary) !important;
             border: 1px solid var(--border-color);
+            overflow: visible !important; /* Allow comment bubbles and count indicators to overflow on the right */
         }
 
 
@@ -359,6 +363,17 @@
             transform: translateY(-50%) scale(1.1);
             background-color: var(--accent-hover);
         }
+        pre.commentable-element .comment-bubble-btn,
+        pre.commentable-element .element-comment-indicator {
+            top: 1rem;
+            transform: none;
+        }
+        pre.commentable-element:hover .comment-bubble-btn {
+            transform: scale(1.15);
+        }
+        pre.commentable-element .element-comment-indicator:hover {
+            transform: scale(1.1);
+        }
         .sidebar-comment-target {
             font-size: 0.75rem;
             font-weight: 600;
@@ -474,13 +489,13 @@
             if (!container) return;
 
             // Target block elements inside main spec body
-            const selectors = 'p, li, tr, h1, h2, h3, h4, h5, h6, .callout, .diagram-container';
+            const selectors = 'p, li, tr, h1, h2, h3, h4, h5, h6, .callout, .diagram-container, pre';
             const elements = container.querySelectorAll(selectors);
             
             let elementIdx = 0;
             elements.forEach(el => {
-                // Skip if inside a code block
-                if (el.closest('pre') || el.closest('code')) {
+                // Skip if inside/descendant of a code block (but allow pre itself)
+                if (el.closest('code') || (el.tagName !== 'PRE' && el.closest('pre'))) {
                     return;
                 }
 
@@ -524,8 +539,8 @@
             });
 
             activeAnchor = anchorId;
-            // Shorten context snippet
-            activeContext = text.replace(/💬\s*$/, '').trim();
+            // Shorten context snippet and collapse consecutive whitespaces/newlines to a single space
+            activeContext = text.replace(/💬\s*$/, '').trim().replace(/\s+/g, ' ');
             if (activeContext.length > 60) {
                 activeContext = activeContext.substring(0, 57) + '...';
             }
