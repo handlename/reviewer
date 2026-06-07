@@ -528,8 +528,8 @@
             });
 
             activeAnchor = anchorId;
-            // Shorten context snippet
-            activeContext = text.replace(/💬\s*$/, '').trim();
+            // Shorten context snippet and collapse consecutive whitespaces/newlines to a single space
+            activeContext = text.replace(/💬\s*$/, '').trim().replace(/\s+/g, ' ');
             if (activeContext.length > 60) {
                 activeContext = activeContext.substring(0, 57) + '...';
             }
