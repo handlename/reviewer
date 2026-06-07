@@ -150,13 +150,17 @@
         }
         pre code, pre[class*="language-"] code[class*="language-"] {
             font-size: 1em !important;
+            display: block;
+            overflow-x: auto; /* Handle horizontal code scrolling on code element */
+            width: 100%;
         }
         /* Custom overrides for Prism's Tomorrow theme container padding & margins */
-        pre[class*="language-"] {
+        pre, pre[class*="language-"] {
             margin: 1.5rem 0 !important;
             border-radius: 8px;
             background: var(--bg-primary) !important;
             border: 1px solid var(--border-color);
+            overflow: visible !important; /* Allow comment bubbles and count indicators to overflow on the right */
         }
 
 
