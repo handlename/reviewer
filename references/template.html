@@ -363,6 +363,17 @@
             transform: translateY(-50%) scale(1.1);
             background-color: var(--accent-hover);
         }
+        pre.commentable-element .comment-bubble-btn,
+        pre.commentable-element .element-comment-indicator {
+            top: 1rem;
+            transform: none;
+        }
+        pre.commentable-element:hover .comment-bubble-btn {
+            transform: scale(1.15);
+        }
+        pre.commentable-element .element-comment-indicator:hover {
+            transform: scale(1.1);
+        }
         .sidebar-comment-target {
             font-size: 0.75rem;
             font-weight: 600;
