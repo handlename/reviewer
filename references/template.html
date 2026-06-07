@@ -478,13 +478,13 @@
             if (!container) return;
 
             // Target block elements inside main spec body
-            const selectors = 'p, li, tr, h1, h2, h3, h4, h5, h6, .callout, .diagram-container';
+            const selectors = 'p, li, tr, h1, h2, h3, h4, h5, h6, .callout, .diagram-container, pre';
             const elements = container.querySelectorAll(selectors);
             
             let elementIdx = 0;
             elements.forEach(el => {
-                // Skip if inside a code block
-                if (el.closest('pre') || el.closest('code')) {
+                // Skip if inside/descendant of a code block (but allow pre itself)
+                if (el.closest('code') || (el.tagName !== 'PRE' && el.closest('pre'))) {
                     return;
                 }
 
