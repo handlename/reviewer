@@ -26,6 +26,7 @@ This is a [Must] priority. And **Should** is also a priority.
 Here is an inline code block: ` + "`[Must]`" + `.
 And a standard fenced code block:
 ` + "```go" + `
+package payment
 // [Confirmed] and **Should** should remain raw
 ` + "```" + `
 
@@ -76,5 +77,8 @@ graph TD
 	}
 	if !strings.Contains(html, `<div class="mermaid">graph TD`) {
 		t.Errorf("missing mermaid div wrapper")
+	}
+	if !strings.Contains(html, `<code class="language-go">package payment`) {
+		t.Errorf("expected syntax highlighted go class class=\"language-go\", got missing or mismatched formatting")
 	}
 }

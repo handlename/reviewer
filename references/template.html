@@ -12,6 +12,13 @@
     <script>
         mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
     </script>
+    <!-- Prism.js Tomorrow Night Theme for Dark Mode -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" media="(prefers-color-scheme: dark)" />
+    <!-- Prism.js Default Theme for Light Mode -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet" media="(prefers-color-scheme: light)" />
+    <!-- Prism.js Core and Autoloader JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
     <style>
         :root {
             /* HSL tailored dark mode colors */
@@ -137,10 +144,21 @@
         a { color: var(--accent-color); text-decoration: none; }
         a:hover { text-decoration: underline; }
 
-        code, pre, .monospace {
-            font-family: 'JetBrains Mono', monospace;
+        code, pre, .monospace, pre[class*="language-"], code[class*="language-"] {
+            font-family: 'JetBrains Mono', monospace !important;
             font-size: 0.9em;
         }
+        pre code, pre[class*="language-"] code[class*="language-"] {
+            font-size: 1em !important;
+        }
+        /* Custom overrides for Prism's Tomorrow theme container padding & margins */
+        pre[class*="language-"] {
+            margin: 1.5rem 0 !important;
+            border-radius: 8px;
+            background: var(--bg-primary) !important;
+            border: 1px solid var(--border-color);
+        }
+
 
         /* Badges */
         .badge {
