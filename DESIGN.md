@@ -88,9 +88,14 @@ Embedded into the Go binary at compile-time using the standard `//go:embed` dire
 * **Responsive 3-Column Layout**:
   * **Sidebar (Left)**: Renders the spec's title, version, date, and navigation.
   * **Main Content (Middle)**: Renders the compiled body of the specification.
-  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP).
+  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission.
 * **Interactive DOM Initialization**:
   Upon load, the frontend JS runs `initializeCommentableElements()`. This attaches `data-anchor` attributes and a hover action `💬` to all root block elements (excluding headers, code tags, or nested child blocks).
+* **Inline Comment Editing State Management**:
+  To support inline editing, the frontend JS tracks the active edit state using a global variable `editingIdx` (initialized to `-1` when no comment is being edited):
+  * **Switching Mode**: Clicking the edit button (✎) or using keyboard shortcuts (`Enter` / `Space`) sets `editingIdx` to the corresponding comment index and triggers a re-render.
+  * **UI Transformation**: During rendering, if the comment index matches `editingIdx`, it renders a focused `<textarea>` and action buttons (Save and Cancel) instead of plain text, supporting keyboard controls (`Ctrl/Cmd + Enter` to save, `Escape` to cancel).
+  * **State Updates**: Saving updates both the comment text and its timestamp, then resets `editingIdx` to `-1`. Deleting a comment adjusts `editingIdx` to handle indices shifting safely.
 
 ---
 

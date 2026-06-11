@@ -284,6 +284,7 @@
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
             padding: 0.75rem;
+            padding-right: 44px; /* Ensure space for edit & delete buttons */
             border-radius: 6px;
             margin-top: 0.5rem;
             font-size: 0.9rem;
@@ -291,11 +292,81 @@
         }
         .feedback-item .delete-btn {
             position: absolute;
-            top: 5px;
+            top: 8px;
             right: 8px;
             cursor: pointer;
             color: var(--badge-must);
             font-weight: bold;
+        }
+        .feedback-item .edit-btn {
+            position: absolute;
+            top: 8px;
+            right: 26px;
+            cursor: pointer;
+            color: var(--accent-color);
+            font-size: 0.9rem;
+            user-select: none;
+        }
+        .feedback-item .edit-btn:hover {
+            color: var(--accent-hover);
+        }
+        .feedback-item .edit-btn:focus-visible {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+        }
+        .feedback-item.editing-mode {
+            border-color: var(--accent-color);
+            background: hsla(199, 89%, 48%, 0.03);
+        }
+        .edit-textarea {
+            width: 100%;
+            min-height: 60px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            padding: 0.4rem;
+            margin: 0.5rem 0;
+            resize: vertical;
+            outline: none;
+        }
+        .edit-textarea:focus {
+            border-color: var(--accent-color);
+        }
+        .edit-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 0.25rem;
+        }
+        .btn-sm {
+            padding: 0.25rem 0.6rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 4px;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s, opacity 0.2s;
+        }
+        .btn-sm:focus-visible {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+        }
+        .btn-save {
+            background-color: var(--accent-color);
+            color: var(--bg-primary);
+        }
+        .btn-save:hover {
+            background-color: var(--accent-hover);
+        }
+        .btn-cancel {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        .btn-cancel:hover {
+            opacity: 0.8;
         }
         .feedback-success {
             color: var(--badge-could);
@@ -480,6 +551,7 @@
         }
 
         let comments = [];
+        let editingIdx = -1;
         let activeAnchor = "";
         let activeContext = "";
 
@@ -673,34 +745,135 @@
                     item.setAttribute('data-anchor', c.anchor);
                 }
 
-                const deleteBtn = document.createElement("span");
-                deleteBtn.className = "delete-btn";
-                deleteBtn.innerHTML = "&times;";
-                deleteBtn.onclick = () => deleteComment(idx);
+                if (idx === editingIdx) {
+                    item.classList.add("editing-mode");
 
-                // Add context target indicator if present
-                if (c.anchor && c.context) {
-                    const targetIndicator = document.createElement("div");
-                    targetIndicator.className = "sidebar-comment-target";
-                    targetIndicator.innerHTML = `💬 On: ${c.context}`;
-                    targetIndicator.addEventListener('click', () => {
-                        scrollToSpecElement(c.anchor);
+                    // Context preview if present
+                    if (c.anchor && c.context) {
+                        const targetIndicator = document.createElement("div");
+                        targetIndicator.className = "sidebar-comment-target";
+                        targetIndicator.textContent = `💬 On: ${c.context}`;
+                        targetIndicator.addEventListener('click', () => {
+                            scrollToSpecElement(c.anchor);
+                        });
+                        item.appendChild(targetIndicator);
+                    }
+
+                    // Textarea for editing
+                    const textarea = document.createElement("textarea");
+                    textarea.className = "edit-textarea";
+                    textarea.value = c.text;
+                    textarea.addEventListener("keydown", (e) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                            saveComment(idx, textarea.value.trim());
+                        } else if (e.key === "Escape") {
+                            cancelEdit();
+                        }
                     });
-                    item.appendChild(targetIndicator);
+
+                    // Buttons
+                    const btnGroup = document.createElement("div");
+                    btnGroup.className = "edit-actions";
+
+                    const saveBtn = document.createElement("button");
+                    saveBtn.className = "btn-sm btn-save";
+                    saveBtn.textContent = "Save";
+                    saveBtn.onclick = () => saveComment(idx, textarea.value.trim());
+
+                    const cancelBtn = document.createElement("button");
+                    cancelBtn.className = "btn-sm btn-cancel";
+                    cancelBtn.textContent = "Cancel";
+                    cancelBtn.onclick = () => cancelEdit();
+
+                    btnGroup.appendChild(cancelBtn);
+                    btnGroup.appendChild(saveBtn);
+
+                    item.appendChild(textarea);
+                    item.appendChild(btnGroup);
+
+                    container.appendChild(item);
+                    // Auto-focus the textarea
+                    setTimeout(() => textarea.focus(), 0);
+                } else {
+                    const deleteBtn = document.createElement("span");
+                    deleteBtn.className = "delete-btn";
+                    deleteBtn.innerHTML = "&times;";
+                    deleteBtn.title = "Delete comment";
+                    deleteBtn.tabIndex = 0;
+                    deleteBtn.onclick = () => deleteComment(idx);
+                    deleteBtn.addEventListener("keydown", (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            deleteComment(idx);
+                        }
+                    });
+
+                    const editBtn = document.createElement("span");
+                    editBtn.className = "edit-btn";
+                    editBtn.innerHTML = "✎";
+                    editBtn.title = "Edit comment";
+                    editBtn.tabIndex = 0;
+                    editBtn.onclick = () => startEdit(idx);
+                    editBtn.addEventListener("keydown", (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            startEdit(idx);
+                        }
+                    });
+
+                    // Add context target indicator if present
+                    if (c.anchor && c.context) {
+                        const targetIndicator = document.createElement("div");
+                        targetIndicator.className = "sidebar-comment-target";
+                        targetIndicator.textContent = `💬 On: ${c.context}`;
+                        targetIndicator.addEventListener('click', () => {
+                            scrollToSpecElement(c.anchor);
+                        });
+                        item.appendChild(targetIndicator);
+                    }
+
+                    const p = document.createElement("p");
+                    p.style.marginBottom = "0";
+                    p.textContent = c.text;
+
+                    item.appendChild(deleteBtn);
+                    item.appendChild(editBtn);
+                    item.appendChild(p);
+                    container.appendChild(item);
                 }
-
-                const p = document.createElement("p");
-                p.style.marginBottom = "0";
-                p.textContent = c.text;
-
-                item.appendChild(deleteBtn);
-                item.appendChild(p);
-                container.appendChild(item);
             });
         }
 
+        window.startEdit = function(idx) {
+            editingIdx = idx;
+            renderComments();
+        };
+
+        window.saveComment = function(idx, newText) {
+            if (!newText) {
+                alert("Comment text cannot be empty.");
+                return;
+            }
+            comments[idx].text = newText;
+            comments[idx].timestamp = new Date().toISOString();
+            editingIdx = -1;
+            renderComments();
+            updateInlineIndicators();
+        };
+
+        window.cancelEdit = function() {
+            editingIdx = -1;
+            renderComments();
+        };
+
         window.deleteComment = function(idx) {
             comments.splice(idx, 1);
+            if (editingIdx === idx) {
+                editingIdx = -1;
+            } else if (editingIdx > idx) {
+                // Adjust editing index if we deleted an item before the editing one
+                editingIdx--;
+            }
             renderComments();
             updateInlineIndicators();
         };

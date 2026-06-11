@@ -61,4 +61,5 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Feedback
 * **Description**: The collection of review comments entered by the reviewer.
+* **Behavior**: Comments can be edited inline (updating both the text and the timestamp) or deleted before submitting the review.
 * **Persistence**: Clicking "Submit Review" inside the browser panel POSTs the data to the server, which writes it to `<input-filename>-feedback.json` and automatically shuts down.
