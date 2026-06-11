@@ -2,6 +2,13 @@
 
 reviewer is a spec-to-readable HTML compiler and review server.
 
+## Features
+
+- Compiling Markdown to styled HTML documents
+- Interactive local review server
+- Gutter commenting on specific block elements
+- Inline comment editing (with keyboard accessibility) and deletion before submission
+
 ## Synopsis
 
 ```console
