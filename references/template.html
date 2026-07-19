@@ -543,23 +543,6 @@
         .commentable-element:hover {
             background-color: hsl(var(--accent-hsl) / 0.06) !important;
         }
-        .comment-bubble-btn {
-            position: absolute;
-            right: -28px;
-            top: 50%;
-            transform: translateY(-50%) scale(0.9);
-            cursor: pointer;
-            font-size: 0.9rem;
-            opacity: 0;
-            transition: opacity 0.2s, transform 0.2s;
-            user-select: none;
-            z-index: 10;
-            filter: grayscale(0.4);
-        }
-        .commentable-element:hover .comment-bubble-btn {
-            opacity: 0.85;
-            transform: translateY(-50%) scale(1.1);
-        }
         .commentable-element.active-comment-target {
             background-color: hsl(var(--accent-hsl) / 0.09) !important;
             border-left: 2px solid var(--accent-color) !important;
@@ -568,10 +551,6 @@
         .commentable-element.has-comments-highlight {
             border-left: 2px dashed hsl(var(--accent-hsl) / 0.5);
             padding-left: 0.5rem;
-        }
-        .commentable-element.has-comments-highlight:hover .comment-bubble-btn {
-            opacity: 0 !important;
-            pointer-events: none;
         }
         .element-comment-indicator {
             position: absolute;
@@ -598,12 +577,10 @@
             transform: translateY(-50%) scale(1.08);
             background-color: var(--accent-hover);
         }
-        pre.commentable-element .comment-bubble-btn,
         pre.commentable-element .element-comment-indicator {
             top: 1rem;
             transform: none;
         }
-        pre.commentable-element:hover .comment-bubble-btn { transform: scale(1.1); }
         pre.commentable-element .element-comment-indicator:hover { transform: scale(1.08); }
         .sidebar-comment-target {
             font-family: 'IBM Plex Mono', monospace;
@@ -677,7 +654,7 @@
             }
             .feedback-panel { border-bottom: none; border-top: 1px solid var(--border-color); }
             .main-content { max-width: 46rem; }
-            .comment-bubble-btn, .element-comment-indicator { right: 2px; }
+            .element-comment-indicator { right: 2px; }
         }
     </style>
 </head>
@@ -764,17 +741,15 @@
                 el.setAttribute('data-anchor', anchorId);
                 el.classList.add('commentable-element');
 
-                // Create hover comment bubble button
-                const bubble = document.createElement('span');
-                bubble.className = 'comment-bubble-btn';
-                bubble.innerHTML = '💬';
-                bubble.title = 'Add comment to this element';
-                bubble.addEventListener('click', (e) => {
-                    e.stopPropagation();
+                // Click anywhere on the element to target it for a comment.
+                // A drag that selects text must stay a selection, so bail when
+                // a non-collapsed selection exists; also let interactive
+                // children (links, the view-indicator) keep their own behaviour.
+                el.addEventListener('mouseup', (e) => {
+                    if (e.target.closest('a, .element-comment-indicator')) return;
+                    if (!window.getSelection().isCollapsed) return;
                     setCommentTarget(anchorId, el.textContent.trim());
                 });
-
-                el.appendChild(bubble);
             });
         }
 
