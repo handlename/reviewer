@@ -4,13 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
-    <meta name="color-scheme" content="dark light">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f6f4f1" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
-        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+        // Theme-aware Mermaid: follow the OS colour scheme instead of a fixed white canvas.
+        (function () {
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            mermaid.initialize({ startOnLoad: true, theme: prefersDark ? 'dark' : 'neutral' });
+        })();
     </script>
     <!-- Prism.js Tomorrow Night Theme for Dark Mode -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" media="(prefers-color-scheme: dark)" />
@@ -20,70 +26,123 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
     <style>
+        /* ============================================================
+           reviewer — premium minimal review screen
+           Monochrome stone scale · opacity-based hierarchy · one accent
+           Hierarchy comes from opacity/weight/space, never from a 2nd hue.
+           ============================================================ */
         :root {
-            /* HSL tailored dark mode colors */
-            --bg-primary: hsl(222, 47%, 11%);
-            --bg-secondary: hsl(217, 33%, 17%);
-            --bg-tertiary: hsl(215, 25%, 27%);
-            --text-primary: hsl(210, 40%, 98%);
-            --text-secondary: hsl(215, 20%, 65%);
-            --accent-color: hsl(199, 89%, 48%);
-            --accent-hover: hsl(201, 96%, 32%);
-            --border-color: hsl(215, 25%, 27%);
-            --card-bg: hsla(217, 33%, 17%, 0.7);
-            --glass-border: hsla(0, 0%, 100%, 0.05);
-            
-            --badge-must: hsl(0, 84%, 60%);
-            --badge-should: hsl(38, 92%, 50%);
-            --badge-could: hsl(162, 78%, 39%);
-            --badge-wont: hsl(220, 9%, 46%);
-            --badge-confirmed: hsl(142, 72%, 45%);
-            --badge-inferred: hsl(217, 91%, 60%);
-            --badge-assumption: hsl(271, 91%, 65%);
-            
-            --callout-info: hsl(199, 89%, 48%);
-            --callout-warning: hsl(38, 92%, 50%);
-            --callout-danger: hsl(0, 84%, 60%);
+            color-scheme: light dark;
 
-            scrollbar-color: hsl(215, 25%, 27%) hsl(222, 47%, 11%);
+            /* Foreground / background as HSL components so we can derive
+               the whole hierarchy from opacity alone. */
+            --fg-hsl: 30 12% 14%;
+            --bg-hsl: 40 20% 96.5%;
+
+            --bg-primary:   hsl(var(--bg-hsl));       /* page — the reading canvas */
+            --bg-secondary: hsl(36 15% 93%);          /* quiet surfaces (callout, panels) */
+            --bg-tertiary:  hsl(36 13% 87.5%);        /* inline code, elevated chips */
+            --code-bg:      hsl(38 20% 94.5%);
+
+            --text-primary:   hsl(var(--fg-hsl));
+            --text-body:      hsl(var(--fg-hsl) / 0.86);
+            --text-secondary: hsl(var(--fg-hsl) / 0.62);
+            --text-tertiary:  hsl(var(--fg-hsl) / 0.40);
+
+            /* one restrained accent, used only for interactive affordances */
+            --accent-hsl:   222 42% 43%;
+            --accent-color: hsl(var(--accent-hsl));
+            --accent-hover: hsl(222 46% 34%);
+            --on-accent:    hsl(40 30% 98%);
+
+            --border-color:  hsl(var(--fg-hsl) / 0.13);   /* hairline */
+            --border-strong: hsl(var(--fg-hsl) / 0.24);
+            --card-bg:       hsl(36 15% 93%);
+            --glass-border:  hsl(var(--fg-hsl) / 0.08);
+
+            /* functional feedback colours (kept muted, not decorative) */
+            --badge-must:  hsl(2 52% 46%);    /* destructive affordance: delete, clear × */
+            --badge-could: hsl(150 30% 37%);  /* success message */
+            --badge-should:     var(--text-secondary);
+            --badge-wont:       var(--text-tertiary);
+            --badge-confirmed:  var(--text-secondary);
+            --badge-inferred:   var(--text-secondary);
+            --badge-assumption: var(--text-tertiary);
+
+            --callout-info:    var(--accent-color);
+            --callout-warning: hsl(38 58% 40%);
+            --callout-danger:  hsl(2 52% 46%);
+
+            --measure: 40rem;   /* ~70ch reading column */
+            --radius: 3px;
+            --u: 8px;           /* spacing base unit */
+
+            scrollbar-color: hsl(var(--fg-hsl) / 0.22) transparent;
         }
 
-        /* Light mode overrides (using native light-dark or prefers-color-scheme) */
-        @media (prefers-color-scheme: light) {
+        @media (prefers-color-scheme: dark) {
             :root {
-                --bg-primary: hsl(210, 20%, 98%);
-                --bg-secondary: hsl(0, 0%, 100%);
-                --bg-tertiary: hsl(214, 16%, 85%);
-                --text-primary: hsl(222, 47%, 11%);
-                --text-secondary: hsl(215, 16%, 47%);
-                --accent-color: hsl(201, 96%, 32%);
-                --accent-hover: hsl(199, 89%, 48%);
-                --border-color: hsl(214, 16%, 85%);
-                --card-bg: hsla(0, 0%, 100%, 0.8);
-                --glass-border: hsla(222, 47%, 11%, 0.08);
+                --fg-hsl: 40 22% 91%;
+                --bg-hsl: 30 9% 8%;
 
-                scrollbar-color: hsl(214, 16%, 85%) hsl(210, 20%, 98%);
+                --bg-primary:   hsl(var(--bg-hsl));
+                --bg-secondary: hsl(30 7% 11%);
+                --bg-tertiary:  hsl(30 6% 16%);
+                --code-bg:      hsl(30 8% 11.5%);
+
+                --accent-hsl:   213 55% 73%;
+                --accent-color: hsl(var(--accent-hsl));
+                --accent-hover: hsl(213 62% 82%);
+                --on-accent:    hsl(30 12% 9%);
+
+                --border-color:  hsl(var(--fg-hsl) / 0.14);
+                --border-strong: hsl(var(--fg-hsl) / 0.26);
+                --card-bg:       hsl(30 7% 12.5%);
+                --glass-border:  hsl(var(--fg-hsl) / 0.07);
+
+                --badge-must:  hsl(4 58% 67%);
+                --badge-could: hsl(150 38% 62%);
+                --callout-warning: hsl(40 62% 62%);
+                --callout-danger:  hsl(4 58% 67%);
+
+                scrollbar-color: hsl(var(--fg-hsl) / 0.26) transparent;
             }
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html { scroll-behavior: smooth; }
 
         body {
-            font-family: 'Outfit', sans-serif;
+            font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            font-size: 1.0625rem;               /* 17px reading base */
+            line-height: 1.65;
             background-color: var(--bg-primary);
-            color: var(--text-primary);
-            line-height: 1.6;
+            color: var(--text-body);
             display: flex;
             min-height: 100vh;
             overflow-x: hidden;
-            transition: background-color 0.3s, color 0.3s;
+            font-kerning: normal;
+            text-rendering: optimizeLegibility;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
-        /* Layout */
+        ::selection { background: hsl(var(--accent-hsl) / 0.22); }
+
+        :focus-visible {
+            outline: 2px solid var(--accent-color);
+            outline-offset: 2px;
+            border-radius: 2px;
+        }
+
+        /* thin, neutral scrollbars */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-thumb { background: hsl(var(--fg-hsl) / 0.18); border-radius: 6px; }
+        ::-webkit-scrollbar-thumb:hover { background: hsl(var(--fg-hsl) / 0.3); }
+        ::-webkit-scrollbar-track { background: transparent; }
+
+        /* ---------- Layout ---------- */
         .layout {
             display: flex;
             width: 100%;
@@ -92,168 +151,267 @@
             position: relative;
         }
 
+        /* Supporting rails recede: same canvas as the page, separated only by a hairline. */
         .sidebar {
-            width: 320px;
+            width: 280px;
+            flex-shrink: 0;
             height: 100vh;
             position: sticky;
             top: 0;
-            background-color: var(--bg-secondary);
+            background-color: transparent;
             border-right: 1px solid var(--border-color);
-            padding: 2rem 1.5rem;
+            padding: calc(var(--u) * 5) calc(var(--u) * 3.5);
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: calc(var(--u) * 2);
+        }
+        .sidebar > h2 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            line-height: 1.3;
+            letter-spacing: -0.01em;
+            color: var(--text-primary);
+            margin: 0;
+            border: none;
+            padding: 0;
+            text-wrap: balance;
+        }
+        .sidebar > p {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.72rem;
+            letter-spacing: 0.03em;
+            color: var(--text-tertiary);
+            margin: 0;
         }
 
+        /* The main column is the hero: a comfortable reading measure, centred. */
         .main-content {
             flex: 1;
-            padding: 3rem 4rem;
-            max-width: 960px;
+            min-width: 0;
+            max-width: calc(var(--measure) + var(--u) * 12);
+            margin: 0 auto;
+            padding: clamp(2.5rem, 5vw, 4.5rem) clamp(1.5rem, 4vw, 3rem);
             overflow-y: auto;
         }
 
         .feedback-panel {
-            width: 360px;
+            width: 340px;
+            flex-shrink: 0;
             height: 100vh;
             position: sticky;
             top: 0;
-            background-color: var(--bg-secondary);
+            background-color: transparent;
             border-left: 1px solid var(--border-color);
-            padding: 2rem 1.5rem;
+            padding: calc(var(--u) * 5) calc(var(--u) * 3);
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: calc(var(--u) * 2);
             overflow-y: auto;
         }
 
-        /* Typography & Elements */
+        /* ---------- Typography ---------- */
         h1, h2, h3, h4 {
-            font-weight: 600;
             color: var(--text-primary);
-            margin-top: 1.5rem;
-            margin-bottom: 1rem;
+            text-wrap: balance;
+            letter-spacing: -0.015em;
+        }
+        h1 {
+            font-size: 2.05rem;
+            font-weight: 400;
+            line-height: 1.15;
+            letter-spacing: -0.025em;
+            margin: 0 0 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 400;
+            line-height: 1.25;
+            margin: 3rem 0 1rem;
+        }
+        h3 {
+            font-size: 1.2rem;
+            font-weight: 500;
+            line-height: 1.3;
+            margin: 2.25rem 0 0.75rem;
+        }
+        h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 1.75rem 0 0.5rem;
         }
 
-        h1 { font-size: 2.5rem; border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem; }
-        h2 { font-size: 1.75rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem; }
-        h3 { font-size: 1.35rem; }
+        p { margin-bottom: 1.15rem; color: var(--text-body); text-wrap: pretty; }
 
-        p { margin-bottom: 1rem; color: var(--text-secondary); }
+        ul, ol { margin: 0 0 1.15rem 1.4rem; color: var(--text-body); }
+        li { margin-bottom: 0.4rem; }
 
-        a { color: var(--accent-color); text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        a { color: var(--accent-color); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.18s; }
+        a:hover { border-bottom-color: currentColor; }
 
+        hr { border: none; border-top: 1px solid var(--border-color); margin: 2.5rem 0; }
+
+        strong { font-weight: 600; color: var(--text-primary); }
+        em { font-style: italic; }
+
+        /* ---------- Code ---------- */
         code, pre, .monospace, pre[class*="language-"], code[class*="language-"] {
-            font-family: 'JetBrains Mono', monospace !important;
-            font-size: 0.9em;
+            font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important;
+            font-size: 0.88em;
+        }
+        :not(pre) > code {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+            font-size: 0.82em;
         }
         pre code, pre[class*="language-"] code[class*="language-"] {
             font-size: 1em !important;
             display: block;
-            overflow-x: auto; /* Handle horizontal code scrolling on code element */
+            overflow-x: auto;
             width: 100%;
+            background: transparent !important;
         }
-        /* Custom overrides for Prism's Tomorrow theme container padding & margins */
         pre, pre[class*="language-"] {
             margin: 1.5rem 0 !important;
-            border-radius: 8px;
-            background: var(--bg-primary) !important;
+            border-radius: var(--radius);
+            background: var(--code-bg) !important;
             border: 1px solid var(--border-color);
-            overflow: visible !important; /* Allow comment bubbles and count indicators to overflow on the right */
+            overflow: visible !important; /* allow comment bubbles / indicators to overflow right */
+            line-height: 1.55;
         }
 
-
-        /* Badges */
+        /* ---------- Badges (monochrome: form + opacity, not hue) ---------- */
         .badge {
             display: inline-block;
-            padding: 0.25rem 0.6rem;
-            font-size: 0.75rem;
-            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            font-weight: 500;
+            letter-spacing: 0.07em;
             text-transform: uppercase;
-            border-radius: 9999px;
-            color: white;
-            margin-left: 0.5rem;
+            padding: 0.12rem 0.42rem;
+            border-radius: 2px;
+            margin-left: 0.45rem;
             vertical-align: middle;
+            line-height: 1.5;
+            white-space: nowrap;
+            border: 1px solid var(--border-strong);
+            color: var(--text-secondary);
+            background: transparent;
         }
-        .badge-must { background-color: var(--badge-must); }
-        .badge-should { background-color: var(--badge-should); }
-        .badge-could { background-color: var(--badge-could); }
-        .badge-wont { background-color: var(--badge-wont); }
-        .badge-confirmed { background-color: var(--badge-confirmed); }
-        .badge-inferred { background-color: var(--badge-inferred); }
-        .badge-assumption { background-color: var(--badge-assumption); }
+        /* priority — presence via fill / opacity */
+        .badge-must   { background: var(--text-primary); color: var(--bg-primary); border-color: var(--text-primary); }
+        .badge-should { color: var(--text-primary); border-color: var(--border-strong); }
+        .badge-could  { color: var(--text-secondary); border-color: var(--border-color); }
+        .badge-wont   { color: var(--text-tertiary); border-color: transparent; text-decoration: line-through; }
+        /* status — differentiated by border style, still monochrome */
+        .badge-confirmed  { color: var(--text-primary); border-style: solid; border-color: var(--border-strong); }
+        .badge-inferred   { color: var(--text-secondary); border-style: dashed; }
+        .badge-assumption { color: var(--text-tertiary); border-style: dotted; }
 
-        /* Callout cards */
+        /* ---------- Callouts (flat, hairline, single left rule) ---------- */
         .callout {
-            padding: 1rem 1.5rem;
-            border-left: 4px solid var(--accent-color);
-            background: var(--card-bg);
-            border-radius: 0 8px 8px 0;
-            margin: 1.5rem 0;
-            backdrop-filter: blur(8px);
-            border: 1px solid var(--glass-border);
-            border-left-width: 4px;
+            padding: 1rem 1.25rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-left: 2px solid var(--callout-info);
+            border-radius: var(--radius);
+            margin: 1.75rem 0;
         }
-        .callout-info { border-left-color: var(--callout-info); }
+        .callout > p { margin-bottom: 0.5rem; color: var(--text-body); }
+        .callout > p:last-child { margin-bottom: 0; }
+        .callout-info    { border-left-color: var(--accent-color); }
         .callout-warning { border-left-color: var(--callout-warning); }
-        .callout-danger { border-left-color: var(--callout-danger); }
+        .callout-danger  { border-left-color: var(--callout-danger); }
         .callout-title {
-            font-weight: 700;
-            margin-bottom: 0.5rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 500;
+            margin-bottom: 0.4rem;
             text-transform: uppercase;
-            font-size: 0.85rem;
-            letter-spacing: 0.05em;
+            font-size: 0.68rem;
+            letter-spacing: 0.09em;
+            color: var(--text-tertiary);
         }
 
-        /* Tables */
+        /* ---------- Tables ----------
+           Wrap-to-fit instead of horizontal scroll: a scrolling table would
+           clip the per-row comment bubble sitting in the right gutter. */
         .spec-table {
             width: 100%;
             border-collapse: collapse;
-            margin: 1.5rem 0;
+            margin: 1.75rem 0;
+            font-size: 0.92rem;
+            font-variant-numeric: tabular-nums;
+            table-layout: auto;
         }
         .spec-table th, .spec-table td {
-            padding: 0.75rem 1rem;
-            border: 1px solid var(--border-color);
+            padding: 0.5rem 0.7rem;
+            border-bottom: 1px solid var(--border-color);
             text-align: left;
+            vertical-align: top;
+            overflow-wrap: break-word;   /* break a word only when it would overflow — not mid-word for short words */
         }
         .spec-table th {
-            background-color: var(--bg-secondary);
-            font-weight: 600;
+            font-weight: 500;
+            font-size: 0.72rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            border-bottom: 1px solid var(--border-strong);
         }
-        .spec-table tr:nth-child(even) {
-            background-color: rgba(255, 255, 255, 0.02);
-        }
+        .spec-table tbody tr:last-child td { border-bottom: none; }
+        /* inline code in cells: compact, and only long tokens (e.g. /api/paths) break */
+        .spec-table :not(pre) > code { padding: 0.05rem 0.28rem; font-size: 0.8em; word-break: break-all; }
 
-        /* Diagram Container */
+        /* ---------- Diagram (theme-aware, no forced white) ----------
+           The figure stays full-column width with overflow VISIBLE so the
+           comment bubble in the gutter is never clipped; the inner .mermaid
+           carries the horizontal scroll for oversized diagrams. */
         .diagram-container {
-            background: white;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             padding: 1.5rem;
-            border-radius: 8px;
-            margin: 1.5rem 0;
+            border-radius: var(--radius);
+            margin: 1.75rem 0;
             text-align: center;
+            overflow: visible;
+        }
+        .diagram-container .mermaid {
+            overflow-x: auto;
+            max-width: 100%;
         }
         .diagram-container figcaption {
-            margin-top: 0.75rem;
-            font-size: 0.85rem;
-            color: #475569;
-            font-weight: 500;
+            margin-top: 0.85rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
         }
 
-        /* Feedback Form */
+        /* ---------- Feedback panel ---------- */
         .feedback-header {
-            font-size: 1.25rem;
-            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 0.5rem;
+            padding-bottom: 0.6rem;
         }
         .comment-box {
-            background: var(--bg-primary);
+            background: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 0.75rem;
-            margin-bottom: 1rem;
+            border-radius: var(--radius);
+            padding: 0.65rem 0.75rem;
+            margin-bottom: 0.85rem;
+            transition: border-color 0.18s;
         }
+        .comment-box:focus-within { border-color: var(--accent-color); }
         .comment-box textarea {
             width: 100%;
             background: transparent;
@@ -261,80 +419,88 @@
             color: var(--text-primary);
             resize: vertical;
             font-family: inherit;
+            font-size: 0.95rem;
+            line-height: 1.5;
             outline: none;
             min-height: 80px;
         }
+        .comment-box textarea::placeholder { color: var(--text-tertiary); }
         .btn {
             display: inline-block;
             width: 100%;
-            padding: 0.75rem;
-            background-color: var(--accent-color);
-            color: var(--bg-primary);
-            font-weight: 600;
-            border: none;
-            border-radius: 6px;
+            padding: 0.7rem;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 500;
+            border: 1px solid var(--border-strong);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-radius: var(--radius);
             cursor: pointer;
-            transition: background-color 0.2s;
             text-align: center;
+            transition: background-color 0.18s, border-color 0.18s, transform 0.1s;
         }
-        .btn:hover {
-            background-color: var(--accent-hover);
+        .btn:hover { background: var(--bg-secondary); border-color: var(--text-tertiary); }
+        .btn:active { transform: translateY(1px); }
+        #submitFeedbackBtn {
+            background: var(--accent-color);
+            color: var(--on-accent);
+            border-color: var(--accent-color);
         }
+        #submitFeedbackBtn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
         .feedback-item {
-            background: var(--bg-primary);
+            background: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            padding: 0.75rem;
-            padding-right: 44px; /* Ensure space for edit & delete buttons */
-            border-radius: 6px;
+            padding: 0.7rem 0.8rem;
+            padding-right: 46px;   /* room for edit + delete affordances */
+            border-radius: var(--radius);
             margin-top: 0.5rem;
             font-size: 0.9rem;
+            color: var(--text-body);
             position: relative;
         }
         .feedback-item .delete-btn {
             position: absolute;
             top: 8px;
-            right: 8px;
+            right: 9px;
             cursor: pointer;
             color: var(--badge-must);
             font-weight: bold;
+            line-height: 1;
         }
         .feedback-item .edit-btn {
             position: absolute;
             top: 8px;
-            right: 26px;
+            right: 28px;
             cursor: pointer;
-            color: var(--accent-color);
-            font-size: 0.9rem;
+            color: var(--text-tertiary);
+            font-size: 0.85rem;
+            line-height: 1;
             user-select: none;
+            transition: color 0.18s;
         }
-        .feedback-item .edit-btn:hover {
-            color: var(--accent-hover);
-        }
-        .feedback-item .edit-btn:focus-visible {
-            outline: 2px solid var(--accent-color);
-            outline-offset: 2px;
-        }
+        .feedback-item .edit-btn:hover { color: var(--accent-color); }
         .feedback-item.editing-mode {
             border-color: var(--accent-color);
-            background: hsla(199, 89%, 48%, 0.03);
+            background: hsl(var(--accent-hsl) / 0.05);
         }
         .edit-textarea {
             width: 100%;
             min-height: 60px;
-            background: var(--bg-secondary);
+            background: var(--bg-primary);
             border: 1px solid var(--border-color);
-            border-radius: 4px;
+            border-radius: var(--radius);
             color: var(--text-primary);
             font-family: inherit;
             font-size: 0.9rem;
-            padding: 0.4rem;
-            margin: 0.5rem 0;
+            line-height: 1.5;
+            padding: 0.45rem;
+            margin: 0.4rem 0;
             resize: vertical;
             outline: none;
+            transition: border-color 0.18s;
         }
-        .edit-textarea:focus {
-            border-color: var(--accent-color);
-        }
+        .edit-textarea:focus { border-color: var(--accent-color); }
         .edit-actions {
             display: flex;
             gap: 0.5rem;
@@ -342,45 +508,40 @@
             margin-top: 0.25rem;
         }
         .btn-sm {
-            padding: 0.25rem 0.6rem;
+            padding: 0.28rem 0.7rem;
+            font-family: inherit;
             font-size: 0.8rem;
-            font-weight: 600;
-            border-radius: 4px;
+            font-weight: 500;
+            border-radius: var(--radius);
             cursor: pointer;
-            border: none;
-            transition: background-color 0.2s, opacity 0.2s;
-        }
-        .btn-sm:focus-visible {
-            outline: 2px solid var(--accent-color);
-            outline-offset: 2px;
+            border: 1px solid transparent;
+            transition: background-color 0.18s, border-color 0.18s, opacity 0.18s;
         }
         .btn-save {
-            background-color: var(--accent-color);
-            color: var(--bg-primary);
+            background: var(--accent-color);
+            color: var(--on-accent);
+            border-color: var(--accent-color);
         }
-        .btn-save:hover {
-            background-color: var(--accent-hover);
-        }
+        .btn-save:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
         .btn-cancel {
-            background-color: var(--bg-tertiary);
-            color: var(--text-primary);
+            background: transparent;
+            color: var(--text-secondary);
+            border-color: var(--border-strong);
         }
-        .btn-cancel:hover {
-            opacity: 0.8;
-        }
+        .btn-cancel:hover { background: var(--bg-tertiary); color: var(--text-primary); }
         .feedback-success {
             color: var(--badge-could);
-            font-weight: 600;
+            font-weight: 500;
             text-align: center;
         }
 
-        /* Dynamic element commenting styling */
+        /* ---------- Inline commenting affordances ---------- */
         .commentable-element {
             position: relative;
             transition: background-color 0.2s, border-color 0.2s;
         }
         .commentable-element:hover {
-            background-color: rgba(56, 189, 248, 0.05) !important;
+            background-color: hsl(var(--accent-hsl) / 0.06) !important;
         }
         .comment-bubble-btn {
             position: absolute;
@@ -388,23 +549,24 @@
             top: 50%;
             transform: translateY(-50%) scale(0.9);
             cursor: pointer;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             opacity: 0;
             transition: opacity 0.2s, transform 0.2s;
             user-select: none;
             z-index: 10;
+            filter: grayscale(0.4);
         }
         .commentable-element:hover .comment-bubble-btn {
-            opacity: 1;
-            transform: translateY(-50%) scale(1.15);
+            opacity: 0.85;
+            transform: translateY(-50%) scale(1.1);
         }
         .commentable-element.active-comment-target {
-            background-color: rgba(56, 189, 248, 0.08) !important;
-            border-left: 3px solid var(--accent-color) !important;
+            background-color: hsl(var(--accent-hsl) / 0.09) !important;
+            border-left: 2px solid var(--accent-color) !important;
             padding-left: 0.5rem;
         }
         .commentable-element.has-comments-highlight {
-            border-left: 2px dashed var(--accent-color);
+            border-left: 2px dashed hsl(var(--accent-hsl) / 0.5);
             padding-left: 0.5rem;
         }
         .commentable-element.has-comments-highlight:hover .comment-bubble-btn {
@@ -413,25 +575,27 @@
         }
         .element-comment-indicator {
             position: absolute;
-            right: -28px;
+            right: -30px;
             top: 50%;
             transform: translateY(-50%);
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            gap: 0.15rem;
             background: var(--accent-color);
-            color: var(--bg-primary);
-            font-size: 0.7rem;
-            font-weight: 700;
-            padding: 0.15rem 0.45rem;
-            border-radius: 999px;
+            color: var(--on-accent);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            font-weight: 500;
+            padding: 0.12rem 0.4rem;
+            border-radius: 2px;
             cursor: pointer;
             user-select: none;
             transition: transform 0.2s, background-color 0.2s;
             z-index: 11;
         }
         .element-comment-indicator:hover {
-            transform: translateY(-50%) scale(1.1);
+            transform: translateY(-50%) scale(1.08);
             background-color: var(--accent-hover);
         }
         pre.commentable-element .comment-bubble-btn,
@@ -439,19 +603,16 @@
             top: 1rem;
             transform: none;
         }
-        pre.commentable-element:hover .comment-bubble-btn {
-            transform: scale(1.15);
-        }
-        pre.commentable-element .element-comment-indicator:hover {
-            transform: scale(1.1);
-        }
+        pre.commentable-element:hover .comment-bubble-btn { transform: scale(1.1); }
+        pre.commentable-element .element-comment-indicator:hover { transform: scale(1.08); }
         .sidebar-comment-target {
-            font-size: 0.75rem;
-            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.68rem;
+            font-weight: 500;
             color: var(--accent-color);
-            background: rgba(56, 189, 248, 0.08);
+            background: hsl(var(--accent-hsl) / 0.08);
             padding: 0.25rem 0.5rem;
-            border-radius: 4px;
+            border-radius: 2px;
             margin-bottom: 0.4rem;
             cursor: pointer;
             display: flex;
@@ -459,50 +620,64 @@
             gap: 0.25rem;
             transition: background-color 0.2s;
         }
-        .sidebar-comment-target:hover {
-            background: rgba(56, 189, 248, 0.15);
-        }
+        .sidebar-comment-target:hover { background: hsl(var(--accent-hsl) / 0.16); }
 
-        /* Sidebar Table of Contents */
+        /* ---------- Sidebar TOC ---------- */
         .sidebar-toc {
             display: flex;
             flex-direction: column;
-            gap: 0.35rem;
-            margin-top: 1rem;
+            gap: 0.15rem;
+            margin-top: 0.5rem;
             font-size: 0.85rem;
         }
         .sidebar-toc-item {
             display: block;
-            color: var(--text-secondary);
+            color: var(--text-tertiary);
             text-decoration: none;
-            padding: 0.25rem 0.5rem;
-            border-left: 2px solid transparent;
-            transition: all 0.2s ease;
+            padding: 0.25rem 0.6rem;
+            border-left: 1px solid transparent;
+            transition: color 0.2s, border-color 0.2s;
             cursor: pointer;
             line-height: 1.4;
         }
         .sidebar-toc-item:hover {
-            color: var(--accent-color);
+            color: var(--text-secondary);
             text-decoration: none;
-            background: rgba(56, 189, 248, 0.04);
+            border-left-color: var(--border-strong);
         }
         .sidebar-toc-item.active {
-            color: var(--accent-color);
-            font-weight: 600;
-            border-left-color: var(--accent-color);
-            background: rgba(56, 189, 248, 0.08);
-        }
-        .sidebar-toc-h1 {
-            padding-left: 0.5rem;
+            color: var(--text-primary);
             font-weight: 500;
+            border-left-color: var(--accent-color);
         }
-        .sidebar-toc-h2 {
-            padding-left: 1.25rem;
-            font-size: 0.8rem;
+        .sidebar-toc-h1 { padding-left: 0.6rem; }
+        .sidebar-toc-h2 { padding-left: 1.35rem; font-size: 0.8rem; }
+        .sidebar-toc-h3 { padding-left: 2.1rem; font-size: 0.78rem; }
+
+        /* ---------- Reading comfort in dark mode (compensate light-on-dark) ---------- */
+        @media (prefers-color-scheme: dark) {
+            .main-content p, .main-content li { line-height: 1.72; letter-spacing: 0.006em; }
         }
-        .sidebar-toc-h3 {
-            padding-left: 2rem;
-            font-size: 0.75rem;
+
+        /* ---------- Respect reduced motion ---------- */
+        @media (prefers-reduced-motion: reduce) {
+            * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+        }
+
+        /* ---------- Narrow viewports: collapse the rails ---------- */
+        @media (max-width: 1080px) {
+            body { display: block; }
+            .layout { flex-direction: column; max-width: 100%; }
+            .sidebar, .feedback-panel {
+                position: static;
+                width: 100%;
+                height: auto;
+                border: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+            .feedback-panel { border-bottom: none; border-top: 1px solid var(--border-color); }
+            .main-content { max-width: 46rem; }
+            .comment-bubble-btn, .element-comment-indicator { right: 2px; }
         }
     </style>
 </head>
@@ -538,7 +713,7 @@
                 <!-- Comments appear here -->
             </div>
             
-            <button class="btn" style="background-color: #22c55e; color: var(--bg-primary);" id="submitFeedbackBtn">Submit Review</button>
+            <button class="btn" id="submitFeedbackBtn">Submit Review</button>
             <div id="statusMsg" class="feedback-success" style="display: none;">Feedback submitted successfully! You can now safely close this browser tab.</div>
         </aside>
     </div>
