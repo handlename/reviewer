@@ -45,12 +45,18 @@ graph TD
     render -->|Embeds| tmpl
     cmd_build -->|Writes| html_file
 
-    cmd_serve -->|Reads| md_file
-    cmd_serve -->|Calls| render
-    cmd_serve -->|Starts Server & Embeds| server
+    cmd_serve -->|Starts Server| server
+    server -->|Re-renders on each request| render
+    render -->|Embeds| tmpl
     server -->|Launches Browser & Opens| UI[Interactive Review UI in Browser]
-    UI -->|GET/POST /api/feedback| server
-    server -->|Writes Feedback| json_file
+    UI -->|GET / re-render · POST /api/feedback · POST /api/close| server
+    UI -->|SSE /api/events| server
+    server -->|Writes Feedback / prunes resolved| json_file
+    server -->|reload on file change| UI
+    agent[External Agent Claude Code] -->|Reads comments · writes reply+summary| json_file
+    agent -->|Edits| md_file
+    md_file -->|fsnotify watch| server
+    json_file -->|fsnotify watch| server
 ```
 
 ---
@@ -74,13 +80,41 @@ Converts raw GFM Markdown into interactive, presentation-ready HTML. In addition
   To eliminate execution-time compilation overhead under load, all regex objects (`mermaidRegex`, `calloutRegex`, `codeBlockRegex`) are compiled at the global scope using `regexp.MustCompile`.
 
 ### C. Review Server (`reviewer/server.go`)
+
+The server hosts a **persistent, in-page review loop** (hunk-inspired): the user comments and
+submits, the agent updates the document and replies, and the open page auto-reloads. Submitting
+does **not** shut the server down.
+
 * **Dynamic Port Allocation**:
   If the default port (`5500`) is in use, the server dynamically catches this error and queries a free port using `net.Listen("tcp", "127.0.0.1:0")`.
-* **API Route (`/api/feedback`)**:
-  * `GET`: Reads the existing `<input-filename>-feedback.json` file and returns all comments in JSON format.
-  * `POST`: Unmarshals the incoming comment collection, saves it with proper indentations, and signals the host process to shut down.
-* **Automatic Shutdown Gracefully**:
-  Once a "Submit Review" action POSTs comments successfully, the server closes active connections and halts the Go process.
+* **On-the-fly rendering (`GET /`)**:
+  The document is re-rendered from the source `.md` on every request, so the agent's edits appear
+  on the next reload. (The server no longer serves a byte slice captured at startup.)
+* **`/api/feedback`**:
+  * `GET`: Returns the feedback document as `{ "comments": [...], "summary": "..." }`. A missing
+    file yields `{"comments":[]}`.
+  * `POST`: Unmarshals the incoming `Feedback`, **prunes comments the user marked `resolved`**,
+    writes the file, prints `FEEDBACK_RECEIVED` to stdout, and **keeps the server running** so the
+    agent can pick up the comments.
+* **`POST /api/close`**:
+  The page's **End Review** button hits this endpoint to end the session (graceful shutdown).
+* **`GET /api/status`**:
+  Returns the agent's current activity (`{ "state": "working|idle", "message": "..." }`) from the
+  `-status.json` sidecar, so the page can restore the "working" indicator after a mid-round reload. A
+  missing file yields `idle`.
+* **`GET /api/events` (SSE)**:
+  A Server-Sent Events stream carrying **typed JSON events** so the page can react differently:
+  * `{"kind":"reload"}` — the document or feedback changed; the page calls `location.reload()`.
+  * `{"kind":"status","state":...,"message":...}` — the agent's activity changed; the page updates the
+    live activity panel **in place**, without reloading.
+* **File watching (`fsnotify`)**:
+  The server watches the directory containing the `.md` and its `-feedback.json` / `-status.json`
+  sidecars. Document/feedback changes debounce (~150ms) into a `reload`; status changes debounce
+  (~60ms, snappier) into a `status` event carrying the file's contents. This is how the agent's file
+  edits and progress reach the browser with no explicit control call.
+* **Graceful shutdown**:
+  A single `done` signal (closed by `/api/close` or context cancellation) unblocks SSE handlers and
+  triggers `http.Server.Shutdown`.
 
 ### D. UI Template (`references/template.html`)
 Embedded into the Go binary at compile-time using the standard `//go:embed` directive.
@@ -125,17 +159,31 @@ while (parent && parent !== container) {
 
 ## 4. Feedback Schema Specification (JSON)
 
-Comments are marshaled and stored in the following JSON schema format:
+The feedback document is the shared state for the loop, read and written by both the browser and
+the agent. It is stored as a `Feedback` object:
 
 ```json
-[
-  {
-    "text": "The comment text",
-    "timestamp": "2026-06-01T20:46:27.000Z",
-    "anchor": "spec-element-12",
-    "context": "Context snippet representing the targeted block element"
-  }
-]
+{
+  "comments": [
+    {
+      "text": "The human comment text",
+      "timestamp": "2026-06-01T20:46:27.000Z",
+      "anchor": "spec-element-12",
+      "context": "Context snippet representing the targeted block element",
+      "author": "human",
+      "status": "open",
+      "reply": "The agent's reply describing how the comment was addressed",
+      "replyTimestamp": "2026-06-01T20:50:00.000Z"
+    }
+  ],
+  "summary": "Agent's page-level summary of the latest pass"
+}
 ```
+
 * `anchor`: Refers to the `data-anchor` property of the target DOM node.
-* `context`: Truncated preview text of the target element (max 57 chars + `...`) used by the reviewer to identify the point of interest.
+* `context`: Truncated preview text of the target element (max 57 chars + `...`).
+* `author`: `human` or `agent`. Top-level comments are human-authored.
+* `status`: `open` or `resolved`. Only the **human** sets `resolved` (via a page control); resolved
+  comments are pruned on the next submit. The agent must not self-resolve.
+* `reply` / `replyTimestamp`: the agent's response threaded under the human comment.
+* `summary`: the agent's change summary for the latest round, rendered at the top of the panel.

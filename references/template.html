@@ -535,6 +535,222 @@
             text-align: center;
         }
 
+        /* ---------- Live loop: change summary, agent replies, resolve, session ---------- */
+
+        /* Agent's page-level summary of the latest pass — quiet callout, single left rule. */
+        .change-summary {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-left: 2px solid var(--accent-color);
+            border-radius: var(--radius);
+            padding: 0.7rem 0.85rem;
+            font-size: 0.88rem;
+            line-height: 1.55;
+            color: var(--text-body);
+            /* enter softly when the agent's summary appears after a reload */
+            animation: summary-enter 0.32s cubic-bezier(0.2, 0, 0, 1);
+        }
+        .change-summary .change-summary-label {
+            display: block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 500;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.35rem;
+        }
+        .change-summary p { margin: 0 0 0.5rem; color: var(--text-body); }
+        .change-summary p:last-child { margin-bottom: 0; }
+
+        @keyframes summary-enter {
+            from { opacity: 0; transform: translateY(-4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* author tag on each comment */
+        .comment-author {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.3rem;
+        }
+
+        /* agent reply threaded beneath a human comment. Concentric: parent radius 3px, inner 2px. */
+        .agent-reply {
+            margin-top: 0.55rem;
+            padding: 0.5rem 0.6rem;
+            background: var(--bg-tertiary);
+            border-left: 2px solid var(--text-tertiary);
+            border-radius: 2px;
+            font-size: 0.86rem;
+            line-height: 1.5;
+            color: var(--text-body);
+            animation: reply-enter 0.3s cubic-bezier(0.2, 0, 0, 1);
+        }
+        .agent-reply .agent-reply-label {
+            display: block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.25rem;
+        }
+        .agent-reply p { margin: 0; }
+
+        @keyframes reply-enter {
+            from { opacity: 0; transform: translateY(-3px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* resolve toggle — a real checkbox, 40px+ hit area via the label */
+        .resolve-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-top: 0.55rem;
+            min-height: 24px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.18s;
+        }
+        .resolve-toggle:hover { color: var(--text-secondary); }
+        .resolve-toggle input {
+            width: 15px;
+            height: 15px;
+            accent-color: var(--accent-color);
+            cursor: pointer;
+        }
+
+        /* a comment the user marked resolved recedes but stays visible for the cycle */
+        .feedback-item.resolved {
+            opacity: 0.6;
+        }
+        .feedback-item.resolved > p { text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
+        .feedback-item.resolved .resolve-toggle { color: var(--badge-could); }
+
+        /* End Review — quiet secondary action, distinct from Submit */
+        #endReviewBtn {
+            background: transparent;
+            color: var(--text-secondary);
+            border-color: var(--border-color);
+            margin-top: 0.5rem;
+        }
+        #endReviewBtn:hover { background: var(--bg-secondary); color: var(--text-primary); border-color: var(--text-tertiary); }
+        .btn:active { transform: scale(0.98); }
+
+        /* reload prompt shown only when auto-reload is deferred to protect unsent edits */
+        .reload-prompt {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius);
+            padding: 0.55rem 0.7rem;
+            font-size: 0.82rem;
+            color: var(--text-body);
+            animation: summary-enter 0.3s cubic-bezier(0.2, 0, 0, 1);
+        }
+        .reload-prompt button {
+            margin-left: auto;
+            padding: 0.28rem 0.6rem;
+            font-family: inherit;
+            font-size: 0.78rem;
+            font-weight: 500;
+            border-radius: var(--radius);
+            border: 1px solid var(--accent-color);
+            background: var(--accent-color);
+            color: var(--on-accent);
+            cursor: pointer;
+            transition: background-color 0.18s;
+        }
+        .reload-prompt button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+        /* subtle live-connection dot next to the panel header */
+        .live-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--badge-could);
+            margin-left: 0.5rem;
+            vertical-align: middle;
+            transition: background-color 0.3s;
+        }
+        .live-dot.offline { background: var(--text-tertiary); }
+
+        /* agent activity — live progress between submit and the reply landing */
+        .agent-activity {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-left: 2px solid var(--text-tertiary);
+            border-radius: var(--radius);
+            padding: 0.6rem 0.75rem;
+            font-size: 0.84rem;
+            animation: summary-enter 0.3s cubic-bezier(0.2, 0, 0, 1);
+        }
+        .agent-activity.working { border-left-color: var(--accent-color); }
+        .agent-activity-label {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 500;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 0.4rem;
+        }
+        #agentActivityList {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        #agentActivityList li {
+            color: var(--text-secondary);
+            line-height: 1.45;
+            margin: 0;
+            padding-left: 0.9rem;
+            position: relative;
+            animation: reply-enter 0.25s cubic-bezier(0.2, 0, 0, 1);
+        }
+        #agentActivityList li::before {
+            content: "\203A";
+            position: absolute;
+            left: 0;
+            color: var(--text-tertiary);
+        }
+        #agentActivityList li:last-child { color: var(--text-primary); }
+        .agent-spinner {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            flex-shrink: 0;
+            animation: agent-pulse 1s ease-in-out infinite;
+        }
+        .agent-activity:not(.working) .agent-spinner { animation: none; background: var(--text-tertiary); }
+        @keyframes agent-pulse {
+            0%, 100% { opacity: 0.3; transform: scale(0.8); }
+            50%      { opacity: 1;   transform: scale(1); }
+        }
+        @media (prefers-reduced-motion: reduce) { .agent-spinner { animation: none !important; } }
+
         /* ---------- Inline commenting affordances ---------- */
         .commentable-element {
             position: relative;
@@ -698,7 +914,18 @@
 
         <!-- Feedback Panel visible in Serve mode -->
         <aside class="feedback-panel" id="feedbackPanel" style="display: none;">
-            <div class="feedback-header">Review Comments</div>
+            <div class="feedback-header">Review Comments<span class="live-dot offline" id="liveDot" title="Live connection"></span></div>
+
+            <div class="reload-prompt" id="reloadPrompt">
+                <span>Document updated by the agent.</span>
+                <button type="button" id="reloadNowBtn">Reload</button>
+            </div>
+
+            <div class="change-summary" id="changeSummary" style="display: none;">
+                <span class="change-summary-label">Agent changes</span>
+                <div id="changeSummaryBody"></div>
+            </div>
+
             <div id="commentContextContainer" style="display: none; font-size: 0.8rem; background: var(--bg-primary); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 0.5rem;">
                 <span style="font-weight: 600; color: var(--accent-color);">Target:</span>
                 <span id="commentContextText" style="color: var(--text-primary); margin-left: 0.25rem; display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;"></span>
@@ -713,8 +940,14 @@
                 <!-- Comments appear here -->
             </div>
             
+            <div class="agent-activity" id="agentActivity" style="display: none;">
+                <div class="agent-activity-label"><span class="agent-spinner"></span><span id="agentActivityState">Agent</span></div>
+                <ul id="agentActivityList"></ul>
+            </div>
+
             <button class="btn" id="submitFeedbackBtn">Submit Review</button>
-            <div id="statusMsg" class="feedback-success" style="display: none;">Feedback submitted successfully! You can now safely close this browser tab.</div>
+            <button class="btn" id="endReviewBtn">End Review</button>
+            <div id="statusMsg" class="feedback-success" style="display: none;"></div>
         </aside>
     </div>
 
@@ -726,9 +959,16 @@
         }
 
         let comments = [];
+        let summary = "";
         let editingIdx = -1;
         let activeAnchor = "";
         let activeContext = "";
+        // dirty = the user has unsent local changes; used to defer auto-reload so we never
+        // discard an in-progress comment when the agent updates the document.
+        let dirty = false;
+        let pendingReload = false;
+
+        function markDirty() { dirty = true; }
 
         // Tag commentable elements on load
         function initializeCommentableElements() {
@@ -815,18 +1055,69 @@
 
         document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
 
-        // Fetch existing comments on load
+        // Fetch existing comments on load. The server returns {comments, summary}.
         function loadExistingComments() {
             if (!isServed) return;
 
             fetch("/api/feedback")
                 .then(res => res.json())
                 .then(data => {
-                    comments = data || [];
+                    comments = (data && data.comments) || [];
+                    summary = (data && data.summary) || "";
+                    renderSummary();
                     renderComments();
                     updateInlineIndicators();
                 })
                 .catch(err => console.error("Error loading feedback comments:", err));
+        }
+
+        // Render the agent's page-level change summary above the comment box.
+        function renderSummary() {
+            const box = document.getElementById("changeSummary");
+            const body = document.getElementById("changeSummaryBody");
+            if (!box || !body) return;
+            if (summary && summary.trim()) {
+                body.textContent = summary.trim();
+                box.style.display = "block";
+            } else {
+                box.style.display = "none";
+            }
+        }
+
+        // Agent activity: live progress shown on the page while the agent works (no full reload).
+        function renderAgentStatus(msg) {
+            const box = document.getElementById("agentActivity");
+            const list = document.getElementById("agentActivityList");
+            const stateEl = document.getElementById("agentActivityState");
+            if (!box || !list) return;
+            if (msg && msg.state === "working") {
+                box.style.display = "block";
+                box.classList.add("working");
+                if (stateEl) stateEl.textContent = "Agent working…";
+                appendActivity(list, msg.message);
+            } else {
+                box.classList.remove("working");
+                box.style.display = "none";
+                list.innerHTML = "";
+            }
+        }
+
+        function appendActivity(list, text) {
+            if (!text || !text.trim()) return;
+            const last = list.lastElementChild;
+            if (last && last.textContent === text.trim()) return; // collapse duplicate consecutive updates
+            const li = document.createElement("li");
+            li.textContent = text.trim();
+            list.appendChild(li);
+        }
+
+        // Restore agent status on (re)load — a mid-round reload must not lose the "working" indicator.
+        function loadAgentStatus() {
+            if (!isServed) return;
+            fetch("/api/status")
+                .then(res => res.json())
+                .then(s => { if (s && s.state === "working") renderAgentStatus({ kind: "status", state: "working", message: s.message }); })
+                .catch(() => {});
         }
 
         // Render inline indicators next to commented elements
@@ -895,9 +1186,12 @@
                     text: text,
                     timestamp: new Date().toISOString(),
                     anchor: activeAnchor,
-                    context: activeContext
+                    context: activeContext,
+                    author: "human",
+                    status: "open"
                 });
                 input.value = "";
+                markDirty();
                 clearCommentTarget();
                 renderComments();
                 updateInlineIndicators();
@@ -908,6 +1202,10 @@
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                 document.getElementById("addCommentBtn").click();
             }
+        });
+        // Any text in the composer counts as an unsent change (guards auto-reload).
+        document.getElementById("commentInput").addEventListener("input", (e) => {
+            if (e.target.value.trim()) markDirty();
         });
 
         function renderComments() {
@@ -1007,13 +1305,54 @@
                         item.appendChild(targetIndicator);
                     }
 
+                    const authorTag = document.createElement("div");
+                    authorTag.className = "comment-author";
+                    authorTag.textContent = (c.author === "agent") ? "Agent" : "You";
+
                     const p = document.createElement("p");
                     p.style.marginBottom = "0";
                     p.textContent = c.text;
 
                     item.appendChild(deleteBtn);
                     item.appendChild(editBtn);
+                    item.appendChild(authorTag);
                     item.appendChild(p);
+
+                    // Agent's reply, threaded beneath the human comment.
+                    if (c.reply && c.reply.trim()) {
+                        const reply = document.createElement("div");
+                        reply.className = "agent-reply";
+                        const label = document.createElement("span");
+                        label.className = "agent-reply-label";
+                        label.textContent = "Agent reply";
+                        const rp = document.createElement("p");
+                        rp.textContent = c.reply;
+                        reply.appendChild(label);
+                        reply.appendChild(rp);
+                        item.appendChild(reply);
+
+                        // Resolve toggle — the human confirms the fix; the agent never self-resolves.
+                        const toggleLabel = document.createElement("label");
+                        toggleLabel.className = "resolve-toggle";
+                        const checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.checked = (c.status === "resolved");
+                        const toggleText = document.createElement("span");
+                        toggleText.textContent = checkbox.checked ? "Resolved" : "Mark resolved";
+                        checkbox.addEventListener("change", () => {
+                            comments[idx].status = checkbox.checked ? "resolved" : "open";
+                            markDirty();
+                            renderComments();
+                        });
+                        toggleLabel.appendChild(checkbox);
+                        toggleLabel.appendChild(toggleText);
+                        item.appendChild(toggleLabel);
+                    }
+
+                    if (c.status === "resolved") {
+                        item.classList.add("resolved");
+                    }
+
                     container.appendChild(item);
                 }
             });
@@ -1058,28 +1397,77 @@
                 alert("Please add at least one comment before submitting.");
                 return;
             }
-            
-            document.getElementById("submitFeedbackBtn").disabled = true;
+
+            const btn = document.getElementById("submitFeedbackBtn");
+            btn.disabled = true;
+            // Start a fresh round: the previous agent summary is stale until the agent runs again.
             fetch("/api/feedback", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(comments)
+                body: JSON.stringify({ comments: comments, summary: "" })
             }).then(res => {
                 if (res.ok) {
-                    document.getElementById("statusMsg").textContent = "Feedback submitted successfully! You can now safely close this browser tab.";
-                    document.getElementById("statusMsg").style.display = "block";
-                    setTimeout(() => {
-                        window.close();
-                    }, 2000);
+                    dirty = false;
+                    summary = "";
+                    renderSummary();
+                    btn.disabled = false;
+                    // The live activity panel (right above the button) is the reaction to Submit;
+                    // the agent's own status updates then refine it.
+                    renderAgentStatus({ kind: "status", state: "working", message: "送信しました。エージェントの応答を待っています…" });
+                    // The server will push status updates and a reload as the agent works.
                 } else {
                     alert("Error submitting feedback.");
-                    document.getElementById("submitFeedbackBtn").disabled = false;
+                    btn.disabled = false;
                 }
             }).catch(err => {
                 alert("Error: " + err);
-                document.getElementById("submitFeedbackBtn").disabled = false;
+                btn.disabled = false;
             });
         });
+
+        // End Review — stop the live session (separate from Submit).
+        document.getElementById("endReviewBtn").addEventListener("click", () => {
+            if (!confirm("End this review session? The review server will stop.")) return;
+            const finish = () => {
+                const status = document.getElementById("statusMsg");
+                status.textContent = "Review ended. You can close this tab.";
+                status.style.display = "block";
+                setTimeout(() => window.close(), 1200);
+            };
+            fetch("/api/close", { method: "POST" }).then(finish).catch(finish);
+        });
+
+        // Live reload over SSE: the server pushes "reload" when the agent edits the
+        // document or writes replies. Defer the reload if the user has unsent edits.
+        function hasUnsentEdits() {
+            return dirty || editingIdx !== -1 || document.getElementById("commentInput").value.trim() !== "";
+        }
+
+        function connectLiveReload() {
+            if (!isServed || typeof EventSource === "undefined") return;
+            const dot = document.getElementById("liveDot");
+            const es = new EventSource("/api/events");
+            es.onopen = () => { if (dot) dot.classList.remove("offline"); };
+            es.onerror = () => { if (dot) dot.classList.add("offline"); };
+            es.onmessage = (e) => {
+                let msg;
+                try { msg = JSON.parse(e.data); } catch (_) { return; }
+                if (msg.kind === "status") {
+                    renderAgentStatus(msg);
+                    return;
+                }
+                if (msg.kind === "reload") {
+                    if (hasUnsentEdits()) {
+                        pendingReload = true;
+                        document.getElementById("reloadPrompt").style.display = "flex";
+                    } else {
+                        window.location.reload();
+                    }
+                }
+            };
+        }
+
+        document.getElementById("reloadNowBtn").addEventListener("click", () => window.location.reload());
 
         let isProgrammaticScroll = false; // Flag to prevent scroll-spy hijacking during clicks
         let programmaticScrollTimeout = null;
@@ -1222,6 +1610,10 @@
         loadExistingComments();
         // Initialize Table of Contents
         initializeTableOfContents();
+        // Connect the live-reload stream (serve mode only)
+        connectLiveReload();
+        // Restore any in-progress agent status (e.g. after a mid-round reload)
+        loadAgentStatus();
 
         // Handle initial URL hash scroll if present
         if (window.location.hash) {
