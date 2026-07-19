@@ -42,5 +42,5 @@ func (s *Serve) Run(c *Context) error {
 
 	log.Info().Msgf("Compiled review spec saved to %s", outPath)
 
-	return reviewer.StartReviewServer(c.Ctx, htmlContent, s.Input, s.Port, s.NoOpen, nil)
+	return reviewer.StartReviewServer(c.Ctx, s.Input, s.Port, s.NoOpen, nil)
 }
