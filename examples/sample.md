@@ -40,7 +40,7 @@ sequenceDiagram
     Client->>Gateway: Tokenize Card Details directly
     activate Gateway
     Gateway-->>Client: Return Tokenized Payment Method ID
-    deactivate Client
+    deactivate Gateway
 
     Client->>Server: POST /api/payment/confirm (Method ID, Order ID)
     activate Server
