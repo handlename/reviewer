@@ -92,6 +92,50 @@ func statusPayload(raw []byte) string {
 	return string(out)
 }
 
+// waitTimeout bounds how long GET /api/wait blocks before replying 204 so the client can
+// re-poll. Kept below the agent monitor's curl --max-time so the server, not the client,
+// closes the idle connection. A package var so tests can shorten it.
+var waitTimeout = 25 * time.Second
+
+// submitNotifier wakes every long-poll waiter the instant a review is submitted. It mirrors
+// sseHub's fan-out, but carries no payload — a signal that "a submit happened"; the waiter
+// then reads the current feedback itself.
+type submitNotifier struct {
+	mu      sync.Mutex
+	waiters map[chan struct{}]struct{}
+}
+
+func newSubmitNotifier() *submitNotifier {
+	return &submitNotifier{waiters: make(map[chan struct{}]struct{})}
+}
+
+func (n *submitNotifier) subscribe() chan struct{} {
+	ch := make(chan struct{}, 1)
+	n.mu.Lock()
+	n.waiters[ch] = struct{}{}
+	n.mu.Unlock()
+	return ch
+}
+
+func (n *submitNotifier) unsubscribe(ch chan struct{}) {
+	n.mu.Lock()
+	delete(n.waiters, ch)
+	n.mu.Unlock()
+}
+
+func (n *submitNotifier) broadcast() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for ch := range n.waiters {
+		// Non-blocking: the buffered channel already holds a pending signal, so the waiter
+		// wakes regardless; a full buffer means it hasn't consumed the previous one yet.
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
 // sseHub fans a single reload signal out to every connected browser tab.
 type sseHub struct {
 	mu      sync.Mutex
@@ -160,6 +204,7 @@ func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen b
 	feedbackPath := FeedbackPath(inputPath)
 	statusPath := StatusPath(inputPath)
 	hub := newSSEHub()
+	notifier := newSubmitNotifier()
 
 	// done is the single shutdown signal: closed by /api/close or by ctx cancellation.
 	done := make(chan struct{})
@@ -243,8 +288,11 @@ func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen b
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 
+			// Wake any long-poll waiter (GET /api/wait) — the low-latency submit signal.
+			notifier.broadcast()
+
 			log.Info().Msg("Feedback received & written; server staying alive for the agent.")
-			// stdout signal the agent watches for (server does NOT shut down).
+			// stdout signal the agent watches for (kept for back-compat/debugging; server does NOT shut down).
 			fmt.Println("FEEDBACK_RECEIVED")
 
 		default:
@@ -274,6 +322,31 @@ func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen b
 			return
 		}
 		_, _ = w.Write(raw)
+	})
+
+	// GET /api/wait — long-poll: block until the next submit, then return 200 + the current
+	// feedback JSON. Idle timeout replies 204 so the agent's monitor re-polls; the session ending
+	// (close / ctx cancel) or the client disconnecting releases the waiter too.
+	mux.HandleFunc("/api/wait", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		ch := notifier.subscribe()
+		defer notifier.unsubscribe(ch)
+
+		select {
+		case <-ch:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(readFeedback(feedbackPath))
+		case <-time.After(waitTimeout):
+			w.WriteHeader(http.StatusNoContent)
+		case <-done:
+			w.WriteHeader(http.StatusNoContent)
+		case <-r.Context().Done():
+			// Client hung up; nothing to write.
+		}
 	})
 
 	// GET /api/events — SSE stream that pushes typed events (reload / status) as files change.

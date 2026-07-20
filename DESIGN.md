@@ -54,6 +54,7 @@ graph TD
     server -->|Writes Feedback / prunes resolved| json_file
     server -->|reload on file change| UI
     agent[External Agent Claude Code] -->|Reads comments · writes reply+summary| json_file
+    agent -->|GET /api/wait long-poll for submits| server
     agent -->|Edits| md_file
     md_file -->|fsnotify watch| server
     json_file -->|fsnotify watch| server
@@ -94,8 +95,16 @@ does **not** shut the server down.
   * `GET`: Returns the feedback document as `{ "comments": [...], "summary": "..." }`. A missing
     file yields `{"comments":[]}`.
   * `POST`: Unmarshals the incoming `Feedback`, **prunes comments the user marked `resolved`**,
-    writes the file, prints `FEEDBACK_RECEIVED` to stdout, and **keeps the server running** so the
-    agent can pick up the comments.
+    writes the file, **releases any `GET /api/wait` long-poll waiter** (the low-latency submit
+    signal), also prints `FEEDBACK_RECEIVED` to stdout (back-compat), and **keeps the server running**
+    so the agent can pick up the comments.
+* **`GET /api/wait` (long-poll)**:
+  Blocks until the next `POST /api/feedback`, then returns `200` with the current feedback JSON so the
+  agent detects a submit with near-zero latency and no stdout scraping. With no activity it returns
+  `204` after `waitTimeout` (25s) so the client re-polls (long-poll convention); the session ending
+  (`/api/close` / context cancellation) or the client disconnecting also releases the waiter. Fan-out
+  is handled by a `submitNotifier` (mirrors `sseHub`, but signal-only) so multiple concurrent waiters
+  are all released by a single submit.
 * **`POST /api/close`**:
   The page's **End Review** button hits this endpoint to end the session (graceful shutdown).
 * **`GET /api/status`**:
@@ -114,7 +123,7 @@ does **not** shut the server down.
   edits and progress reach the browser with no explicit control call.
 * **Graceful shutdown**:
   A single `done` signal (closed by `/api/close` or context cancellation) unblocks SSE handlers and
-  triggers `http.Server.Shutdown`.
+  blocked `/api/wait` waiters, and triggers `http.Server.Shutdown`.
 
 ### D. UI Template (`references/template.html`)
 Embedded into the Go binary at compile-time using the standard `//go:embed` directive.
