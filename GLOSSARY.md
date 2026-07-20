@@ -16,7 +16,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Review Server
 * **Description**: A lightweight local HTTP server launched via the `reviewer serve` command that hosts a persistent, in-page human-agent review loop.
-* **Role**: It hosts the compiled spec (re-rendered on demand), launches the default web browser, and exposes endpoints for the loop: `/api/feedback` (GET/POST comments), `/api/close` (End Review), and `/api/events` (SSE live-reload). It stays running across review rounds — submitting no longer shuts it down.
+* **Role**: It hosts the compiled spec (re-rendered on demand), launches the default web browser, and exposes endpoints for the loop: `/api/feedback` (GET/POST comments), `/api/wait` (long-poll for submits), `/api/close` (End Review), and `/api/events` (SSE live-reload). It stays running across review rounds — submitting no longer shuts it down.
 * **Relevant Modules**: `StartReviewServer` function in `server.go`.
 
 ---
@@ -61,7 +61,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Feedback
 * **Description**: The shared review state — a `{ comments, summary }` document read and written by both the browser and the agent.
-* **Behavior**: Human comments can be edited inline or deleted before submitting. Clicking "Submit Review" POSTs the data to the server, which prunes resolved comments and writes `<input-filename>-feedback.json` while **staying alive** (it prints `FEEDBACK_RECEIVED` to signal the agent).
+* **Behavior**: Human comments can be edited inline or deleted before submitting. Clicking "Submit Review" POSTs the data to the server, which prunes resolved comments and writes `<input-filename>-feedback.json` while **staying alive**. The submit releases any `/api/wait` long-poll waiter (primary agent signal) and still prints `FEEDBACK_RECEIVED` to stdout (back-compat).
 * **Persistence**: `<input-filename>-feedback.json` holds the current round's state, not accumulated cross-session history.
 
 ### Agent Reply
@@ -78,6 +78,11 @@ This document defines the core domain terms used within the `reviewer` codebase 
 ### Live Reload
 * **Description**: Automatic browser refresh driven by Server-Sent Events (`/api/events`).
 * **Behavior**: The server watches the `.md` and feedback file (`fsnotify`) and pushes a typed `reload` event when either changes, so the agent's edits and replies appear without a manual refresh. A reload is deferred (shown as a prompt) while the user has unsent edits.
+
+### Submit Long-poll (`/api/wait`)
+* **Description**: The agent-facing counterpart to Live Reload: a long-poll endpoint the agent uses to detect a human submit with near-zero latency, replacing log-string polling.
+* **Behavior**: `GET /api/wait` blocks until the next `POST /api/feedback`, then returns `200` with the current feedback JSON; an idle wait returns `204` after ~25s so the agent re-polls. A `submitNotifier` (a signal-only sibling of the SSE hub) fans one submit out to every concurrent waiter, and the session ending releases blocked waiters.
+* **Direction**: Whereas SSE (`/api/events`) pushes agent→browser changes, `/api/wait` carries the browser→agent submit signal.
 
 ### Agent Activity (Status)
 * **Description**: The agent's live progress, surfaced on the review page so the user can watch what the agent is doing between submitting and the reply landing — without leaving the page or inspecting the agent session.
