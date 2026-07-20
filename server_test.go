@@ -235,6 +235,152 @@ func TestStartReviewServer_SSEReloadOnEdit(t *testing.T) {
 	}
 }
 
+// GET /api/wait blocks until the next submit, then returns 200 with the current feedback JSON.
+// This is the long-poll path the agent's monitor uses to detect submits with near-zero latency.
+func TestStartReviewServer_WaitBlocksUntilSubmit(t *testing.T) {
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "spec.md")
+	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
+
+	url, stop := startTestServer(t, inputPath)
+	defer stop()
+
+	type waitResult struct {
+		code int
+		body string
+	}
+	done := make(chan waitResult, 1)
+	go func() {
+		resp, err := http.Get(url + "/api/wait")
+		if err != nil {
+			done <- waitResult{code: -1}
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		done <- waitResult{code: resp.StatusCode, body: string(b)}
+	}()
+
+	// The wait must NOT return before a submit happens.
+	select {
+	case r := <-done:
+		t.Fatalf("/api/wait returned before any submit (code=%d)", r.code)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// Submit — this must release the waiter with 200 + the feedback JSON.
+	fb := Feedback{Comments: []Comment{{Text: "please clarify", Timestamp: time.Now().Format(time.RFC3339), Author: AuthorHuman, Status: StatusOpen}}}
+	postFeedback(t, url, fb)
+
+	select {
+	case r := <-done:
+		if r.code != http.StatusOK {
+			t.Fatalf("expected 200 from /api/wait after submit, got %d", r.code)
+		}
+		if !strings.Contains(r.body, "please clarify") {
+			t.Errorf("expected wait body to contain the submitted feedback, got: %s", r.body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("/api/wait did not return after a submit")
+	}
+}
+
+// With no activity, /api/wait returns 204 after its timeout so the client can re-poll (long-poll convention).
+func TestStartReviewServer_WaitTimesOut(t *testing.T) {
+	orig := waitTimeout
+	waitTimeout = 200 * time.Millisecond
+	defer func() { waitTimeout = orig }()
+
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "spec.md")
+	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
+
+	url, stop := startTestServer(t, inputPath)
+	defer stop()
+
+	resp, err := http.Get(url + "/api/wait")
+	if err != nil {
+		t.Fatalf("GET /api/wait failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204 on wait timeout, got %d", resp.StatusCode)
+	}
+}
+
+// A single submit must release every concurrently-waiting /api/wait client.
+func TestStartReviewServer_WaitMultipleWaiters(t *testing.T) {
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "spec.md")
+	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
+
+	url, stop := startTestServer(t, inputPath)
+	defer stop()
+
+	const n = 3
+	codes := make(chan int, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			resp, err := http.Get(url + "/api/wait")
+			if err != nil {
+				codes <- -1
+				return
+			}
+			defer resp.Body.Close()
+			_, _ = io.ReadAll(resp.Body)
+			codes <- resp.StatusCode
+		}()
+	}
+
+	// Let all waiters subscribe before the single submit.
+	time.Sleep(200 * time.Millisecond)
+	fb := Feedback{Comments: []Comment{{Text: "shared", Timestamp: time.Now().Format(time.RFC3339), Author: AuthorHuman, Status: StatusOpen}}}
+	postFeedback(t, url, fb)
+
+	for i := 0; i < n; i++ {
+		select {
+		case code := <-codes:
+			if code != http.StatusOK {
+				t.Errorf("waiter %d: expected 200, got %d", i, code)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("only %d of %d waiters were released by one submit", i, n)
+		}
+	}
+}
+
+// Ending the session (ctx cancel / close) must release a blocked /api/wait instead of hanging.
+func TestStartReviewServer_WaitReleasedOnClose(t *testing.T) {
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "spec.md")
+	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
+
+	url, stop := startTestServer(t, inputPath)
+
+	done := make(chan int, 1)
+	go func() {
+		resp, err := http.Get(url + "/api/wait")
+		if err != nil {
+			done <- -1
+			return
+		}
+		defer resp.Body.Close()
+		_, _ = io.ReadAll(resp.Body)
+		done <- resp.StatusCode
+	}()
+
+	// Ensure the waiter is blocked, then shut the server down.
+	time.Sleep(200 * time.Millisecond)
+	stop() // cancels ctx -> triggers the server's done signal
+
+	select {
+	case <-done:
+		// Released (any status is fine — the point is it did not hang).
+	case <-time.After(3 * time.Second):
+		t.Error("/api/wait did not unblock when the server shut down")
+	}
+}
+
 func TestFeedbackPath(t *testing.T) {
 	got := FeedbackPath(filepath.Join("docs", "my-spec.md"))
 	want := filepath.Join("docs", "my-spec-feedback.json")

@@ -18,7 +18,8 @@ Use this skill when a user asks to review, refine, or write specification docume
 `reviewer serve` no longer exits when the user submits. It stays running across review rounds:
 
 1. The user adds gutter comments on document blocks and clicks **Submit Review**.
-2. The server writes `<input>-feedback.json`, prints `FEEDBACK_RECEIVED` to stdout, and **keeps running**.
+2. The server writes `<input>-feedback.json`, releases any `GET /api/wait` long-poll waiter (and still
+   prints `FEEDBACK_RECEIVED` to stdout for back-compat), and **keeps running**.
 3. The agent reads the comments, edits the target `.md`, and writes a reply per comment plus a
    page-level change summary back into `<input>-feedback.json`.
 4. The server watches the `.md` and the feedback file, re-renders, and pushes a reload over SSE.
@@ -42,35 +43,38 @@ go run ./cmd/reviewer serve <path/to/spec.md>
 ```
 - Run it as a **background process** so you can keep editing while it serves. Do NOT pass
   `--no-open` unless the user asks — the browser should open to the review page.
-- Note the URL it logs (typically `http://localhost:5500`).
+- Note the URL it logs (typically `http://localhost:5500`) and keep it as `$URL` — the step 3 monitor
+  long-polls `$URL/api/wait`.
 - Tell the user the page is open and they can start commenting.
 
 ### 3. Wait for a submit (event-driven — do NOT ask the user to tell you)
-The user should never have to say "I submitted." Start a **persistent monitor** that emits one event
-each time the server prints `FEEDBACK_RECEIVED`; the runtime delivers each event to you as it lands,
-with no user turn required.
+The user should never have to say "I submitted." Start a **persistent monitor** that long-polls the
+server's `GET /api/wait` endpoint; the runtime delivers each event to you as it lands, with no user
+turn required.
 
-- Capture the `reviewer serve` process's stdout to a log file, then run a poll-loop monitor over it.
-  Use a poll loop, NOT `tail -f log | grep -m1` — if the log goes quiet after a match the pipeline
-  hangs and the signal is lost.
+- `/api/wait` **blocks until the next submit**, then returns `200` (near-zero latency, no log parsing).
+  With no activity it returns `204` after ~25s so the loop simply re-polls (long-poll convention).
+- `$URL` is the server's base URL from step 2 (e.g. `http://127.0.0.1:5500`). Keep the server's
+  timeout (25s) below curl's `--max-time` (30s) so the server, not curl, closes the idle connection.
 
 ```bash
-# One event per new submit; keeps running for the whole session.
-# NOTE: do NOT write `grep -c ... || echo 0` — on zero matches grep prints "0" AND exits 1, so the
-# `|| echo 0` appends a second line and the variable becomes "0\n0", breaking the integer compare.
-count() { c=$(grep -c FEEDBACK_RECEIVED "$LOG" 2>/dev/null); echo "${c:-0}"; }
-base=$(count)
+# One REVIEW_SUBMIT event per submit; keeps running for the whole session.
 while true; do
-  cur=$(count)
-  if [ "$cur" -gt "$base" ]; then echo "REVIEW_SUBMIT total=$cur"; base=$cur; fi
-  grep -q "Shutting down review server" "$LOG" 2>/dev/null && { echo "SERVER_STOPPED"; break; }
-  sleep 2
+  code=$(curl -s -o /tmp/reviewer-wait.json -w '%{http_code}' --max-time 30 "$URL/api/wait")
+  case "$code" in
+    200) echo "REVIEW_SUBMIT" ;;         # a submit landed -> run step 4
+    204) : ;;                            # idle timeout -> just re-poll
+    *)   echo "SERVER_STOPPED"; break ;; # 000 (connection refused) etc. -> server gone, review over
+  esac
 done
 ```
 
 - Each `REVIEW_SUBMIT` event is your cue to run step 4. The server stays alive; do not restart it.
 - The monitor is persistent — you do NOT re-arm it per round. It fires again on the next submit and
-  emits `SERVER_STOPPED` when the user clicks **End Review**, at which point the review is over.
+  emits `SERVER_STOPPED` once the server is gone (the user clicked **End Review**), at which point the
+  review is over.
+- `FEEDBACK_RECEIVED` is still printed to stdout for back-compat/debugging, but `/api/wait` is the
+  primary, low-latency detection path — prefer it over log scraping.
 
 ### 4. Read the comments and update the document
 
