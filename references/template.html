@@ -798,22 +798,44 @@
             transform: none;
         }
         pre.commentable-element .element-comment-indicator:hover { transform: scale(1.08); }
-        .sidebar-comment-target {
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.68rem;
-            font-weight: 500;
-            color: var(--accent-color);
-            background: hsl(var(--accent-hsl) / 0.08);
-            padding: 0.25rem 0.5rem;
-            border-radius: 2px;
-            margin-bottom: 0.4rem;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 0.25rem;
-            transition: background-color 0.2s;
+        /* ---------- Connector line (comment ⇄ target element) ----------
+           A viewport-fixed SVG overlay draws a line between a selected comment
+           and its target element. Selecting always scrolls the element into
+           view, so a fixed layer (recomputed on scroll/resize) is enough. */
+        #connectorOverlay {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 40;
+            overflow: visible;
         }
-        .sidebar-comment-target:hover { background: hsl(var(--accent-hsl) / 0.16); }
+        #connectorOverlay path {
+            fill: none;
+            stroke: var(--accent-color);
+            stroke-linecap: round;
+            vector-effect: non-scaling-stroke;
+        }
+        #connectorOverlay path.persistent { stroke-width: 1.75; opacity: 0.9; }
+        #connectorOverlay path.transient  { stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.55; }
+        #connectorOverlay circle { fill: var(--accent-color); }
+        #connectorOverlay circle.transient { opacity: 0.55; }
+        #connectorOverlay stop { stop-color: var(--accent-color); }
+
+        @keyframes connector-draw { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
+        #connectorOverlay path.persistent.drawing {
+            stroke-dasharray: var(--len);
+            animation: connector-draw 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* selected comment card + its target element share the accent lift */
+        .feedback-item.selected { border-color: var(--accent-color); background: hsl(var(--accent-hsl) / 0.06); }
+        .commentable-element.selected-target {
+            background-color: hsl(var(--accent-hsl) / 0.09) !important;
+            border-left: 2px solid var(--accent-color);
+            padding-left: 0.5rem;
+        }
 
         /* ---------- Sidebar TOC ---------- */
         .sidebar-toc {
@@ -928,6 +950,8 @@
         </aside>
     </div>
 
+    <svg id="connectorOverlay" aria-hidden="true"></svg>
+
     <script>
         // Enable feedback UI if served
         const isServed = window.location.protocol.startsWith('http');
@@ -988,8 +1012,17 @@
                 el.addEventListener('mouseup', (e) => {
                     if (e.target.closest('a, .element-comment-indicator')) return;
                     if (!window.getSelection().isCollapsed) return;
-                    setCommentTarget(anchorId, el.textContent.trim());
+                    // Mode A: a commented element selects its comment (shows the line);
+                    // an uncommented element targets a new comment (line to the input box).
+                    if (isCommented(anchorId)) {
+                        selectComment(anchorId);
+                    } else {
+                        setCommentTarget(anchorId, el.textContent.trim());
+                    }
                 });
+                // Hover a commented element to preview its connector line.
+                el.addEventListener('mouseenter', () => { if (isCommented(anchorId)) hoverConnector(anchorId); });
+                el.addEventListener('mouseleave', () => { if (isCommented(anchorId)) unhoverConnector(); });
             });
         }
 
@@ -1016,6 +1049,12 @@
             contextText.textContent = activeContext;
             document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("commentInput").focus();
+
+            // Draw a connector from the targeted element to the comment input box.
+            clearConnectionMarks();
+            connection = { kind: "compose", anchor: anchorId };
+            hoverAnchor = null;
+            drawConnection(connection, true);
         }
 
         // Clear active target
@@ -1026,6 +1065,11 @@
             activeAnchor = "";
             activeContext = "";
             document.getElementById("commentContextContainer").style.display = "none";
+
+            if (connection && connection.kind === "compose") {
+                connection = null;
+                clearConnector();
+            }
         }
 
         document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
@@ -1119,13 +1163,14 @@
                     indicator.title = `Click to view ${count} comment(s)`;
                     indicator.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        scrollToSidebarComment(anchorId);
+                        selectComment(anchorId);
                     });
 
                     // Prepend or append depending on tag to avoid text breakages
                     targetEl.appendChild(indicator);
                 }
             });
+            reconcileConnection();
         }
 
         // Scroll sidebar to first comment matching anchor
@@ -1152,6 +1197,209 @@
                 }, 2000);
             }
         }
+
+        // ---------- Connector line: comment ⇄ target element ----------
+        // A single SVG overlay draws one line at a time. State:
+        //   connection: null | { kind: "selected" | "compose", anchor }
+        //   hoverAnchor: anchor previewed on hover (only when nothing is selected)
+        const connectorSvg = document.getElementById("connectorOverlay");
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        let connection = null;
+        let hoverAnchor = null;
+
+        function anchorElement(anchor) { return document.querySelector(`.main-content [data-anchor="${anchor}"]`); }
+        function commentCard(anchor) { return document.querySelector(`.feedback-item[data-anchor="${anchor}"]`); }
+        function isCommented(anchor) { return !!anchor && comments.some(c => c.anchor === anchor); }
+
+        // Clamp a y coordinate to the viewport so an endpoint whose element has
+        // scrolled off-screen still terminates at the screen edge, keeping the
+        // line visible and pointing toward the (off-screen) element.
+        const CONNECTOR_MARGIN = 8;
+        function clampY(y) { return Math.max(CONNECTOR_MARGIN, Math.min(window.innerHeight - CONNECTOR_MARGIN, y)); }
+
+        // Element side of the line starts at the RIGHT EDGE of the 💬 badge when
+        // present; uncommented elements have no badge, so use the element's edge.
+        // Horizontal position is unaffected by vertical scroll; y is clamped.
+        function connectorStart(el) {
+            const badge = el.querySelector(".element-comment-indicator");
+            const r = (badge || el).getBoundingClientRect();
+            const rawY = r.top + r.height / 2;
+            const y = clampY(rawY);
+            return { x: r.right + 4, y, offscreen: y !== rawY };
+        }
+        function connectorEnd(rect) {
+            const rawY = rect.top + rect.height / 2;
+            const y = clampY(rawY);
+            return { x: rect.left - 6, y, offscreen: y !== rawY };
+        }
+
+        function clearConnector() { if (connectorSvg) connectorSvg.innerHTML = ""; }
+
+        function paintConnector(start, end, kind, animate) {
+            if (!connectorSvg) return;
+            connectorSvg.innerHTML = "";
+            const dx = Math.max(40, (end.x - start.x) * 0.5);
+            const d = `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`;
+            const len = Math.hypot(end.x - start.x, end.y - start.y) + Math.abs(end.y - start.y);
+            const base = kind === "persistent" ? 0.9 : 0.55;
+            const path = document.createElementNS(SVG_NS, "path");
+            path.setAttribute("d", d);
+            path.classList.add(kind);
+
+            // When an endpoint's element is off-screen (clamped to the edge),
+            // fade the stroke to transparent toward that edge so the line looks
+            // like it slips off the top/bottom rather than stopping abruptly.
+            if (start.offscreen || end.offscreen) {
+                const grad = document.createElementNS(SVG_NS, "linearGradient");
+                grad.id = "connectorFade";
+                grad.setAttribute("gradientUnits", "userSpaceOnUse");
+                grad.setAttribute("x1", start.x); grad.setAttribute("y1", start.y);
+                grad.setAttribute("x2", end.x);   grad.setAttribute("y2", end.y);
+                [
+                    { o: 0,    op: start.offscreen ? 0 : base },
+                    { o: 0.22, op: base },
+                    { o: 0.78, op: base },
+                    { o: 1,    op: end.offscreen ? 0 : base },
+                ].forEach(s => {
+                    const st = document.createElementNS(SVG_NS, "stop");
+                    st.setAttribute("offset", s.o);
+                    st.setAttribute("stop-opacity", s.op);
+                    grad.appendChild(st);
+                });
+                const defs = document.createElementNS(SVG_NS, "defs");
+                defs.appendChild(grad);
+                connectorSvg.appendChild(defs);
+                path.style.stroke = "url(#connectorFade)";
+                path.style.opacity = "1"; // gradient stop-opacity carries the fade
+            }
+
+            if (kind === "persistent" && animate && !prefersReducedMotion) {
+                path.style.setProperty("--len", len.toFixed(0));
+                path.classList.add("drawing");
+            }
+            connectorSvg.appendChild(path);
+
+            // Endpoint dots — omit the dot at an off-screen (clamped) end.
+            const dots = [];
+            if (!start.offscreen) dots.push([start.x, start.y]);
+            if (!end.offscreen) dots.push([end.x, end.y]);
+            dots.forEach(([cx, cy]) => {
+                const dot = document.createElementNS(SVG_NS, "circle");
+                dot.setAttribute("cx", cx); dot.setAttribute("cy", cy);
+                dot.setAttribute("r", kind === "persistent" ? 3 : 2.5);
+                if (kind === "transient") dot.classList.add("transient");
+                connectorSvg.appendChild(dot);
+            });
+        }
+
+        function drawConnection(conn, animate) {
+            const el = anchorElement(conn.anchor);
+            if (!el) { clearConnector(); return; }
+            let endRect;
+            if (conn.kind === "selected") {
+                const card = commentCard(conn.anchor);
+                if (!card) { clearConnector(); return; }
+                endRect = card.getBoundingClientRect();
+            } else {
+                const box = document.querySelector(".comment-box");
+                if (!box) { clearConnector(); return; }
+                endRect = box.getBoundingClientRect();
+            }
+            paintConnector(connectorStart(el), connectorEnd(endRect), "persistent", animate);
+        }
+
+        function refreshConnector() {
+            if (connection) { drawConnection(connection, false); return; }
+            if (hoverAnchor) {
+                const el = anchorElement(hoverAnchor);
+                const card = commentCard(hoverAnchor);
+                if (el && card) {
+                    paintConnector(connectorStart(el), connectorEnd(card.getBoundingClientRect()), "transient", false);
+                } else {
+                    clearConnector();
+                }
+                return;
+            }
+            clearConnector();
+        }
+
+        function clearConnectionMarks() {
+            document.querySelectorAll(".feedback-item.selected").forEach(n => n.classList.remove("selected"));
+            document.querySelectorAll(".commentable-element.selected-target").forEach(n => n.classList.remove("selected-target"));
+        }
+
+        // Scroll the body so the target element's vertical centre lines up with
+        // the comment card's centre, then draw the (animated) line.
+        function alignAndDraw(el, card) {
+            const er = el.getBoundingClientRect();
+            const cr = card.getBoundingClientRect();
+            const delta = (er.top + er.height / 2) - (cr.top + cr.height / 2);
+            const finish = () => { if (connection) drawConnection(connection, true); };
+            if (Math.abs(delta) < 2 || prefersReducedMotion) {
+                window.scrollBy(0, delta);
+                finish();
+            } else {
+                window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
+                setTimeout(finish, 320);
+            }
+        }
+
+        function selectComment(anchor) {
+            if (connection && connection.kind === "selected" && connection.anchor === anchor) {
+                clearConnection();
+                return;
+            }
+            clearCommentTarget();       // drop any compose state / line first
+            clearConnectionMarks();
+            connection = { kind: "selected", anchor };
+            hoverAnchor = null;
+            const card = commentCard(anchor);
+            const el = anchorElement(anchor);
+            if (card) card.classList.add("selected");
+            if (el && card) {
+                el.classList.add("selected-target");
+                alignAndDraw(el, card);
+            }
+        }
+
+        function clearConnection() {
+            connection = null;
+            clearConnectionMarks();
+            clearConnector();
+        }
+
+        function hoverConnector(anchor) { hoverAnchor = anchor; if (!connection) refreshConnector(); }
+        function unhoverConnector() { hoverAnchor = null; if (!connection) clearConnector(); }
+
+        // Re-apply the active connection after comment list / indicators re-render.
+        // Drops the connection if its comment or element no longer exists.
+        function reconcileConnection() {
+            if (connection && connection.kind === "selected") {
+                const card = commentCard(connection.anchor);
+                const el = anchorElement(connection.anchor);
+                if (!card || !el) { clearConnection(); return; }
+                clearConnectionMarks();
+                card.classList.add("selected");
+                el.classList.add("selected-target");
+            }
+            refreshConnector();
+        }
+
+        // Keep the line attached while scrolling / resizing.
+        let connectorRaf = null;
+        function scheduleConnectorRefresh() {
+            if (connectorRaf) return;
+            connectorRaf = requestAnimationFrame(() => { connectorRaf = null; refreshConnector(); });
+        }
+        window.addEventListener("scroll", scheduleConnectorRefresh, true);
+        window.addEventListener("resize", scheduleConnectorRefresh);
+        document.addEventListener("keydown", (e) => { if (e.key === "Escape") { clearConnection(); clearCommentTarget(); } });
+        // Click on empty space (not a comment / element / composer) deselects.
+        document.addEventListener("click", (e) => {
+            if (e.target.closest(".feedback-item, .commentable-element, .comment-box, #commentContextContainer")) return;
+            if (connection && connection.kind === "selected") clearConnection();
+        });
 
         document.getElementById("addCommentBtn").addEventListener("click", () => {
             const input = document.getElementById("commentInput");
@@ -1195,17 +1443,6 @@
 
                 if (idx === editingIdx) {
                     item.classList.add("editing-mode");
-
-                    // Context preview if present
-                    if (c.anchor && c.context) {
-                        const targetIndicator = document.createElement("div");
-                        targetIndicator.className = "sidebar-comment-target";
-                        targetIndicator.textContent = `💬 On: ${c.context}`;
-                        targetIndicator.addEventListener('click', () => {
-                            scrollToSpecElement(c.anchor);
-                        });
-                        item.appendChild(targetIndicator);
-                    }
 
                     // Textarea for editing
                     const textarea = document.createElement("textarea");
@@ -1269,17 +1506,6 @@
                         }
                     });
 
-                    // Add context target indicator if present
-                    if (c.anchor && c.context) {
-                        const targetIndicator = document.createElement("div");
-                        targetIndicator.className = "sidebar-comment-target";
-                        targetIndicator.textContent = `💬 On: ${c.context}`;
-                        targetIndicator.addEventListener('click', () => {
-                            scrollToSpecElement(c.anchor);
-                        });
-                        item.appendChild(targetIndicator);
-                    }
-
                     const authorTag = document.createElement("div");
                     authorTag.className = "comment-author";
                     authorTag.textContent = (c.author === "agent") ? "Agent" : "You";
@@ -1328,9 +1554,21 @@
                         item.classList.add("resolved");
                     }
 
+                    // Click the card to select it (and draw its line); hover to preview.
+                    // Ignore clicks on the card's own controls.
+                    if (c.anchor) {
+                        item.addEventListener("click", (e) => {
+                            if (e.target.closest(".delete-btn, .edit-btn, .resolve-toggle, input, button, textarea, a")) return;
+                            selectComment(c.anchor);
+                        });
+                        item.addEventListener("mouseenter", () => { if (!connection) hoverConnector(c.anchor); });
+                        item.addEventListener("mouseleave", () => { if (!connection) unhoverConnector(); });
+                    }
+
                     container.appendChild(item);
                 }
             });
+            reconcileConnection();
         }
 
         window.startEdit = function(idx) {
