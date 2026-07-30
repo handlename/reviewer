@@ -73,6 +73,17 @@
             --callout-warning: hsl(38 58% 40%);
             --callout-danger:  hsl(2 52% 46%);
 
+            /* Comment-state highlight channels. One accent hue throughout;
+               the four states are told apart by position, stroke style and
+               depth instead. Why not a second hue: .callout already spends
+               the accent on its semantic left rule, so any state that also
+               paints inside the box is invisible on a callout. */
+            --hl-wash:   hsl(var(--accent-hsl) / 0.07);   /* hover + persistent states */
+            --hl-mark:   hsl(var(--accent-hsl) / 0.40);   /* gutter tick: has comments */
+            --hl-ring:   hsl(var(--accent-hsl));          /* full-perimeter ring */
+            --hl-halo:   hsl(var(--accent-hsl) / 0.20);   /* selected only */
+            --hl-gutter: 12px;                            /* tick offset, outside the box */
+
             --measure: 40rem;   /* ~70ch reading column */
             --radius: 3px;
             --u: 8px;           /* spacing base unit */
@@ -754,19 +765,42 @@
         /* ---------- Inline commenting affordances ---------- */
         .commentable-element {
             position: relative;
-            transition: background-color 0.2s, border-color 0.2s;
+            border-radius: var(--radius);
+            /* Never `transition: all` — the interpolated properties are listed
+               so a state change can never move the text. */
+            transition: background-color 0.18s ease-out,
+                        box-shadow 0.18s ease-out,
+                        outline-color 0.18s ease-out;
         }
         .commentable-element:hover {
-            background-color: hsl(var(--accent-hsl) / 0.06) !important;
+            background-color: var(--hl-wash);
         }
+        /* "Has comments" lives in the left gutter, outside the box.
+           Why not a left rule: .callout owns border-left for its semantic
+           accent, so an inner rule reads as the callout, not as a state.
+           Why a short centred tick rather than a full-height bar: next to a
+           callout a full-height bar in the same accent reads as a second
+           left rule, and the two become hard to tell apart. */
+        .commentable-element.has-comments-highlight::before {
+            content: "";
+            position: absolute;
+            left: calc(var(--hl-gutter) * -1);
+            top: 50%;
+            transform: translateY(-50%);
+            width: 2px;
+            height: calc(var(--u) * 2.5);
+            border-radius: 1px;
+            background: var(--hl-mark);
+        }
+        /* Compose target and selected target are both persistent and mutually
+           exclusive (selectComment clears the compose state first), so they are
+           separated by stroke style and depth. Neither touches padding or
+           border, so .callout keeps its own left rule and its 1rem 1.25rem
+           padding, and nothing shifts when a state turns on. */
         .commentable-element.active-comment-target {
-            background-color: hsl(var(--accent-hsl) / 0.09) !important;
-            border-left: 2px solid var(--accent-color) !important;
-            padding-left: 0.5rem;
-        }
-        .commentable-element.has-comments-highlight {
-            border-left: 2px dashed hsl(var(--accent-hsl) / 0.5);
-            padding-left: 0.5rem;
+            background-color: var(--hl-wash);
+            outline: 1.5px dashed var(--hl-ring);
+            outline-offset: 3px;
         }
         .element-comment-indicator {
             position: absolute;
@@ -831,10 +865,13 @@
 
         /* selected comment card + its target element share the accent lift */
         .feedback-item.selected { border-color: var(--accent-color); background: hsl(var(--accent-hsl) / 0.06); }
+        /* Strongest state: solid ring plus a halo, so it outranks the dashed
+           compose ring without needing a second hue. */
         .commentable-element.selected-target {
-            background-color: hsl(var(--accent-hsl) / 0.09) !important;
-            border-left: 2px solid var(--accent-color);
-            padding-left: 0.5rem;
+            background-color: var(--hl-wash);
+            outline: 1.5px solid var(--hl-ring);
+            outline-offset: 3px;
+            box-shadow: 0 0 0 6px var(--hl-halo);
         }
 
         /* ---------- Sidebar TOC ---------- */
