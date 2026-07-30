@@ -1431,10 +1431,28 @@
             if (e.target.value.trim()) markDirty();
         });
 
+        // Sidebar display order follows the target block's appearance in the document, so the
+        // panel can be read top-down alongside the spec. `comments` itself (and the feedback
+        // file written from it) keeps creation order — only the rendering is reordered, and the
+        // original array index travels with each entry so the idx-based handlers stay valid.
+        const UNPLACED_RANK = Number.MAX_SAFE_INTEGER;
+        function commentsInAppearanceOrder() {
+            const order = new Map();
+            document.querySelectorAll('.main-content [data-anchor]').forEach((el, i) => {
+                order.set(el.getAttribute('data-anchor'), i);
+            });
+            // No anchor, or an anchor whose element is gone after an agent edit: sink to the end.
+            const rank = c => (c.anchor && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
+            // sort is stable, so comments sharing a rank (same block, or both unplaced) stay in creation order.
+            return comments
+                .map((c, idx) => ({ c, idx }))
+                .sort((a, b) => rank(a.c) - rank(b.c));
+        }
+
         function renderComments() {
             const container = document.getElementById("commentsList");
             container.innerHTML = "";
-            comments.forEach((c, idx) => {
+            commentsInAppearanceOrder().forEach(({ c, idx }) => {
                 const item = document.createElement("div");
                 item.className = "feedback-item";
                 if (c.anchor) {

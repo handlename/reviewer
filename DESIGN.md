@@ -132,6 +132,15 @@ Embedded into the Go binary at compile-time using the standard `//go:embed` dire
   * **Sidebar (Left)**: Renders the spec's title, version, date, and navigation.
   * **Main Content (Middle)**: Renders the compiled body of the specification.
   * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission.
+* **Comment Display Order**:
+  The feedback panel renders comments in the **appearance order of their target block** in the
+  document, so the panel reads top-down alongside the spec. `commentsInAppearanceOrder()` builds an
+  `anchor → position` map from the live DOM (`.main-content [data-anchor]`) and stable-sorts a
+  `{comment, originalIndex}` view — so comments on the same block keep creation order, and the
+  `idx`-based handlers (`editingIdx`, `deleteComment`, `saveComment`) continue to address the
+  untouched `comments` array. Comments with no anchor, or whose anchored element disappeared after
+  an agent edit, sink to the end in creation order. Only the rendering is reordered: the `comments`
+  array and the feedback file written from it stay in creation order.
 * **Interactive DOM Initialization**:
   Upon load, the frontend JS runs `initializeCommentableElements()`. This attaches `data-anchor` attributes and a hover action `💬` to all root block elements (excluding headers, code tags, or nested child blocks).
 * **Inline Comment Editing State Management**:
