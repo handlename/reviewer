@@ -22,14 +22,14 @@ This document describes the internal design, system architecture, and component 
 
 ```mermaid
 graph TD
-    subgraph CLI (cli/command)
+    subgraph CLI["CLI (cli/command)"]
         root[root.go - Root CLI]
         cmd_build[build.go - Build Subcommand]
         cmd_serve[serve.go - Serve Subcommand]
         cmd_mcp[mcp.go - MCP Subcommand]
     end
 
-    subgraph Core (package reviewer)
+    subgraph Core["Core (package reviewer)"]
         render[render.go - RenderSpec]
         session[session.go - ReviewSession]
         server[server.go - StartReviewServer]
