@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.0](https://github.com/handlename/reviewer/compare/v0.1.0...v0.2.0) - 2026-08-01
+- feat: distribute review-doc skill as Claude plugin by @handlename in https://github.com/handlename/reviewer/pull/17
+- feat: make MCP the agent-facing review contract by @handlename in https://github.com/handlename/reviewer/pull/19
+
 ## [v0.1.0](https://github.com/handlename/reviewer/compare/v0.0.3...v0.1.0) - 2026-07-30
 - feat: redesign review screen with minimal style by @handlename in https://github.com/handlename/reviewer/pull/8
 - feat: click element body to add comment by @handlename in https://github.com/handlename/reviewer/pull/10
