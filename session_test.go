@@ -126,6 +126,52 @@ func TestSessionWait_ReturnsSubmittedComments(t *testing.T) {
 	}
 }
 
+func TestSessionWait_ReturnsSubmitThatLandedBeforeTheCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	// The human can submit while the agent is still editing, i.e. between one Wait returning
+	// and the next being called. Waking only the waiters present at broadcast time would drop
+	// that submit on the floor, and the agent would report a timeout while comments sit
+	// unanswered.
+	submitComment(t, s, "landed while the agent was busy")
+
+	got := s.Wait(ctx, 100*time.Millisecond)
+	if got.Outcome != WaitSubmitted {
+		t.Fatalf("got outcome %q, want %q — a submit before the call must not be lost", got.Outcome, WaitSubmitted)
+	}
+	if len(got.Comments) != 1 {
+		t.Fatalf("got %d comments, want 1", len(got.Comments))
+	}
+}
+
+func TestSessionWait_DoesNotRedeliverTheSameSubmit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	submitComment(t, s, "first round")
+
+	if got := s.Wait(ctx, 100*time.Millisecond); got.Outcome != WaitSubmitted {
+		t.Fatalf("first wait: got outcome %q, want %q", got.Outcome, WaitSubmitted)
+	}
+	// Without a new submit the next wait must block, not replay the round just delivered.
+	if got := s.Wait(ctx, 100*time.Millisecond); got.Outcome != WaitTimeout {
+		t.Fatalf("second wait: got outcome %q, want %q", got.Outcome, WaitTimeout)
+	}
+}
+
 func TestSessionWait_TimesOutWithoutError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

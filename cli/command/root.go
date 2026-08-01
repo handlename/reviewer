@@ -8,6 +8,7 @@ type Root struct {
 
 	Build Build `cmd:"" help:"Build static HTML spec file."`
 	Serve Serve `cmd:"" help:"Serve interactive review server."`
+	MCP   MCP   `cmd:"" name:"mcp" help:"Run as an MCP server over stdio for AI agents."`
 }
 
 func (r *Root) Run(c *Context) error {

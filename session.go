@@ -27,6 +27,13 @@ type ReviewSession struct {
 	hub      *sseHub
 	notifier *submitNotifier
 
+	// submitSeq counts submits; deliveredSeq records how far Wait has reported. A submit that
+	// lands while the agent is editing — between one Wait returning and the next being called —
+	// has no waiter to wake, so the counters, not the broadcast, are what stop it being lost.
+	seqMu        sync.Mutex
+	submitSeq    uint64
+	deliveredSeq uint64
+
 	// done signals "the session is over". shutdown is separate and happens exactly once,
 	// whoever gets there first: /api/close closes done without shutting the server down, and
 	// StartReviewServer then calls Close() to do the shutdown after it stops blocking.
@@ -154,17 +161,47 @@ type WaitResult struct {
 	Summary  string      `json:"summary,omitempty"`
 }
 
+// recordSubmit marks that a submit landed, so a Wait entered later still sees it.
+func (s *ReviewSession) recordSubmit() {
+	s.seqMu.Lock()
+	s.submitSeq++
+	s.seqMu.Unlock()
+}
+
+// takePendingSubmit reports whether a submit has landed since the last one Wait delivered,
+// consuming it so the next Wait blocks instead of replaying the same round.
+func (s *ReviewSession) takePendingSubmit() bool {
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	if s.submitSeq == s.deliveredSeq {
+		return false
+	}
+	s.deliveredSeq = s.submitSeq
+	return true
+}
+
 // Wait blocks until the human submits, the timeout expires, or the session ends, whichever
 // comes first. It never returns an error: the caller distinguishes cases via Outcome.
+//
+// A submit that landed before this call — while the agent was editing the document — is
+// returned immediately rather than waited past.
 func (s *ReviewSession) Wait(ctx context.Context, timeout time.Duration) WaitResult {
 	ch := s.notifier.subscribe()
 	defer s.notifier.unsubscribe(ch)
+
+	// Subscribe first, then check: a submit racing in between wakes the channel instead of
+	// being missed by both the check and the subscription.
+	if s.takePendingSubmit() {
+		fb := s.readFeedbackDoc()
+		return WaitResult{Outcome: WaitSubmitted, Comments: fb.Comments, Summary: fb.Summary}
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {
 	case <-ch:
+		s.takePendingSubmit()
 		fb := s.readFeedbackDoc()
 		return WaitResult{Outcome: WaitSubmitted, Comments: fb.Comments, Summary: fb.Summary}
 	case <-timer.C:
@@ -172,7 +209,10 @@ func (s *ReviewSession) Wait(ctx context.Context, timeout time.Duration) WaitRes
 	case <-s.done:
 		return WaitResult{Outcome: WaitSessionEnded, Comments: []Comment{}}
 	case <-ctx.Done():
-		return WaitResult{Outcome: WaitSessionEnded, Comments: []Comment{}}
+		// The caller went away — a cancelled tool call, not a finished review. Reporting
+		// session_ended here would tell the agent the review is over and end the loop early,
+		// so report the outcome that means "nothing happened, call again" instead.
+		return WaitResult{Outcome: WaitTimeout, Comments: []Comment{}}
 	}
 }
 
@@ -322,6 +362,9 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 
+			// Record before broadcasting, so a Wait woken by the broadcast sees the new
+			// sequence number rather than racing ahead of it.
+			s.recordSubmit()
 			// Wake any long-poll waiter (GET /api/wait) — the low-latency submit signal.
 			s.notifier.broadcast()
 

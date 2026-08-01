@@ -49,21 +49,24 @@ func Run() ExitCode {
 	return ExitCodeOK
 }
 
+// handleError writes the error dump to stderr, never stdout. `reviewer mcp` serves JSON-RPC
+// over stdout, so a diagnostic printed there would be parsed as a protocol message and break
+// the client's session. Stderr is also simply the right place for diagnostics.
 func handleError(err error) {
-	fmt.Println("======== error ========")
+	fmt.Fprintln(os.Stderr, "======== error ========")
 
 	code := failure.CodeOf(err)
-	fmt.Printf("code = %s\n", code)
+	fmt.Fprintf(os.Stderr, "code = %s\n", code)
 
 	msg := failure.MessageOf(err)
-	fmt.Printf("message = %s\n", msg)
+	fmt.Fprintf(os.Stderr, "message = %s\n", msg)
 
 	cs := failure.CallStackOf(err)
-	fmt.Printf("callstack = %s\n", cs)
+	fmt.Fprintf(os.Stderr, "callstack = %s\n", cs)
 
-	fmt.Printf("cause = %s\n", failure.CauseOf(err))
+	fmt.Fprintf(os.Stderr, "cause = %s\n", failure.CauseOf(err))
 
-	fmt.Println()
-	fmt.Println("======== detail ========")
-	fmt.Printf("%+v\n", err)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "======== detail ========")
+	fmt.Fprintf(os.Stderr, "%+v\n", err)
 }

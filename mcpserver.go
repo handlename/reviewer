@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -25,11 +26,18 @@ type MCPOptions struct {
 
 // sessionHolder owns the one review session an MCP process may have at a time.
 type sessionHolder struct {
+	// baseCtx bounds a session's lifetime to the MCP process, NOT to the review_start call
+	// that created it. Handing a tool call's request context to StartSession would end the
+	// review the instant review_start returned.
+	baseCtx context.Context
+
 	mu      sync.Mutex
 	current *ReviewSession
 }
 
-func newSessionHolder() *sessionHolder { return &sessionHolder{} }
+func newSessionHolder(baseCtx context.Context) *sessionHolder {
+	return &sessionHolder{baseCtx: baseCtx}
+}
 
 // live reports the current session if it exists and has not ended. Callers must hold mu.
 func (h *sessionHolder) live() *ReviewSession {
@@ -62,7 +70,7 @@ type startOutput struct {
 	Path string `json:"path"`
 }
 
-func (h *sessionHolder) start(ctx context.Context, in startInput, opts MCPOptions) (startOutput, error) {
+func (h *sessionHolder) start(in startInput, opts MCPOptions) (startOutput, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -74,7 +82,17 @@ func (h *sessionHolder) start(ctx context.Context, in startInput, opts MCPOption
 		h.current = nil
 	}
 
-	s, err := StartSession(ctx, in.Path, opts.Port, opts.NoOpen)
+	// Fail before binding a port. Serving a document that cannot be read would hand the agent
+	// a URL to advertise, and the human a page that only ever renders an error.
+	info, err := os.Stat(in.Path)
+	if err != nil {
+		return startOutput{}, fmt.Errorf("cannot review %s: %w", in.Path, err)
+	}
+	if info.IsDir() {
+		return startOutput{}, fmt.Errorf("cannot review %s: it is a directory, not a document", in.Path)
+	}
+
+	s, err := StartSession(h.baseCtx, in.Path, opts.Port, opts.NoOpen)
 	if err != nil {
 		return startOutput{}, fmt.Errorf("failed to start review of %s: %w", in.Path, err)
 	}
@@ -88,13 +106,20 @@ type waitOutput struct {
 	Summary  string    `json:"summary,omitempty"`
 }
 
-// wait returns an error only when there is no session to wait on — an agent mistake. Every
-// genuine outcome of waiting (submitted, timeout, session_ended) is a successful result.
+// wait returns an error only when no review was ever started — an agent mistake. Every genuine
+// outcome of waiting (submitted, timeout, session_ended) is a successful result.
+//
+// A review that has already ended is not an error either: the human can click End Review while
+// the agent is editing, and the agent then learns the review is over from the documented
+// outcome rather than from a failure that reads like a malfunction.
 func (h *sessionHolder) wait(ctx context.Context, timeout time.Duration) (waitOutput, error) {
 	h.mu.Lock()
-	s := h.live()
+	s, started := h.live(), h.current != nil
 	h.mu.Unlock()
 	if s == nil {
+		if started {
+			return waitOutput{Outcome: string(WaitSessionEnded), Comments: []Comment{}}, nil
+		}
 		return waitOutput{}, fmt.Errorf("no review is open; call review_start first")
 	}
 
@@ -155,8 +180,9 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 			Name:        "review_start",
 			Description: "Open a Markdown document for interactive review. Renders it, serves it, and opens the browser. Returns the review URL.",
 		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
-			out, err := holder.start(ctx, in, opts)
+		func(_ context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
+			// The request context is deliberately unused: the session outlives this call.
+			out, err := holder.start(in, opts)
 			return nil, out, err
 		})
 
@@ -204,7 +230,7 @@ func RunMCPServer(ctx context.Context, opts MCPOptions) error {
 	if opts.WaitTimeout <= 0 {
 		opts.WaitTimeout = DefaultWaitTimeout
 	}
-	holder := newSessionHolder()
+	holder := newSessionHolder(ctx)
 	defer holder.closeCurrent()
 
 	return newMCPServer(holder, opts).Run(ctx, &mcp.StdioTransport{})
