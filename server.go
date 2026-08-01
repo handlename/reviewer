@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -43,8 +44,9 @@ type Comment struct {
 	ReplyTimestamp string `json:"replyTimestamp,omitempty"` // when the agent replied
 }
 
-// Feedback is the shared review state persisted to <input>-feedback.json.
-// Both the browser and the agent read/write this document.
+// Feedback is the review state for one document, persisted under the OS temp directory (see
+// FeedbackPath). It is reviewer's internal storage: the browser and the session read and write
+// it, the agent reaches it only through the MCP tools.
 type Feedback struct {
 	Comments []Comment `json:"comments"`
 	Summary  string    `json:"summary,omitempty"` // agent's page-level change summary for the latest pass
@@ -72,21 +74,48 @@ func assignCommentIDs(comments []Comment) []Comment {
 	return comments
 }
 
-// FeedbackPath returns the sidecar feedback file path for a given input document.
+// FeedbackPath returns the file holding a document's review comments.
 func FeedbackPath(inputPath string) string {
 	return sidecarPath(inputPath, "-feedback.json")
 }
 
-// StatusPath returns the sidecar file the agent writes to report its live activity.
+// StatusPath returns the file holding the agent's live activity for a document.
 func StatusPath(inputPath string) string {
 	return sidecarPath(inputPath, "-status.json")
 }
 
+// sidecarDir is where reviewer keeps its per-document review state.
+//
+// These files are reviewer's internal storage, not something the user edits, so they live under
+// the OS temp directory. Writing them beside the document left untracked files in the working
+// tree of any repository being reviewed.
+func sidecarDir() string {
+	return filepath.Join(os.TempDir(), "reviewer")
+}
+
+// sidecarPath derives a stable, collision-free name for one document's sidecar. The absolute
+// path is hashed in because basenames collide across directories (docs/spec.md and
+// notes/spec.md), while the readable stem is kept so the file is still identifiable by eye.
 func sidecarPath(inputPath, suffix string) string {
-	dir := filepath.Dir(inputPath)
-	base := filepath.Base(inputPath)
-	ext := filepath.Ext(base)
-	return filepath.Join(dir, strings.TrimSuffix(base, ext)+suffix)
+	abs, err := filepath.Abs(inputPath)
+	if err != nil {
+		// A path we cannot absolutise still needs a stable name; the raw form is stable enough.
+		abs = inputPath
+	}
+	sum := sha256.Sum256([]byte(abs))
+	stem := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
+	return filepath.Join(sidecarDir(), fmt.Sprintf("%s-%s%s", stem, hex.EncodeToString(sum[:4]), suffix))
+}
+
+// writeSidecar creates the sidecar directory on demand and writes the file.
+//
+// Permissions are tight because the OS temp directory is world-writable on some platforms
+// (/tmp on Linux) and review comments are the user's private notes.
+func writeSidecar(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }
 
 // AgentStatus is the agent's live activity, surfaced on the page so the user can watch
@@ -116,8 +145,8 @@ func statusPayload(raw []byte) string {
 }
 
 // waitTimeout bounds how long GET /api/wait blocks before replying 204 so the client can
-// re-poll. Kept below the agent monitor's curl --max-time so the server, not the client,
-// closes the idle connection. A package var so tests can shorten it.
+// re-poll. This endpoint serves `reviewer serve`; agents use review_wait, whose window is set
+// separately by MCPOptions.WaitTimeout. A package var so tests can shorten it.
 var waitTimeout = 25 * time.Second
 
 // submitNotifier wakes every long-poll waiter the instant a review is submitted. It mirrors
@@ -247,31 +276,22 @@ func pruneResolved(comments []Comment) []Comment {
 	return kept
 }
 
-// watchForReload debounces filesystem events and broadcasts typed SSE events:
-//   - the document or feedback sidecar changes -> "reload" (the page refreshes)
-//   - the status sidecar changes             -> "status" (the page updates in place)
-func watchForReload(watcher *fsnotify.Watcher, inputPath, feedbackPath, statusPath string, hub *sseHub, done <-chan struct{}) {
+// watchForReload debounces filesystem events on the reviewed document and broadcasts a
+// "reload" so the page picks up the agent's edits.
+//
+// Only the document is watched. The feedback and status files used to be watched too, back when
+// the agent wrote them directly; now the session is their only writer and broadcasts the event
+// itself. That also avoids watching a directory shared by every review on the machine, where one
+// session's writes would fire another session's page.
+func watchForReload(watcher *fsnotify.Watcher, inputPath string, hub *sseHub, done <-chan struct{}) {
 	wantInput := filepath.Clean(inputPath)
-	wantFeedback := filepath.Clean(feedbackPath)
-	wantStatus := filepath.Clean(statusPath)
 
-	var reloadTimer, statusTimer *time.Timer
+	var reloadTimer *time.Timer
 	debounceReload := func() {
 		if reloadTimer != nil {
 			reloadTimer.Stop()
 		}
 		reloadTimer = time.AfterFunc(150*time.Millisecond, func() { hub.broadcast(reloadPayload()) })
-	}
-	// Status is snappier than reload so progress feels live.
-	debounceStatus := func() {
-		if statusTimer != nil {
-			statusTimer.Stop()
-		}
-		statusTimer = time.AfterFunc(60*time.Millisecond, func() {
-			if raw, err := os.ReadFile(statusPath); err == nil {
-				hub.broadcast(statusPayload(raw))
-			}
-		})
 	}
 
 	for {
@@ -282,10 +302,7 @@ func watchForReload(watcher *fsnotify.Watcher, inputPath, feedbackPath, statusPa
 			if !ok {
 				return
 			}
-			switch filepath.Clean(ev.Name) {
-			case wantStatus:
-				debounceStatus()
-			case wantInput, wantFeedback:
+			if filepath.Clean(ev.Name) == wantInput {
 				debounceReload()
 			}
 		case err, ok := <-watcher.Errors:

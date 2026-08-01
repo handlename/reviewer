@@ -383,29 +383,97 @@ func TestStartReviewServer_WaitReleasedOnClose(t *testing.T) {
 
 func TestFeedbackPath(t *testing.T) {
 	got := FeedbackPath(filepath.Join("docs", "my-spec.md"))
-	want := filepath.Join("docs", "my-spec-feedback.json")
-	if got != want {
-		t.Errorf("FeedbackPath = %q, want %q", got, want)
+
+	// Sidecars live under the OS temp directory, not beside the document: reviewing a file
+	// inside a repository must not leave untracked files in its working tree.
+	if dir := filepath.Dir(got); dir != filepath.Join(os.TempDir(), "reviewer") {
+		t.Errorf("FeedbackPath dir = %q, want it under the OS temp directory", dir)
+	}
+	base := filepath.Base(got)
+	if !strings.HasPrefix(base, "my-spec-") || !strings.HasSuffix(base, "-feedback.json") {
+		t.Errorf("FeedbackPath base = %q, want the document stem kept for legibility", base)
+	}
+}
+
+func TestSidecarPath_DistinguishesSameNameInDifferentDirectories(t *testing.T) {
+	// Basenames collide across directories, so the absolute path is hashed into the name.
+	a := FeedbackPath(filepath.Join("docs", "spec.md"))
+	b := FeedbackPath(filepath.Join("notes", "spec.md"))
+	if a == b {
+		t.Errorf("two documents named spec.md share the sidecar %q", a)
+	}
+}
+
+func TestSidecarPath_IsStableForTheSameDocument(t *testing.T) {
+	// A page reload, or a fresh process reviewing the same file, must find the same sidecar.
+	if a, b := FeedbackPath("docs/spec.md"), FeedbackPath("docs/spec.md"); a != b {
+		t.Errorf("FeedbackPath is not stable: %q then %q", a, b)
 	}
 }
 
 func TestStatusPath(t *testing.T) {
 	got := StatusPath(filepath.Join("docs", "my-spec.md"))
-	want := filepath.Join("docs", "my-spec-status.json")
-	if got != want {
-		t.Errorf("StatusPath = %q, want %q", got, want)
+
+	if dir := filepath.Dir(got); dir != filepath.Join(os.TempDir(), "reviewer") {
+		t.Errorf("StatusPath dir = %q, want it under the OS temp directory", dir)
+	}
+	base := filepath.Base(got)
+	if !strings.HasPrefix(base, "my-spec-") || !strings.HasSuffix(base, "-status.json") {
+		t.Errorf("StatusPath base = %q, want the document stem kept for legibility", base)
+	}
+}
+
+func TestSidecars_AreNotWrittenBesideTheDocument(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "spec.md")
+	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
+
+	s, err := StartSession(ctx, inputPath, 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	postFeedback(t, s.URL(), Feedback{Comments: []Comment{{
+		Text: "a note", Timestamp: "2026-01-01T00:00:00Z", Author: AuthorHuman, Status: StatusOpen,
+	}}})
+	if err := s.Progress(StateWorking, "editing"); err != nil {
+		t.Fatalf("Progress failed: %v", err)
+	}
+
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("failed to read the document directory: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "spec.md" {
+			t.Errorf("review left %q beside the document; sidecars belong in the temp directory", e.Name())
+		}
 	}
 }
 
 // The agent's status file drives a live "status" SSE event and a /api/status endpoint,
 // so the page can show progress between submit and reply without a full reload.
 func TestStartReviewServer_AgentStatus(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "spec.md")
 	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
 
-	url, stop := startTestServer(t, inputPath)
-	defer stop()
+	// Driven through the session rather than by writing the sidecar directly: the agent no
+	// longer touches these files, so the session is their only writer and broadcasts the
+	// event itself instead of watching for its own write to come back.
+	s, err := StartSession(ctx, inputPath, 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+	url := s.URL()
 
 	// Missing status file → idle.
 	if body := httpGetBody(t, url+"/api/status"); !strings.Contains(body, `"state":"idle"`) {
@@ -435,8 +503,8 @@ func TestStartReviewServer_AgentStatus(t *testing.T) {
 
 	time.Sleep(150 * time.Millisecond)
 	// Agent reports its activity.
-	if err := os.WriteFile(StatusPath(inputPath), []byte(`{"state":"working","message":"editing-doc"}`), 0644); err != nil {
-		t.Fatalf("failed to write status: %v", err)
+	if err := s.Progress(StateWorking, "editing-doc"); err != nil {
+		t.Fatalf("Progress failed: %v", err)
 	}
 
 	select {

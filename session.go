@@ -139,7 +139,7 @@ func (s *ReviewSession) startWatcher() {
 		return
 	}
 	s.watcher = watcher
-	go watchForReload(watcher, s.inputPath, s.feedbackPath, s.statusPath, s.hub, s.done)
+	go watchForReload(watcher, s.inputPath, s.hub, s.done)
 }
 
 // WaitOutcome discriminates why Wait returned. Every value is a normal, expected result:
@@ -273,9 +273,12 @@ func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode feedback: %w", err)
 	}
-	if err := os.WriteFile(s.feedbackPath, encoded, 0644); err != nil {
+	if err := writeSidecar(s.feedbackPath, encoded); err != nil {
 		return fmt.Errorf("failed to write feedback: %w", err)
 	}
+	// The session is the only writer, so it announces its own change rather than waiting for a
+	// file watcher to notice it.
+	s.hub.broadcast(reloadPayload())
 	return nil
 }
 
@@ -293,9 +296,12 @@ func (s *ReviewSession) Progress(state, message string) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode status: %w", err)
 	}
-	if err := os.WriteFile(s.statusPath, encoded, 0644); err != nil {
+	if err := writeSidecar(s.statusPath, encoded); err != nil {
 		return fmt.Errorf("failed to write status: %w", err)
 	}
+	// Pushed straight to the page: progress should feel live, and there is no other writer to
+	// wait on. The file itself only exists so GET /api/status can restore state after a reload.
+	s.hub.broadcast(statusPayload(encoded))
 	return nil
 }
 
@@ -348,15 +354,19 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if err := os.WriteFile(s.feedbackPath, encoded, 0644); err != nil {
+			if err := writeSidecar(s.feedbackPath, encoded); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
 			// Seed the activity panel with a "waiting for the agent" status. This survives the
-			// reload the feedback write triggers, so the indicator stays put instead of flashing
-			// away; the agent then overwrites it with its own progress and clears it when done.
-			_ = os.WriteFile(s.statusPath, []byte(`{"state":"working","message":"エージェントの応答を待っています…"}`), 0644)
+			// reload below, so the indicator stays put instead of flashing away; the agent then
+			// overwrites it with its own progress and clears it when done.
+			seeded := []byte(`{"state":"working","message":"エージェントの応答を待っています…"}`)
+			_ = writeSidecar(s.statusPath, seeded)
+			s.hub.broadcast(statusPayload(seeded))
+			// Other tabs viewing the same document pick up the new comments.
+			s.hub.broadcast(reloadPayload())
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)

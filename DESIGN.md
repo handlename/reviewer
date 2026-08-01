@@ -40,7 +40,7 @@ graph TD
     subgraph Storage
         md_file[input.md - Spec File]
         html_file[output.html - Compiled HTML]
-        json_file[input-feedback.json - Internal Comment Store]
+        json_file[TMPDIR/reviewer/*.json - Internal Review State]
     end
 
     root --> cmd_build
@@ -63,11 +63,10 @@ graph TD
     UI -->|GET / re-render · POST /api/feedback · POST /api/close| session
     UI -->|SSE /api/events| session
     session -->|Writes Feedback / prunes resolved / assigns ids| json_file
-    session -->|reload on file change| UI
+    session -->|SSE reload · status| UI
     agent[External Agent] -->|review_start · review_wait · review_reply · review_progress| mcpsrv
     agent -->|Edits| md_file
     md_file -->|fsnotify watch| session
-    json_file -->|fsnotify watch| session
 ```
 
 ---
@@ -154,18 +153,24 @@ goes through MCP.
   The page's **End Review** button hits this endpoint to end the session (graceful shutdown).
 * **`GET /api/status`**:
   Returns the agent's current activity (`{ "state": "working|idle", "message": "..." }`) from the
-  `-status.json` sidecar, so the page can restore the "working" indicator after a mid-round reload. A
-  missing file yields `idle`.
+  stored status file, so the page can restore the "working" indicator after a mid-round reload. A
+  missing file yields `idle`. This is the only reason the status is written to disk at all; the
+  live update reaches the page over SSE.
 * **`GET /api/events` (SSE)**:
   A Server-Sent Events stream carrying **typed JSON events** so the page can react differently:
   * `{"kind":"reload"}` — the document or feedback changed; the page calls `location.reload()`.
   * `{"kind":"status","state":...,"message":...}` — the agent's activity changed; the page updates the
     live activity panel **in place**, without reloading.
 * **File watching (`fsnotify`)**:
-  The server watches the directory containing the `.md` and its `-feedback.json` / `-status.json`
-  sidecars. Document/feedback changes debounce (~150ms) into a `reload`; status changes debounce
-  (~60ms, snappier) into a `status` event carrying the file's contents. This is how the agent's file
-  edits and progress reach the browser with no explicit control call.
+  The server watches the directory containing the `.md`, debouncing changes (~150ms) into a
+  `reload`. This is how the agent's edits reach the browser with no explicit control call —
+  the agent edits the document with its ordinary file tools, not through reviewer.
+
+  Only the document is watched. The review state files were watched too while the agent wrote
+  them directly; now the session is their only writer and broadcasts the SSE event itself, which
+  is both simpler and faster. Watching them where they now live would also mean watching a
+  directory shared by every review on the machine, where one session's writes would fire
+  another session's page.
 * **Graceful shutdown**:
   A single `done` signal (closed by `/api/close` or context cancellation) unblocks SSE handlers and
   blocked `/api/wait` waiters, and triggers `http.Server.Shutdown`.
@@ -187,7 +192,8 @@ most one live `ReviewSession` per process.
   Each reply names a comment by `commentId`. Only `reply` and `replyTimestamp` are written, so the
   human's fields cannot be damaged and the agent cannot resolve a comment.
 * **`review_progress(state, message)`**:
-  Writes the status sidecar, which the file watcher turns into an SSE `status` event.
+  Stores the status and pushes an SSE `status` event, so the page's activity panel updates in
+  place without a reload.
 
 * **Session lifetime is process-scoped, not call-scoped**:
   `sessionHolder` holds the MCP process's context and hands *that* to `StartSession`. Passing a
@@ -253,6 +259,17 @@ The feedback document is reviewer's **internal store** for the review, shared be
 and the session. It is **not** an agent-facing contract: agents never read or write it, and its
 shape may change without notice. What an agent sees is the `review_wait` / `review_reply` tool
 schemas.
+
+**Location**: `$TMPDIR/reviewer/<stem>-<hash>-feedback.json`, with the status file alongside it.
+Both live under the OS temp directory rather than beside the document, so reviewing a file inside
+a repository leaves no untracked files in its working tree. The name keeps the document's stem for
+legibility and appends the first four bytes of the SHA-256 of its absolute path, because basenames
+collide across directories (`docs/spec.md` and `notes/spec.md`). The directory is created `0700`
+and the files `0600`: the temp directory is world-writable on some platforms, and review comments
+are the user's private notes.
+
+Because the state lives in the temp directory, it is subject to that directory's cleanup. Comments
+survive a page reload and a `reviewer` restart, but are not intended to persist indefinitely.
 
 It is stored as a `Feedback` object:
 
