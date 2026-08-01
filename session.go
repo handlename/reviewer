@@ -135,6 +135,65 @@ func (s *ReviewSession) startWatcher() {
 	go watchForReload(watcher, s.inputPath, s.feedbackPath, s.statusPath, s.hub, s.done)
 }
 
+// WaitOutcome discriminates why Wait returned. Every value is a normal, expected result:
+// none of them is an error condition. This matters because the MCP layer turns a returned
+// Go error into an error tool result, which would make an ordinary idle expiry look like a
+// failure to the agent.
+type WaitOutcome string
+
+const (
+	WaitSubmitted    WaitOutcome = "submitted"
+	WaitTimeout      WaitOutcome = "timeout"
+	WaitSessionEnded WaitOutcome = "session_ended"
+)
+
+// WaitResult is what a completed wait reports back to the agent.
+type WaitResult struct {
+	Outcome  WaitOutcome `json:"outcome"`
+	Comments []Comment   `json:"comments"`
+	Summary  string      `json:"summary,omitempty"`
+}
+
+// Wait blocks until the human submits, the timeout expires, or the session ends, whichever
+// comes first. It never returns an error: the caller distinguishes cases via Outcome.
+func (s *ReviewSession) Wait(ctx context.Context, timeout time.Duration) WaitResult {
+	ch := s.notifier.subscribe()
+	defer s.notifier.unsubscribe(ch)
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-ch:
+		fb := s.readFeedbackDoc()
+		return WaitResult{Outcome: WaitSubmitted, Comments: fb.Comments, Summary: fb.Summary}
+	case <-timer.C:
+		return WaitResult{Outcome: WaitTimeout, Comments: []Comment{}}
+	case <-s.done:
+		return WaitResult{Outcome: WaitSessionEnded, Comments: []Comment{}}
+	case <-ctx.Done():
+		return WaitResult{Outcome: WaitSessionEnded, Comments: []Comment{}}
+	}
+}
+
+// readFeedbackDoc loads the feedback sidecar. A missing or malformed file yields an empty
+// document rather than an error — the review can still proceed.
+func (s *ReviewSession) readFeedbackDoc() Feedback {
+	fb := Feedback{Comments: []Comment{}}
+	raw, err := os.ReadFile(s.feedbackPath)
+	if err != nil {
+		return fb
+	}
+	if err := json.Unmarshal(raw, &fb); err != nil {
+		log.Warn().Err(err).Msg("feedback file is malformed; treating as empty")
+		return Feedback{Comments: []Comment{}}
+	}
+	if fb.Comments == nil {
+		fb.Comments = []Comment{}
+	}
+	return fb
+}
+
 // newMux wires the HTTP surface: the rendered page for the browser, and the endpoints that
 // `reviewer serve` clients (including the page itself) use. The MCP server does not go through
 // HTTP — it drives the session directly.

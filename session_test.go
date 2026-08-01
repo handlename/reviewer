@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // writeTempSpec creates a minimal markdown document and returns its path.
@@ -79,5 +81,89 @@ func TestStartSession_ClosesServerAfterSessionAlreadyEnded(t *testing.T) {
 
 	if _, err := http.Get(url); err == nil {
 		t.Fatal("server should no longer accept connections after Close()")
+	}
+}
+
+func TestSessionWait_ReturnsSubmittedComments(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	resultCh := make(chan WaitResult, 1)
+	go func() { resultCh <- s.Wait(ctx, 5*time.Second) }()
+
+	// Give the waiter a moment to subscribe before submitting.
+	time.Sleep(50 * time.Millisecond)
+	body := `{"comments":[{"text":"needs work","timestamp":"2026-01-01T00:00:00Z","author":"human","status":"open"}],"summary":""}`
+	resp, err := http.Post(s.URL()+"/api/feedback", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+	resp.Body.Close()
+
+	select {
+	case got := <-resultCh:
+		if got.Outcome != WaitSubmitted {
+			t.Fatalf("got outcome %q, want %q", got.Outcome, WaitSubmitted)
+		}
+		if len(got.Comments) != 1 {
+			t.Fatalf("got %d comments, want 1", len(got.Comments))
+		}
+		if got.Comments[0].Text != "needs work" {
+			t.Fatalf("got text %q, want %q", got.Comments[0].Text, "needs work")
+		}
+		if got.Comments[0].ID == "" {
+			t.Fatal("comment ID should have been assigned on submit")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Wait did not return after a submit")
+	}
+}
+
+func TestSessionWait_TimesOutWithoutError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	got := s.Wait(ctx, 100*time.Millisecond)
+	if got.Outcome != WaitTimeout {
+		t.Fatalf("got outcome %q, want %q", got.Outcome, WaitTimeout)
+	}
+}
+
+func TestSessionWait_ReportsSessionEnded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+
+	resultCh := make(chan WaitResult, 1)
+	go func() { resultCh <- s.Wait(ctx, 5*time.Second) }()
+
+	time.Sleep(50 * time.Millisecond)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	select {
+	case got := <-resultCh:
+		if got.Outcome != WaitSessionEnded {
+			t.Fatalf("got outcome %q, want %q", got.Outcome, WaitSessionEnded)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Wait did not return after the session ended")
 	}
 }
