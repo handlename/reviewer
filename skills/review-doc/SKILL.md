@@ -1,12 +1,13 @@
 ---
-name: spec-reviewer
-description: Interactive spec document reviewer using the reviewer CLI with a live, in-page human-agent review loop.
-allowed-tools: view_file replace_file_content write_to_file run_command
+name: review-doc
+description: Review specification documents and Markdown notes with the reviewer CLI, which renders them as structured HTML and hosts a live, in-page human-agent review loop. The human leaves gutter comments on document blocks and submits; the agent edits the document and replies inline; the page reloads automatically. Use when a user asks to review, refine, or iterate on a Markdown specification together. Triggers include "review this spec", "仕様書をレビューしたい", "let's review this document together".
+compatibility: Requires the reviewer CLI (https://github.com/handlename/reviewer) on PATH, plus curl and a web browser.
+license: MIT
 ---
-# Spec Reviewer Skill
+# Review Doc Skill
 
 This skill guides the AI agent to conduct interactive reviews of specification documents
-(Markdown files) using the local `reviewer` tool. The review happens entirely on the served
+(Markdown files) using the `reviewer` tool. The review happens entirely on the served
 HTML page: the user comments and submits, the agent updates the document and replies, and the
 page auto-reloads to show the changes and the agent's notes.
 
@@ -15,7 +16,7 @@ Use this skill when a user asks to review, refine, or write specification docume
 
 ## How the live loop works
 
-`reviewer serve` no longer exits when the user submits. It stays running across review rounds:
+`reviewer serve` does not exit when the user submits. It stays running across review rounds:
 
 1. The user adds gutter comments on document blocks and clicks **Submit Review**.
 2. The server writes `<input>-feedback.json`, releases any `GET /api/wait` long-poll waiter (and still
@@ -31,15 +32,37 @@ Use this skill when a user asks to review, refine, or write specification docume
 
 ## Workflow
 
+### 0. Verify the reviewer CLI is available
+This skill drives the `reviewer` command. Check that it is installed **before** doing anything else:
+
+```bash
+reviewer --version
+```
+
+If the command is not found, **stop and tell the user how to install it**. Do NOT install it yourself,
+and do not fall back to another tool:
+
+```console
+$ brew install handlename/tap/reviewer
+```
+
+or
+
+```console
+$ go install github.com/handlename/reviewer/cmd/reviewer@latest
+```
+
+Resume the workflow only after the user confirms the installation.
+
 ### 1. Discover the Target Specification
 Locate the specification file to review.
-- Search in standard locations like `docs/superpowers/specs/` or look for recently modified `.md` files.
+- Search in standard documentation locations, or look for recently modified `.md` files.
 - If multiple spec files are found, ask the user to clarify which file they want to review.
 
 ### 2. Launch the Review Server (in the background)
 Run the server so it keeps running while you work:
 ```bash
-go run ./cmd/reviewer serve <path/to/spec.md>
+reviewer serve <path/to/spec.md>
 ```
 - Run it as a **background process** so you can keep editing while it serves. Do NOT pass
   `--no-open` unless the user asks — the browser should open to the review page.
@@ -120,4 +143,4 @@ While reviewing, analyze the Markdown for:
 - **Internal Consistency**: architecture aligns with requirements.
 - **Readability**: logical, clean heading hierarchy.
 - **Reviewer System Invariants**: avoid nested blocks (lists inside callouts, nested tables) that
-  break rendering or comment-anchor logic (see `AGENTS.md`).
+  break rendering or comment-anchor logic.
