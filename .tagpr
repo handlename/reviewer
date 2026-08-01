@@ -2,4 +2,4 @@
 	vPrefix = true
 	release = draft
 	releaseBranch = main
-	versionFile = version.go
+	versionFile = version.go,.claude-plugin/plugin.json
