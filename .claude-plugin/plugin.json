@@ -15,5 +15,11 @@
     "markdown",
     "html",
     "documentation"
-  ]
+  ],
+  "mcpServers": {
+    "reviewer": {
+      "command": "reviewer",
+      "args": ["mcp"]
+    }
+  }
 }
