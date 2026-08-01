@@ -194,6 +194,71 @@ func (s *ReviewSession) readFeedbackDoc() Feedback {
 	return fb
 }
 
+// Agent activity states surfaced on the review page.
+const (
+	StateWorking = "working"
+	StateIdle    = "idle"
+)
+
+// ReplyInput is one agent response, addressed to a comment by the ID the server assigned it.
+// JSON names are camelCase per AGENTS.md section 5.
+type ReplyInput struct {
+	CommentID string `json:"commentId" jsonschema:"the id of the comment being answered, from review_wait"`
+	Reply     string `json:"reply" jsonschema:"what you changed and why"`
+}
+
+// Reply threads the agent's responses under the human's comments and records the round's
+// summary. It writes only Reply and ReplyTimestamp: Status is deliberately untouched, because
+// marking a comment resolved is the human's decision alone (see DESIGN.md section 4).
+func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
+	fb := s.readFeedbackDoc()
+
+	byID := make(map[string]int, len(fb.Comments))
+	for i, c := range fb.Comments {
+		byID[c.ID] = i
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, r := range replies {
+		i, ok := byID[r.CommentID]
+		if !ok {
+			return fmt.Errorf("no comment with id %q; call review_wait to get the current comments", r.CommentID)
+		}
+		fb.Comments[i].Reply = r.Reply
+		fb.Comments[i].ReplyTimestamp = now
+	}
+	fb.Summary = summary
+
+	encoded, err := json.MarshalIndent(fb, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode feedback: %w", err)
+	}
+	if err := os.WriteFile(s.feedbackPath, encoded, 0644); err != nil {
+		return fmt.Errorf("failed to write feedback: %w", err)
+	}
+	return nil
+}
+
+// Progress reports the agent's current activity to the open page. The server's file watcher
+// picks the write up and pushes a status event over SSE, so the panel updates without a reload.
+func (s *ReviewSession) Progress(state, message string) error {
+	if state != StateWorking && state != StateIdle {
+		return fmt.Errorf("state must be %q or %q, got %q", StateWorking, StateIdle, state)
+	}
+	encoded, err := json.Marshal(AgentStatus{
+		State:     state,
+		Message:   message,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode status: %w", err)
+	}
+	if err := os.WriteFile(s.statusPath, encoded, 0644); err != nil {
+		return fmt.Errorf("failed to write status: %w", err)
+	}
+	return nil
+}
+
 // newMux wires the HTTP surface: the rendered page for the browser, and the endpoints that
 // `reviewer serve` clients (including the page itself) use. The MCP server does not go through
 // HTTP — it drives the session directly.

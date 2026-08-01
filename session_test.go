@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -165,5 +166,134 @@ func TestSessionWait_ReportsSessionEnded(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Wait did not return after the session ended")
+	}
+}
+
+// submitComment posts a single comment and returns the ID the server assigned it.
+func submitComment(t *testing.T, s *ReviewSession, text string) string {
+	t.Helper()
+	body := `{"comments":[{"text":"` + text + `","timestamp":"2026-01-01T00:00:00Z","author":"human","status":"open"}],"summary":""}`
+	resp, err := http.Post(s.URL()+"/api/feedback", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+	resp.Body.Close()
+	fb := s.readFeedbackDoc()
+	if len(fb.Comments) != 1 {
+		t.Fatalf("got %d comments after submit, want 1", len(fb.Comments))
+	}
+	return fb.Comments[0].ID
+}
+
+func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "fixed in section 2"}}, "round 1 changes"); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+
+	fb := s.readFeedbackDoc()
+	if fb.Comments[0].Reply != "fixed in section 2" {
+		t.Fatalf("got reply %q, want %q", fb.Comments[0].Reply, "fixed in section 2")
+	}
+	if fb.Comments[0].ReplyTimestamp == "" {
+		t.Fatal("ReplyTimestamp should have been set")
+	}
+	if fb.Summary != "round 1 changes" {
+		t.Fatalf("got summary %q, want %q", fb.Summary, "round 1 changes")
+	}
+	// The original human fields must survive untouched.
+	if fb.Comments[0].Text != "needs work" {
+		t.Fatalf("got text %q, want %q", fb.Comments[0].Text, "needs work")
+	}
+}
+
+func TestSessionReply_CannotResolveComment(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "done"}}, ""); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+
+	// Resolution is the human's decision; replying must never flip it.
+	if got := s.readFeedbackDoc().Comments[0].Status; got != StatusOpen {
+		t.Fatalf("got status %q, want %q — the agent must not resolve comments", got, StatusOpen)
+	}
+}
+
+func TestSessionReply_RejectsUnknownCommentID(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	submitComment(t, s, "needs work")
+
+	if err := s.Reply([]ReplyInput{{CommentID: "nonexistent", Reply: "done"}}, ""); err == nil {
+		t.Fatal("Reply should reject an unknown comment ID")
+	}
+}
+
+func TestSessionProgress_WritesStatusFile(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.Progress(StateWorking, "editing the document"); err != nil {
+		t.Fatalf("Progress failed: %v", err)
+	}
+
+	raw, err := os.ReadFile(StatusPath(s.InputPath()))
+	if err != nil {
+		t.Fatalf("failed to read status file: %v", err)
+	}
+	var got AgentStatus
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("status file is not valid JSON: %v", err)
+	}
+	if got.State != StateWorking || got.Message != "editing the document" {
+		t.Fatalf("got %+v, want state=%q message=%q", got, StateWorking, "editing the document")
+	}
+}
+
+func TestSessionProgress_RejectsUnknownState(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.Progress("thinking", "hmm"); err == nil {
+		t.Fatal("Progress should reject a state outside working|idle")
 	}
 }
