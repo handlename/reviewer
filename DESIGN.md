@@ -6,58 +6,67 @@ This document describes the internal design, system architecture, and component 
 
 ## 1. System Architecture
 
-`reviewer` is packaged as a single Go binary that orchestrates three primary layers:
+`reviewer` is packaged as a single Go binary that orchestrates four primary layers:
 
 1. **CLI Layer (`github.com/alecthomas/kong`)**
-   Parses command-line arguments and dispatches commands (`build`, `serve`).
+   Parses command-line arguments and dispatches commands (`build`, `serve`, `mcp`).
 2. **Markdown Processing Layer (`github.com/yuin/goldmark`)**
    Parses GFM input documents, extracts metadata (via `goldmark-meta`), and translates text structures into HTML.
 3. **Review Server Layer (`net/http`)**
    Hosts an interactive web application UI (built using standard HTML/JS/CSS) and provides endpoints to record reviewer feedback.
+4. **MCP Layer (`github.com/modelcontextprotocol/go-sdk`)**
+   Serves the agent-facing contract over stdio as four tools. It owns a `ReviewSession` and drives
+   it in-process; it does not go through HTTP.
 
 ### Architecture Overview Diagram
 
 ```mermaid
 graph TD
-    subgraph CLI (cli/command)
+    subgraph CLI["CLI (cli/command)"]
         root[root.go - Root CLI]
         cmd_build[build.go - Build Subcommand]
         cmd_serve[serve.go - Serve Subcommand]
+        cmd_mcp[mcp.go - MCP Subcommand]
     end
 
-    subgraph Core (package reviewer)
+    subgraph Core["Core (package reviewer)"]
         render[render.go - RenderSpec]
+        session[session.go - ReviewSession]
         server[server.go - StartReviewServer]
+        mcpsrv[mcpserver.go - MCP Tools]
         tmpl[references/template.html - Embed UI Template]
     end
 
     subgraph Storage
         md_file[input.md - Spec File]
         html_file[output.html - Compiled HTML]
-        json_file[input-feedback.json - Comments JSON]
+        json_file[TMPDIR/reviewer/*.json - Internal Review State]
     end
 
     root --> cmd_build
     root --> cmd_serve
+    root --> cmd_mcp
 
     cmd_build -->|Reads| md_file
     cmd_build -->|Calls| render
     render -->|Embeds| tmpl
     cmd_build -->|Writes| html_file
 
-    cmd_serve -->|Starts Server| server
-    server -->|Re-renders on each request| render
+    cmd_serve -->|Blocks on| server
+    server -->|Starts| session
+    cmd_mcp -->|Serves tools over stdio| mcpsrv
+    mcpsrv -->|Owns and drives| session
+
+    session -->|Re-renders on each request| render
     render -->|Embeds| tmpl
-    server -->|Launches Browser & Opens| UI[Interactive Review UI in Browser]
-    UI -->|GET / re-render · POST /api/feedback · POST /api/close| server
-    UI -->|SSE /api/events| server
-    server -->|Writes Feedback / prunes resolved| json_file
-    server -->|reload on file change| UI
-    agent[External Agent Claude Code] -->|Reads comments · writes reply+summary| json_file
-    agent -->|GET /api/wait long-poll for submits| server
+    session -->|Launches Browser & Opens| UI[Interactive Review UI in Browser]
+    UI -->|GET / re-render · POST /api/feedback · POST /api/close| session
+    UI -->|SSE /api/events| session
+    session -->|Writes Feedback / prunes resolved / assigns ids| json_file
+    session -->|SSE reload · status| UI
+    agent[External Agent] -->|review_start · review_wait · review_reply · review_progress| mcpsrv
     agent -->|Edits| md_file
-    md_file -->|fsnotify watch| server
-    json_file -->|fsnotify watch| server
+    md_file -->|fsnotify watch| session
 ```
 
 ---
@@ -68,6 +77,8 @@ graph TD
 * **`root.go`**: Establishes global parameters and instantiates command context.
 * **`build.go`**: Compiles the source Markdown into a standalone, styled HTML file. Output defaults to the same directory as the source Markdown file.
 * **`serve.go`**: Compiles the spec, spins up the local HTTP web server, and triggers the operating system's default browser to load the review application.
+* **`mcp.go`**: Runs the MCP server over stdio. `--wait-timeout` (default `15m`) bounds one
+  `review_wait` call; `--port` and `--no-open` mirror `serve`.
 
 ### B. Spec Renderer (`reviewer/render.go`)
 Converts raw GFM Markdown into interactive, presentation-ready HTML. In addition to standard GFM translation, it performs custom **HTML post-processing**.
@@ -80,11 +91,39 @@ Converts raw GFM Markdown into interactive, presentation-ready HTML. In addition
 * **Static Regex Compilation**:
   To eliminate execution-time compilation overhead under load, all regex objects (`mermaidRegex`, `calloutRegex`, `codeBlockRegex`) are compiled at the global scope using `regexp.MustCompile`.
 
-### C. Review Server (`reviewer/server.go`)
+### C. Review Session (`reviewer/session.go`)
+
+A `ReviewSession` is one live review of one document. It owns the listener, the SSE hub, the
+submit notifier, the file watcher, and the shutdown signal, and it exposes the three agent
+operations directly: `Wait`, `Reply`, `Progress`.
+
+`StartSession` returns as soon as the port is bound, leaving the caller to decide how to wait.
+`StartReviewServer` — the entry point for `reviewer serve` — starts a session and blocks on
+`Done()`. The MCP server instead keeps the handle and drives it across tool calls.
+
+* **Two-Once shutdown**:
+  `done` signals "the session is over"; a separate `sync.Once` guards the HTTP shutdown. They
+  must stay separate: on the **End Review** path `/api/close` closes `done` first and the owner
+  calls `Close()` afterwards, so a shared `Once` would skip the shutdown and leak the port.
+* **Submit sequence counter**:
+  `submitSeq` counts submits and `deliveredSeq` records how far `Wait` has reported. The notifier
+  only wakes waiters present at broadcast time, so a submit landing while the agent edits the
+  document — between one `Wait` returning and the next being called — would otherwise be lost and
+  the agent would report a timeout with comments unanswered. `Wait` subscribes first, then checks
+  the counters, so a submit racing in between wakes the channel instead of slipping past both.
+* **`Wait` never returns an error**:
+  It reports `submitted`, `timeout`, or `session_ended` as a value. A cancelled caller context
+  maps to `timeout` ("nothing happened, call again") rather than `session_ended`, which would end
+  the agent's loop on a cancelled call.
+
+### D. Review Server (`reviewer/server.go`, `ReviewSession.newMux`)
 
 The server hosts a **persistent, in-page review loop** (hunk-inspired): the user comments and
 submits, the agent updates the document and replies, and the open page auto-reloads. Submitting
 does **not** shut the server down.
+
+These HTTP endpoints serve the browser and `reviewer serve`. The agent no longer uses them; it
+goes through MCP.
 
 * **Dynamic Port Allocation**:
   If the default port (`5500`) is in use, the server dynamically catches this error and queries a free port using `net.Listen("tcp", "127.0.0.1:0")`.
@@ -95,37 +134,76 @@ does **not** shut the server down.
   * `GET`: Returns the feedback document as `{ "comments": [...], "summary": "..." }`. A missing
     file yields `{"comments":[]}`.
   * `POST`: Unmarshals the incoming `Feedback`, **prunes comments the user marked `resolved`**,
-    writes the file, **releases any `GET /api/wait` long-poll waiter** (the low-latency submit
-    signal), also prints `FEEDBACK_RECEIVED` to stdout (back-compat), and **keeps the server running**
-    so the agent can pick up the comments.
+    **assigns an `id` to any comment lacking one**, writes the file, **records the submit and
+    releases any waiter** (both `ReviewSession.Wait` and `GET /api/wait`), and **keeps the server
+    running** so the agent can pick up the comments.
+
+  This handler no longer writes `FEEDBACK_RECEIVED` to stdout. Stdout is the JSON-RPC transport in
+  `reviewer mcp`, so any write there corrupts the protocol stream (see `AGENTS.md` §7).
 * **`GET /api/wait` (long-poll)**:
-  Blocks until the next `POST /api/feedback`, then returns `200` with the current feedback JSON so the
-  agent detects a submit with near-zero latency and no stdout scraping. With no activity it returns
-  `204` after `waitTimeout` (25s) so the client re-polls (long-poll convention); the session ending
-  (`/api/close` / context cancellation) or the client disconnecting also releases the waiter. Fan-out
-  is handled by a `submitNotifier` (mirrors `sseHub`, but signal-only) so multiple concurrent waiters
-  are all released by a single submit.
+  Blocks until the next `POST /api/feedback`, then returns `200` with the current feedback JSON.
+  With no activity it returns `204` after `waitTimeout` (25s) so the client re-polls (long-poll
+  convention); the session ending (`/api/close` / context cancellation) or the client
+  disconnecting also releases the waiter. Fan-out is handled by a `submitNotifier` (mirrors
+  `sseHub`, but signal-only) so multiple concurrent waiters are all released by a single submit.
+
+  This endpoint exists for `reviewer serve`. Agents use `review_wait`, which adds the pending-submit
+  handling described in §C; `/api/wait` deliberately keeps its simpler semantics.
 * **`POST /api/close`**:
   The page's **End Review** button hits this endpoint to end the session (graceful shutdown).
 * **`GET /api/status`**:
   Returns the agent's current activity (`{ "state": "working|idle", "message": "..." }`) from the
-  `-status.json` sidecar, so the page can restore the "working" indicator after a mid-round reload. A
-  missing file yields `idle`.
+  stored status file, so the page can restore the "working" indicator after a mid-round reload. A
+  missing file yields `idle`. This is the only reason the status is written to disk at all; the
+  live update reaches the page over SSE.
 * **`GET /api/events` (SSE)**:
   A Server-Sent Events stream carrying **typed JSON events** so the page can react differently:
   * `{"kind":"reload"}` — the document or feedback changed; the page calls `location.reload()`.
   * `{"kind":"status","state":...,"message":...}` — the agent's activity changed; the page updates the
     live activity panel **in place**, without reloading.
 * **File watching (`fsnotify`)**:
-  The server watches the directory containing the `.md` and its `-feedback.json` / `-status.json`
-  sidecars. Document/feedback changes debounce (~150ms) into a `reload`; status changes debounce
-  (~60ms, snappier) into a `status` event carrying the file's contents. This is how the agent's file
-  edits and progress reach the browser with no explicit control call.
+  The server watches the directory containing the `.md`, debouncing changes (~150ms) into a
+  `reload`. This is how the agent's edits reach the browser with no explicit control call —
+  the agent edits the document with its ordinary file tools, not through reviewer.
+
+  Only the document is watched. The review state files were watched too while the agent wrote
+  them directly; now the session is their only writer and broadcasts the SSE event itself, which
+  is both simpler and faster. Watching them where they now live would also mean watching a
+  directory shared by every review on the machine, where one session's writes would fire
+  another session's page.
 * **Graceful shutdown**:
   A single `done` signal (closed by `/api/close` or context cancellation) unblocks SSE handlers and
   blocked `/api/wait` waiters, and triggers `http.Server.Shutdown`.
 
-### D. UI Template (`references/template.html`)
+### E. MCP Server (`reviewer/mcpserver.go`)
+
+The agent-facing contract. `reviewer mcp` serves four tools over stdio; a `sessionHolder` owns at
+most one live `ReviewSession` per process.
+
+* **`review_start(path)` → `{url, path}`**:
+  Stats the document before binding a port, so a path that cannot be read fails instead of
+  yielding a URL to a page that only renders an error. Refuses a second start while a review is
+  live, but allows one after the human ended the previous review.
+* **`review_wait()` → `{outcome, comments, summary}`**:
+  `outcome` is `submitted`, `timeout`, or `session_ended`. Waiting on a review that already ended
+  reports `session_ended` rather than failing, because the human can click **End Review** while the
+  agent is editing.
+* **`review_reply(replies, summary)`**:
+  Each reply names a comment by `commentId`. Only `reply` and `replyTimestamp` are written, so the
+  human's fields cannot be damaged and the agent cannot resolve a comment.
+* **`review_progress(state, message)`**:
+  Stores the status and pushes an SSE `status` event, so the page's activity panel updates in
+  place without a reload.
+
+* **Session lifetime is process-scoped, not call-scoped**:
+  `sessionHolder` holds the MCP process's context and hands *that* to `StartSession`. Passing a
+  tool call's request context would end the review the instant `review_start` returned.
+* **Errors versus outcomes**:
+  The SDK marks a returned Go error as `IsError` on the tool result. Only genuine agent mistakes —
+  waiting before any review started, replying to an unknown comment id, an invalid progress state —
+  return errors. Everything that is merely "what happened" comes back as a value.
+
+### F. UI Template (`references/template.html`)
 Embedded into the Go binary at compile-time using the standard `//go:embed` directive.
 
 * **Responsive 3-Column Layout**:
@@ -177,13 +255,29 @@ while (parent && parent !== container) {
 
 ## 4. Feedback Schema Specification (JSON)
 
-The feedback document is the shared state for the loop, read and written by both the browser and
-the agent. It is stored as a `Feedback` object:
+The feedback document is reviewer's **internal store** for the review, shared between the browser
+and the session. It is **not** an agent-facing contract: agents never read or write it, and its
+shape may change without notice. What an agent sees is the `review_wait` / `review_reply` tool
+schemas.
+
+**Location**: `$TMPDIR/reviewer/<stem>-<hash>-feedback.json`, with the status file alongside it.
+Both live under the OS temp directory rather than beside the document, so reviewing a file inside
+a repository leaves no untracked files in its working tree. The name keeps the document's stem for
+legibility and appends the first four bytes of the SHA-256 of its absolute path, because basenames
+collide across directories (`docs/spec.md` and `notes/spec.md`). The directory is created `0700`
+and the files `0600`: the temp directory is world-writable on some platforms, and review comments
+are the user's private notes.
+
+Because the state lives in the temp directory, it is subject to that directory's cleanup. Comments
+survive a page reload and a `reviewer` restart, but are not intended to persist indefinitely.
+
+It is stored as a `Feedback` object:
 
 ```json
 {
   "comments": [
     {
+      "id": "b3d41493aabc",
       "text": "The human comment text",
       "timestamp": "2026-06-01T20:46:27.000Z",
       "anchor": "spec-element-12",
@@ -198,6 +292,9 @@ the agent. It is stored as a `Feedback` object:
 }
 ```
 
+* `id`: Assigned by the server on submit to any comment lacking one, and preserved across rounds.
+  This is how `review_reply` addresses a comment. Addressing by array index would misfire if the
+  human submitted again while a round was still in flight.
 * `anchor`: Refers to the `data-anchor` property of the target DOM node.
 * `context`: Truncated preview text of the target element (max 57 chars + `...`).
 * `author`: `human` or `agent`. Top-level comments are human-authored.

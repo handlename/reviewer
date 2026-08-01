@@ -103,5 +103,42 @@ This project embraces high-test coverage and maintains rigorous regression tests
     $ go test ./... -v
     ```
   * Added features to post-processing must be accompanied by new test cases in `render_test.go`.
-  * Changes to the HTTP server, APIs, or shutdown triggers must be covered by `server_test.go`.
+  * Changes to the HTTP server, APIs, or shutdown triggers must be covered by `server_test.go` or `session_test.go`, whichever owns the code.
+  * Changes to the MCP tool surface must be covered by `mcpserver_test.go`.
   * Ensure your server-probing port logic preserves dynamic binding (`port 0`) behavior to prevent port collisions during integration testing.
+
+---
+
+## 7. Stdout Is the MCP Transport
+
+`reviewer mcp` serves JSON-RPC over stdin/stdout.
+
+* **Rule**:
+  * **Never write to stdout from `package reviewer` or from the CLI layer.** Any stray `fmt.Print*`
+    to stdout is parsed as a protocol message and breaks every agent session. This is why the
+    `FEEDBACK_RECEIVED` line was removed from `POST /api/feedback` and why `handleError` writes to
+    `os.Stderr`.
+  * Diagnostics go to stderr. `InitLogger` already configures zerolog with
+    `zerolog.ConsoleWriter{Out: os.Stderr}`; use `log` rather than `fmt`.
+
+```go
+// WRONG: corrupts the JSON-RPC stream
+fmt.Println("something happened")
+
+// CORRECT
+log.Info().Msg("something happened")
+```
+
+---
+
+## 8. Tool Errors Versus Tool Outcomes
+
+The MCP SDK turns a Go `error` returned from a tool handler into a result flagged `IsError`.
+
+* **Rule**:
+  * **Return an error only for a genuine agent mistake** — waiting before any review was started,
+    replying to an unknown comment id, an invalid progress state.
+  * **Anything that is merely "what happened" must be a value.** `review_wait` reports `submitted`,
+    `timeout` and `session_ended` through its `outcome` field. Returning an error for an idle
+    expiry would present a routine wait as a broken call and would likely stop the agent's loop.
+  * When adding an outcome, extend the `WaitOutcome` constants rather than reaching for an error.

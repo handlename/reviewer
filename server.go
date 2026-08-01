@@ -2,10 +2,11 @@ package reviewer
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,7 @@ const (
 // create top-level comments; instead it attaches a Reply to the human comment and
 // leaves resolution to the human (Status is only ever set to resolved by the user).
 type Comment struct {
+	ID             string `json:"id,omitempty"` // server-assigned, stable across rounds; how the agent addresses a comment
 	Text           string `json:"text"`
 	Timestamp      string `json:"timestamp"`
 	Anchor         string `json:"anchor,omitempty"`         // Element selector ID/anchor
@@ -42,35 +44,85 @@ type Comment struct {
 	ReplyTimestamp string `json:"replyTimestamp,omitempty"` // when the agent replied
 }
 
-// Feedback is the shared review state persisted to <input>-feedback.json.
-// Both the browser and the agent read/write this document.
+// Feedback is the review state for one document, persisted under the OS temp directory (see
+// FeedbackPath). It is reviewer's internal storage: the browser and the session read and write
+// it, the agent reaches it only through the MCP tools.
 type Feedback struct {
 	Comments []Comment `json:"comments"`
 	Summary  string    `json:"summary,omitempty"` // agent's page-level change summary for the latest pass
 }
 
-// FeedbackPath returns the sidecar feedback file path for a given input document.
+// newCommentID mints the stable identifier the agent uses to address a comment.
+// A package var so tests can make IDs deterministic.
+var newCommentID = func() string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Falling back to a timestamp keeps IDs unique enough for a single review session.
+		return fmt.Sprintf("c%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// assignCommentIDs fills in IDs for comments the page created client-side. Existing IDs are
+// preserved so a comment keeps the same identity across review rounds.
+func assignCommentIDs(comments []Comment) []Comment {
+	for i := range comments {
+		if comments[i].ID == "" {
+			comments[i].ID = newCommentID()
+		}
+	}
+	return comments
+}
+
+// FeedbackPath returns the file holding a document's review comments.
 func FeedbackPath(inputPath string) string {
 	return sidecarPath(inputPath, "-feedback.json")
 }
 
-// StatusPath returns the sidecar file the agent writes to report its live activity.
+// StatusPath returns the file holding the agent's live activity for a document.
 func StatusPath(inputPath string) string {
 	return sidecarPath(inputPath, "-status.json")
 }
 
+// sidecarDir is where reviewer keeps its per-document review state.
+//
+// These files are reviewer's internal storage, not something the user edits, so they live under
+// the OS temp directory. Writing them beside the document left untracked files in the working
+// tree of any repository being reviewed.
+func sidecarDir() string {
+	return filepath.Join(os.TempDir(), "reviewer")
+}
+
+// sidecarPath derives a stable, collision-free name for one document's sidecar. The absolute
+// path is hashed in because basenames collide across directories (docs/spec.md and
+// notes/spec.md), while the readable stem is kept so the file is still identifiable by eye.
 func sidecarPath(inputPath, suffix string) string {
-	dir := filepath.Dir(inputPath)
-	base := filepath.Base(inputPath)
-	ext := filepath.Ext(base)
-	return filepath.Join(dir, strings.TrimSuffix(base, ext)+suffix)
+	abs, err := filepath.Abs(inputPath)
+	if err != nil {
+		// A path we cannot absolutise still needs a stable name; the raw form is stable enough.
+		abs = inputPath
+	}
+	sum := sha256.Sum256([]byte(abs))
+	stem := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
+	return filepath.Join(sidecarDir(), fmt.Sprintf("%s-%s%s", stem, hex.EncodeToString(sum[:4]), suffix))
+}
+
+// writeSidecar creates the sidecar directory on demand and writes the file.
+//
+// Permissions are tight because the OS temp directory is world-writable on some platforms
+// (/tmp on Linux) and review comments are the user's private notes.
+func writeSidecar(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }
 
 // AgentStatus is the agent's live activity, surfaced on the page so the user can watch
 // progress between submitting and the reply landing — without leaving the review page.
 type AgentStatus struct {
-	State     string `json:"state"`             // working | idle
-	Message   string `json:"message"`           // human-readable activity, e.g. "文書を更新しています…"
+	State     string `json:"state"`   // working | idle
+	Message   string `json:"message"` // human-readable activity, e.g. "文書を更新しています…"
 	Timestamp string `json:"timestamp,omitempty"`
 }
 
@@ -93,8 +145,8 @@ func statusPayload(raw []byte) string {
 }
 
 // waitTimeout bounds how long GET /api/wait blocks before replying 204 so the client can
-// re-poll. Kept below the agent monitor's curl --max-time so the server, not the client,
-// closes the idle connection. A package var so tests can shorten it.
+// re-poll. This endpoint serves `reviewer serve`; agents use review_wait, whose window is set
+// separately by MCPOptions.WaitTimeout. A package var so tests can shorten it.
 var waitTimeout = 25 * time.Second
 
 // submitNotifier wakes every long-poll waiter the instant a review is submitted. It mirrors
@@ -175,235 +227,21 @@ func (h *sseHub) broadcast(msg string) {
 	}
 }
 
-// StartReviewServer serves the live review page for inputPath and keeps running across
-// review rounds. Submitting comments no longer shuts the server down; the page stays open,
-// the agent edits the document and writes replies, and connected tabs auto-reload via SSE.
-// The session ends when the user clicks "End Review" (POST /api/close) or ctx is cancelled.
+// StartReviewServer serves the live review page for inputPath and blocks until the session
+// ends — the user clicking "End Review" (POST /api/close) or ctx being cancelled. It is the
+// entry point for `reviewer serve`; the MCP server drives a ReviewSession directly instead.
 //
 // readyChan, when non-nil, receives the running server's URL once the port is bound.
 func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen bool, readyChan chan<- string) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	listener, err := net.Listen("tcp", addr)
+	s, err := StartSession(ctx, inputPath, port, noOpen)
 	if err != nil {
-		log.Warn().Err(err).Msgf("port %d busy, probing for auto-assigned port", port)
-		listener, err = net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return fmt.Errorf("failed to bind any local port: %w", err)
-		}
+		return err
 	}
-	defer listener.Close()
-
-	actualPort := listener.Addr().(*net.TCPAddr).Port
-	url := fmt.Sprintf("http://127.0.0.1:%d", actualPort)
-	log.Info().Msgf("Review server running at %s", url)
-
 	if readyChan != nil {
-		readyChan <- url
+		readyChan <- s.URL()
 	}
-
-	feedbackPath := FeedbackPath(inputPath)
-	statusPath := StatusPath(inputPath)
-	hub := newSSEHub()
-	notifier := newSubmitNotifier()
-
-	// done is the single shutdown signal: closed by /api/close or by ctx cancellation.
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	triggerClose := func() { closeOnce.Do(func() { close(done) }) }
-	go func() {
-		select {
-		case <-ctx.Done():
-			triggerClose()
-		case <-done:
-		}
-	}()
-
-	// Watch the document and its feedback sidecar; on change, tell every tab to reload.
-	// Watching the parent directory (not the files directly) survives editors' atomic saves.
-	if watcher, werr := fsnotify.NewWatcher(); werr != nil {
-		log.Warn().Err(werr).Msg("file watching unavailable; auto-reload disabled")
-	} else {
-		defer watcher.Close()
-		if aerr := watcher.Add(filepath.Dir(inputPath)); aerr != nil {
-			log.Warn().Err(aerr).Msg("failed to watch document directory; auto-reload disabled")
-		} else {
-			go watchForReload(watcher, inputPath, feedbackPath, statusPath, hub, done)
-		}
-	}
-
-	mux := http.NewServeMux()
-
-	// GET / — re-render the current document on every request so the agent's edits appear on reload.
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		mdContent, err := os.ReadFile(inputPath)
-		if err != nil {
-			http.Error(w, "Failed to read document: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		htmlContent, err := RenderSpec(mdContent)
-		if err != nil {
-			http.Error(w, "Failed to render document: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(htmlContent)
-	})
-
-	mux.HandleFunc("/api/feedback", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(readFeedback(feedbackPath))
-
-		case http.MethodPost:
-			var fb Feedback
-			if err := json.NewDecoder(r.Body).Decode(&fb); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			// Prune comments the user marked resolved in the previous cycle; only open ones carry forward.
-			fb.Comments = pruneResolved(fb.Comments)
-
-			encoded, err := json.MarshalIndent(fb, "", "  ")
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if err := os.WriteFile(feedbackPath, encoded, 0644); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			// Seed the activity panel with a "waiting for the agent" status. This survives the
-			// reload the feedback write triggers, so the indicator stays put instead of flashing
-			// away; the agent then overwrites it with its own progress and clears it when done.
-			_ = os.WriteFile(statusPath, []byte(`{"state":"working","message":"エージェントの応答を待っています…"}`), 0644)
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok"}`))
-
-			// Wake any long-poll waiter (GET /api/wait) — the low-latency submit signal.
-			notifier.broadcast()
-
-			log.Info().Msg("Feedback received & written; server staying alive for the agent.")
-			// stdout signal the agent watches for (kept for back-compat/debugging; server does NOT shut down).
-			fmt.Println("FEEDBACK_RECEIVED")
-
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	// POST /api/close — the page's "End Review" button ends the session gracefully.
-	mux.HandleFunc("/api/close", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"closing"}`))
-		log.Info().Msg("End Review requested. Shutting down server...")
-		triggerClose()
-	})
-
-	// GET /api/status — the agent's current activity, for restoring state on (re)load.
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		raw, err := os.ReadFile(statusPath)
-		if err != nil {
-			_, _ = w.Write([]byte(`{"state":"idle","message":""}`))
-			return
-		}
-		_, _ = w.Write(raw)
-	})
-
-	// GET /api/wait — long-poll: block until the next submit, then return 200 + the current
-	// feedback JSON. Idle timeout replies 204 so the agent's monitor re-polls; the session ending
-	// (close / ctx cancel) or the client disconnecting releases the waiter too.
-	mux.HandleFunc("/api/wait", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		ch := notifier.subscribe()
-		defer notifier.unsubscribe(ch)
-
-		select {
-		case <-ch:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(readFeedback(feedbackPath))
-		case <-time.After(waitTimeout):
-			w.WriteHeader(http.StatusNoContent)
-		case <-done:
-			w.WriteHeader(http.StatusNoContent)
-		case <-r.Context().Done():
-			// Client hung up; nothing to write.
-		}
-	})
-
-	// GET /api/events — SSE stream that pushes typed events (reload / status) as files change.
-	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-
-		ch := hub.add()
-		defer hub.remove(ch)
-
-		fmt.Fprint(w, ": connected\n\n")
-		flusher.Flush()
-
-		for {
-			select {
-			case <-done:
-				return
-			case <-r.Context().Done():
-				return
-			case msg, ok := <-ch:
-				if !ok {
-					return
-				}
-				fmt.Fprintf(w, "data: %s\n\n", msg)
-				flusher.Flush()
-			}
-		}
-	})
-
-	server := &http.Server{Handler: mux}
-
-	go func() {
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Error().Err(err).Msg("Server error")
-		}
-	}()
-
-	if !noOpen {
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			openBrowser(url)
-		}()
-	}
-
-	<-done
-	log.Info().Msg("Shutting down review server...")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	return server.Shutdown(shutdownCtx)
+	<-s.Done()
+	return s.Close()
 }
 
 // readFeedback returns the feedback document as JSON bytes, always in the {comments,summary}
@@ -438,31 +276,22 @@ func pruneResolved(comments []Comment) []Comment {
 	return kept
 }
 
-// watchForReload debounces filesystem events and broadcasts typed SSE events:
-//   - the document or feedback sidecar changes -> "reload" (the page refreshes)
-//   - the status sidecar changes             -> "status" (the page updates in place)
-func watchForReload(watcher *fsnotify.Watcher, inputPath, feedbackPath, statusPath string, hub *sseHub, done <-chan struct{}) {
+// watchForReload debounces filesystem events on the reviewed document and broadcasts a
+// "reload" so the page picks up the agent's edits.
+//
+// Only the document is watched. The feedback and status files used to be watched too, back when
+// the agent wrote them directly; now the session is their only writer and broadcasts the event
+// itself. That also avoids watching a directory shared by every review on the machine, where one
+// session's writes would fire another session's page.
+func watchForReload(watcher *fsnotify.Watcher, inputPath string, hub *sseHub, done <-chan struct{}) {
 	wantInput := filepath.Clean(inputPath)
-	wantFeedback := filepath.Clean(feedbackPath)
-	wantStatus := filepath.Clean(statusPath)
 
-	var reloadTimer, statusTimer *time.Timer
+	var reloadTimer *time.Timer
 	debounceReload := func() {
 		if reloadTimer != nil {
 			reloadTimer.Stop()
 		}
 		reloadTimer = time.AfterFunc(150*time.Millisecond, func() { hub.broadcast(reloadPayload()) })
-	}
-	// Status is snappier than reload so progress feels live.
-	debounceStatus := func() {
-		if statusTimer != nil {
-			statusTimer.Stop()
-		}
-		statusTimer = time.AfterFunc(60*time.Millisecond, func() {
-			if raw, err := os.ReadFile(statusPath); err == nil {
-				hub.broadcast(statusPayload(raw))
-			}
-		})
 	}
 
 	for {
@@ -473,10 +302,7 @@ func watchForReload(watcher *fsnotify.Watcher, inputPath, feedbackPath, statusPa
 			if !ok {
 				return
 			}
-			switch filepath.Clean(ev.Name) {
-			case wantStatus:
-				debounceStatus()
-			case wantInput, wantFeedback:
+			if filepath.Clean(ev.Name) == wantInput {
 				debounceReload()
 			}
 		case err, ok := <-watcher.Errors:
