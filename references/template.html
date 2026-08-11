@@ -802,6 +802,27 @@
             outline: 1.5px dashed var(--hl-ring);
             outline-offset: 3px;
         }
+        /* Table rows carry their state on the row, but never a generated box.
+           Why not `::before` on the tr, and why the 💬 badge is appended to the
+           last cell in JS: a row may only contain cells, so an extra child or a
+           generated box gets wrapped in an ANONYMOUS TABLE CELL — the row gains
+           a column and its cells stop lining up with the rest of the table.
+           outline, box-shadow and background-color are safe on a tr because
+           none of them generates a box, so hover / active / selected keep the
+           exact same declarations as every other block element. */
+        tr.commentable-element > td { position: relative; }
+        tr.commentable-element.has-comments-highlight::before { content: none; }
+        tr.commentable-element.has-comments-highlight > td:first-child::before {
+            content: "";
+            position: absolute;
+            left: calc(var(--hl-gutter) * -1);
+            top: 50%;
+            transform: translateY(-50%);
+            width: 2px;
+            height: calc(var(--u) * 2.5);
+            border-radius: 1px;
+            background: var(--hl-mark);
+        }
         .element-comment-indicator {
             position: absolute;
             right: -30px;
@@ -1203,8 +1224,13 @@
                         selectComment(anchorId);
                     });
 
-                    // Prepend or append depending on tag to avoid text breakages
-                    targetEl.appendChild(indicator);
+                    // A tr may only contain cells, so the badge hangs off the
+                    // last cell. Why not the row itself: the browser would wrap
+                    // it in an anonymous cell and the row would gain a column.
+                    const badgeHost = targetEl.tagName === 'TR'
+                        ? (targetEl.lastElementChild || targetEl)
+                        : targetEl;
+                    badgeHost.appendChild(indicator);
                 }
             });
             reconcileConnection();
