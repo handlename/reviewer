@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.3.0](https://github.com/handlename/reviewer/compare/v0.2.0...v0.3.0) - 2026-08-11
+- fix: keep table row layout intact when commented by @handlename in https://github.com/handlename/reviewer/pull/20
+- feat: embed agent skill instructions in the CLI by @handlename in https://github.com/handlename/reviewer/pull/22
+
 ## [v0.2.0](https://github.com/handlename/reviewer/compare/v0.1.0...v0.2.0) - 2026-08-01
 - feat: distribute review-doc skill as Claude plugin by @handlename in https://github.com/handlename/reviewer/pull/17
 - feat: make MCP the agent-facing review contract by @handlename in https://github.com/handlename/reviewer/pull/19
