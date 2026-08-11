@@ -16,6 +16,7 @@ reviewer is a spec-to-readable HTML compiler and review server.
 $ reviewer build <input.md> -o <output.html>
 $ reviewer serve <input.md> -p <port>
 $ reviewer mcp
+$ reviewer agent-skill explain
 ```
 
 ## Installation
@@ -53,8 +54,14 @@ failure, so `--wait-timeout` can be tuned freely.
 Marking a comment resolved is the human's decision alone; no tool can do it.
 
 This repository also ships the `review-doc` agent skill, which is simply the workflow written
-down. It lives in [`skills/review-doc/`](skills/review-doc/) and is shared by both installation
-paths below. Either way, the `reviewer` CLI must be on your `PATH` — install it first (see
+down. The workflow itself is compiled into the `reviewer` binary and printed by
+`reviewer agent-skill explain`; the distributed skill file at
+[`skills/review-doc/`](skills/review-doc/) does nothing but point at that command. An installed
+skill file is frozen at install time, so keeping the instructions in the binary is what stops
+an agent from following a workflow that its `reviewer` no longer implements. The canonical text
+lives in [`references/skills/review-doc.md`](references/skills/review-doc.md).
+
+Either way, the `reviewer` CLI must be on your `PATH` — install it first (see
 [Installation](#installation)).
 
 ### Claude Code
