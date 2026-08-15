@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.4.0](https://github.com/handlename/reviewer/compare/v0.3.0...v0.4.0) - 2026-08-15
+- feat: make the comment panel resizable by @handlename in https://github.com/handlename/reviewer/pull/24
+- feat: render unified diffs as a review target by @handlename in https://github.com/handlename/reviewer/pull/25
+- feat: comment on a range of diff lines by @handlename in https://github.com/handlename/reviewer/pull/26
+- feat: carry diff comments across rounds by @handlename in https://github.com/handlename/reviewer/pull/27
+- feat: make the review composer and rails follow the diff review by @handlename in https://github.com/handlename/reviewer/pull/28
+- feat: show suggestions as diffs and highlight diff code by @handlename in https://github.com/handlename/reviewer/pull/29
+- fix: keep the panel edge under the pointer and the connector drawn by @handlename in https://github.com/handlename/reviewer/pull/31
+- feat: comment on a file as a whole by @handlename in https://github.com/handlename/reviewer/pull/32
+- feat: let a diff use the whole window and mark file status in the list by @handlename in https://github.com/handlename/reviewer/pull/33
+- docs: record the diff review vocabulary and fix stale entries by @handlename in https://github.com/handlename/reviewer/pull/34
+- refactor: apply go fix modernizers by @handlename in https://github.com/handlename/reviewer/pull/36
+- docs: show the review screens in the README by @handlename in https://github.com/handlename/reviewer/pull/37
+
 ## [v0.3.0](https://github.com/handlename/reviewer/compare/v0.2.0...v0.3.0) - 2026-08-11
 - fix: keep table row layout intact when commented by @handlename in https://github.com/handlename/reviewer/pull/20
 - feat: embed agent skill instructions in the CLI by @handlename in https://github.com/handlename/reviewer/pull/22
