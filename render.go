@@ -10,8 +10,8 @@ import (
 	"text/template"
 
 	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
 	meta "github.com/yuin/goldmark-meta"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 )
 
@@ -23,6 +23,14 @@ type SpecMetadata struct {
 	Version string
 	Date    string
 	Body    string
+
+	// Mode tells the page which review it is running: "markdown" or "diff". The template
+	// branches on it because the two have different comment targets — a document block for
+	// Markdown, a line range for a diff — and the wrong initializer silently comments nothing.
+	Mode string
+	// Stats replaces Version/Date in the diff sidebar. A diff has no front matter, so those two
+	// would otherwise show a made-up version and an unknown date.
+	Stats string
 }
 
 // Pre-compiled global regular expressions to avoid runtime compilation overhead.
@@ -47,6 +55,20 @@ var precompiledBadges = []badgeRegex{
 	{regexp.MustCompile(`\[Confirmed\]`), regexp.MustCompile(`<strong>Confirmed</strong>`), `<span class="badge badge-confirmed">Confirmed</span>`},
 	{regexp.MustCompile(`\[Inferred\]`), regexp.MustCompile(`<strong>Inferred</strong>`), `<span class="badge badge-inferred">Inferred</span>`},
 	{regexp.MustCompile(`\[Assumption\]`), regexp.MustCompile(`<strong>Assumption</strong>`), `<span class="badge badge-assumption">Assumption</span>`},
+}
+
+// Render compiles a review target — a Markdown document or a unified diff — into the review
+// page. The kind is decided from the content, so every entry point (serve, build, GET /) feeds
+// the same bytes in and gets the right renderer without knowing which it asked for.
+func Render(content []byte) ([]byte, error) {
+	if DetectKind(content) == KindDiff {
+		files, err := ParseUnifiedDiff(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse diff: %w", err)
+		}
+		return RenderDiff(files)
+	}
+	return RenderSpec(content)
 }
 
 // RenderSpec compiles markdown to fully designed interactive HTML
@@ -86,15 +108,25 @@ func RenderSpec(mdContent []byte) ([]byte, error) {
 		Version: html.EscapeString(version),
 		Date:    html.EscapeString(date),
 		Body:    htmlBody,
+		Mode:    string(KindMarkdown),
 	}
 
+	return executeTemplate(specMeta)
+}
+
+// executeTemplate renders the page shell around an already-prepared body.
+//
+// The template is text/template, not html/template, so nothing here escapes anything: every
+// field must arrive escaped. The Markdown path relies on goldmark having done it; the diff path
+// escapes each string as it builds the body.
+func executeTemplate(meta SpecMetadata) ([]byte, error) {
 	tmpl, err := template.New("spec").Parse(defaultTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse template: %w", err)
 	}
 
 	var output bytes.Buffer
-	if err := tmpl.Execute(&output, specMeta); err != nil {
+	if err := tmpl.Execute(&output, meta); err != nil {
 		return nil, fmt.Errorf("failed to execute template: %w", err)
 	}
 

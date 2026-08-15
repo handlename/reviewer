@@ -11,19 +11,19 @@ import (
 )
 
 type Build struct {
-	Input  string `arg:"" help:"Input markdown spec file path." type:"existingfile"`
+	Input  string `arg:"" help:"Input file path. A Markdown document or a unified diff; the format is detected from the content." type:"existingfile"`
 	Output string `short:"o" help:"Output HTML spec file path (defaults to same folder as input)."`
 }
 
 func (b *Build) Run(c *Context) error {
-	mdContent, err := os.ReadFile(b.Input)
+	content, err := os.ReadFile(b.Input)
 	if err != nil {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
 
-	htmlContent, err := reviewer.RenderSpec(mdContent)
+	htmlContent, err := reviewer.Render(content)
 	if err != nil {
-		return fmt.Errorf("failed to render spec: %w", err)
+		return fmt.Errorf("failed to render document: %w", err)
 	}
 
 	outPath := b.Output

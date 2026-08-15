@@ -317,12 +317,12 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			http.NotFound(w, r)
 			return
 		}
-		mdContent, err := os.ReadFile(s.inputPath)
+		content, err := os.ReadFile(s.inputPath)
 		if err != nil {
 			http.Error(w, "Failed to read document: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		htmlContent, err := RenderSpec(mdContent)
+		htmlContent, err := Render(content)
 		if err != nil {
 			http.Error(w, "Failed to render document: "+err.Error(), http.StatusInternalServerError)
 			return

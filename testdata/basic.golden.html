@@ -1,0 +1,38 @@
+<div class="diff-view">
+<section class="diff-file">
+<h2 class="diff-file-header">render.go</h2>
+<div class="diff-hunk">
+<div class="diff-hunk-header">@@ -53,7 +53,7 @@ func RenderSpec(mdContent []byte) ([]byte, error) {</div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="1"><span class="diff-no">53</span><span class="diff-marker"> </span><span class="diff-code">	markdown := goldmark.New(</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="2"><span class="diff-no">54</span><span class="diff-marker"> </span><span class="diff-code">		goldmark.WithExtensions(</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="3"><span class="diff-no">55</span><span class="diff-marker"> </span><span class="diff-code">			meta.Meta,</span></div>
+<div class="diff-line diff-del" data-file="render.go" data-line-index="4"><span class="diff-no diff-no-old">56</span><span class="diff-marker">-</span><span class="diff-code">			extension.GFM,</span></div>
+<div class="diff-line diff-add" data-file="render.go" data-line-index="5"><span class="diff-no">56</span><span class="diff-marker">+</span><span class="diff-code">			extension.GFM, // GitHub flavoured</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="6"><span class="diff-no">57</span><span class="diff-marker"> </span><span class="diff-code">		),</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="7"><span class="diff-no">58</span><span class="diff-marker"> </span><span class="diff-code">	)</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="8"><span class="diff-no">59</span><span class="diff-marker"> </span><span class="diff-code"></span></div>
+</div>
+<div class="diff-hunk">
+<div class="diff-hunk-header">@@ -104,6 +104,9 @@ func postProcessHTML(htmlStr string) string {</div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="9"><span class="diff-no">104</span><span class="diff-marker"> </span><span class="diff-code">	// 1. Process Mermaid Blocks first</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="10"><span class="diff-no">105</span><span class="diff-marker"> </span><span class="diff-code">	htmlStr = mermaidRegex.ReplaceAllStringFunc(htmlStr, func(match string) string {</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="11"><span class="diff-no">106</span><span class="diff-marker"> </span><span class="diff-code">		submatches := mermaidRegex.FindStringSubmatch(match)</span></div>
+<div class="diff-line diff-add" data-file="render.go" data-line-index="12"><span class="diff-no">107</span><span class="diff-marker">+</span><span class="diff-code">		if len(submatches) &lt; 2 {</span></div>
+<div class="diff-line diff-add" data-file="render.go" data-line-index="13"><span class="diff-no">108</span><span class="diff-marker">+</span><span class="diff-code">			return match</span></div>
+<div class="diff-line diff-add" data-file="render.go" data-line-index="14"><span class="diff-no">109</span><span class="diff-marker">+</span><span class="diff-code">		}</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="15"><span class="diff-no">110</span><span class="diff-marker"> </span><span class="diff-code">		content := submatches[1]</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="16"><span class="diff-no">111</span><span class="diff-marker"> </span><span class="diff-code">		return content</span></div>
+<div class="diff-line diff-ctx" data-file="render.go" data-line-index="17"><span class="diff-no">112</span><span class="diff-marker"> </span><span class="diff-code">	})</span></div>
+</div>
+</section>
+<section class="diff-file">
+<h2 class="diff-file-header">README.md</h2>
+<div class="diff-hunk">
+<div class="diff-hunk-header">@@ -5,3 +5,4 @@ reviewer is a spec-to-readable HTML compiler and review server.</div>
+<div class="diff-line diff-ctx" data-file="README.md" data-line-index="1"><span class="diff-no">5</span><span class="diff-marker"> </span><span class="diff-code">## Features</span></div>
+<div class="diff-line diff-ctx" data-file="README.md" data-line-index="2"><span class="diff-no">6</span><span class="diff-marker"> </span><span class="diff-code"></span></div>
+<div class="diff-line diff-ctx" data-file="README.md" data-line-index="3"><span class="diff-no">7</span><span class="diff-marker"> </span><span class="diff-code">- Compiling Markdown to styled HTML documents</span></div>
+<div class="diff-line diff-add" data-file="README.md" data-line-index="4"><span class="diff-no">8</span><span class="diff-marker">+</span><span class="diff-code">- Reviewing unified diffs</span></div>
+</div>
+</section>
+</div>

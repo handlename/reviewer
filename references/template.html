@@ -935,6 +935,126 @@
             box-shadow: 0 0 0 6px var(--hl-halo);
         }
 
+        /* ---------- Diff view ----------
+           A diff is read across, not down: it keeps the full column instead of the
+           reading measure, and each line scrolls on its own rather than wrapping.
+           Added and removed are the one place a second hue is spent — they are not a
+           hierarchy but a distinction of meaning, and nothing else on the page can
+           carry it as fast. The tints are dropped to the saturation of the stone
+           palette so they read as paper, not as a warning. */
+        :root {
+            --diff-add-bg: hsl(150 34% 42% / 0.13);
+            --diff-del-bg: hsl(2 60% 50% / 0.11);
+            --diff-add-fg: hsl(150 40% 32%);
+            --diff-del-fg: hsl(2 55% 44%);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --diff-add-bg: hsl(150 40% 55% / 0.15);
+                --diff-del-bg: hsl(4 60% 62% / 0.14);
+                --diff-add-fg: hsl(150 40% 62%);
+                --diff-del-fg: hsl(4 58% 67%);
+            }
+        }
+
+        .main-content.diff-mode {
+            max-width: none;
+            margin: 0;
+            padding: calc(var(--u) * 4) calc(var(--u) * 3);
+        }
+        .diff-file {
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            margin-bottom: calc(var(--u) * 3);
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+        .main-content.diff-mode h2.diff-file-header {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            line-height: 1.5;
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0.55rem 0.85rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            /* The path stays visible while its hunks scroll past. */
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+        .diff-file-note {
+            color: var(--text-tertiary);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            margin-left: 0.5rem;
+        }
+        .diff-empty {
+            margin: 0;
+            padding: 0.5rem 0.85rem;
+            font-size: 0.84rem;
+            color: var(--text-tertiary);
+        }
+        /* The hunk is the horizontal scroll unit. Scrolling per line would make the
+           rows slide independently and destroy the column alignment a diff is read by;
+           scrolling the whole file card would take the sticky path header with it. */
+        .diff-hunk {
+            overflow-x: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .diff-hunk + .diff-hunk { border-top: 1px solid var(--border-color); }
+        .diff-hunk-header {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-tertiary);
+            padding: 0.3rem 0.85rem;
+            background: hsl(var(--fg-hsl) / 0.035);
+            white-space: pre;
+            width: max-content;
+            min-width: 100%;
+        }
+        .diff-line {
+            display: flex;
+            align-items: baseline;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.84rem;
+            line-height: 1.6;
+            white-space: pre;
+            position: relative;
+            /* As wide as its code, but never narrower than the hunk, so the row's tint
+               still spans the full width of a short line. */
+            width: max-content;
+            min-width: 100%;
+        }
+        .diff-no {
+            flex: 0 0 auto;
+            width: 3.6em;
+            text-align: right;
+            padding-right: 0.6em;
+            color: var(--text-tertiary);
+            font-size: 0.72rem;
+            user-select: none;
+        }
+        /* A deletion has no number on the new side, so its own (old) number is shown
+           instead — dimmed, because the column changes coordinate system for that row. */
+        .diff-no-old { opacity: 0.6; font-style: italic; }
+        .diff-marker {
+            flex: 0 0 auto;
+            width: 1.4em;
+            text-align: center;
+            color: var(--text-tertiary);
+            user-select: none;
+        }
+        .diff-code { flex: 0 0 auto; padding-right: 1rem; }
+        .diff-add { background: var(--diff-add-bg); }
+        .diff-del { background: var(--diff-del-bg); }
+        .diff-add .diff-marker { color: var(--diff-add-fg); font-weight: 600; }
+        .diff-del .diff-marker { color: var(--diff-del-fg); font-weight: 600; }
+        .diff-meta .diff-code { color: var(--text-tertiary); font-style: italic; }
+
         /* ---------- Sidebar TOC ---------- */
         .sidebar-toc {
             display: flex;
@@ -1000,14 +1120,18 @@
     <div class="layout">
         <aside class="sidebar">
             <h2>{{.Title}}</h2>
+            {{if eq .Mode "diff"}}
+            <p style="font-size: 0.9rem;">{{.Stats}}</p>
+            {{else}}
             <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
             <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
+            {{end}}
             <nav class="sidebar-toc" id="sidebarToc">
                 <!-- Dynamic headings loaded via JS -->
             </nav>
         </aside>
 
-        <main class="main-content">
+        <main class="main-content{{if eq .Mode "diff"}} diff-mode{{end}}">
             {{.Body}}
         </main>
 
@@ -1997,7 +2121,13 @@
         })();
 
         // Initialize elements and load existing comments on page start
+        {{if eq .Mode "diff"}}
+        // Diff mode targets line ranges, not document blocks; its initializer lands with
+        // line-range selection. Calling the Markdown one here would tag every diff row as a
+        // block-level comment target and anchor comments that cannot survive the next round.
+        {{else}}
         initializeCommentableElements();
+        {{end}}
         loadExistingComments();
         // Initialize Table of Contents
         initializeTableOfContents();

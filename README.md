@@ -5,18 +5,28 @@ reviewer is a spec-to-readable HTML compiler and review server.
 ## Features
 
 - Compiling Markdown to styled HTML documents
+- Reviewing unified diffs, detected from the file's content — no flag, no separate subcommand
 - Interactive local review server
 - Gutter commenting on specific block elements
+- A resizable comment panel
 - Inline comment editing (with keyboard accessibility) and deletion before submission
 - A built-in MCP server, so AI agents drive the review loop through standard tool calls
 
 ## Synopsis
 
 ```console
-$ reviewer build <input.md> -o <output.html>
-$ reviewer serve <input.md> -p <port>
+$ reviewer build <input.md|input.diff> -o <output.html>
+$ reviewer serve <input.md|input.diff> -p <port>
 $ reviewer mcp
 $ reviewer agent-skill explain
+```
+
+Both commands take either a Markdown document or a unified diff; which one it is is decided from
+the file's content:
+
+```console
+$ git diff > /tmp/review.diff
+$ reviewer serve /tmp/review.diff
 ```
 
 ## Installation

@@ -1,0 +1,32 @@
+diff --git a/render.go b/render.go
+index 2e83626..2ba1c0d 100644
+--- a/render.go
++++ b/render.go
+@@ -53,7 +53,7 @@ func RenderSpec(mdContent []byte) ([]byte, error) {
+ 	markdown := goldmark.New(
+ 		goldmark.WithExtensions(
+ 			meta.Meta,
+-			extension.GFM,
++			extension.GFM, // GitHub flavoured
+ 		),
+ 	)
+ 
+@@ -104,6 +104,9 @@ func postProcessHTML(htmlStr string) string {
+ 	// 1. Process Mermaid Blocks first
+ 	htmlStr = mermaidRegex.ReplaceAllStringFunc(htmlStr, func(match string) string {
+ 		submatches := mermaidRegex.FindStringSubmatch(match)
++		if len(submatches) < 2 {
++			return match
++		}
+ 		content := submatches[1]
+ 		return content
+ 	})
+diff --git a/README.md b/README.md
+index 1111111..2222222 100644
+--- a/README.md
++++ b/README.md
+@@ -5,3 +5,4 @@ reviewer is a spec-to-readable HTML compiler and review server.
+ ## Features
+ 
+ - Compiling Markdown to styled HTML documents
++- Reviewing unified diffs
