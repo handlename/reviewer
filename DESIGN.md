@@ -10,8 +10,10 @@ This document describes the internal design, system architecture, and component 
 
 1. **CLI Layer (`github.com/alecthomas/kong`)**
    Parses command-line arguments and dispatches commands (`build`, `serve`, `mcp`).
-2. **Markdown Processing Layer (`github.com/yuin/goldmark`)**
-   Parses GFM input documents, extracts metadata (via `goldmark-meta`), and translates text structures into HTML.
+2. **Rendering Layer (`github.com/yuin/goldmark`, `diff.go`)**
+   Decides from the content whether the review target is Markdown or a unified diff. Markdown is
+   parsed as GFM with metadata (via `goldmark-meta`); a diff is parsed into files, hunks and lines
+   by reviewer's own parser. Both are translated into the body of the same page.
 3. **Review Server Layer (`net/http`)**
    Hosts an interactive web application UI (built using standard HTML/JS/CSS) and provides endpoints to record reviewer feedback.
 4. **MCP Layer (`github.com/modelcontextprotocol/go-sdk`)**
@@ -30,15 +32,17 @@ graph TD
     end
 
     subgraph Core["Core (package reviewer)"]
-        render[render.go - RenderSpec]
-        session[session.go - ReviewSession]
+        render[render.go - Render dispatches on Kind]
+        diff[diff.go - Parse and render unified diffs]
+        reanchor[reanchor.go - Re-anchor comments for display]
+        session[session.go - ReviewSession and HTTP handlers]
         server[server.go - StartReviewServer]
         mcpsrv[mcpserver.go - MCP Tools]
         tmpl[references/template.html - Embed UI Template]
     end
 
     subgraph Storage
-        md_file[input.md - Spec File]
+        md_file[input.md or input.diff - Review Target]
         html_file[output.html - Compiled HTML]
         json_file[TMPDIR/reviewer/*.json - Internal Review State]
     end
@@ -57,8 +61,11 @@ graph TD
     cmd_mcp -->|Serves tools over stdio| mcpsrv
     mcpsrv -->|Owns and drives| session
 
+    render -->|Dispatches a diff to| diff
     session -->|Re-renders on each request| render
     render -->|Embeds| tmpl
+    session -->|GET /api/feedback, display only| reanchor
+    reanchor -->|Reads the current diff via| diff
     session -->|Launches Browser & Opens| UI[Interactive Review UI in Browser]
     UI -->|GET / re-render · POST /api/feedback · POST /api/close| session
     UI -->|SSE /api/events| session
@@ -75,12 +82,35 @@ graph TD
 
 ### A. CLI Commands (`cli/command/`)
 * **`root.go`**: Establishes global parameters and instantiates command context.
-* **`build.go`**: Compiles the source Markdown into a standalone, styled HTML file. Output defaults to the same directory as the source Markdown file.
-* **`serve.go`**: Compiles the spec, spins up the local HTTP web server, and triggers the operating system's default browser to load the review application.
+* **`build.go`**: Compiles the input — a Markdown document or a unified diff — into a standalone, styled HTML file. Output defaults to the same directory as the input.
+* **`serve.go`**: Compiles the input, spins up the local HTTP web server, and triggers the operating system's default browser to load the review application.
 * **`mcp.go`**: Runs the MCP server over stdio. `--wait-timeout` (default `15m`) bounds one
   `review_wait` call; `--port` and `--no-open` mirror `serve`.
 
-### B. Spec Renderer (`reviewer/render.go`)
+### B. Renderer (`reviewer/render.go`, `reviewer/diff.go`)
+
+`Render` is the single entry point every call site uses (`build`, `serve`, `GET /`). It calls
+`DetectKind` on the content and dispatches: Markdown goes to `RenderSpec`, a unified diff to
+`ParseUnifiedDiff` + `RenderDiff`. Both produce a body and hand it to the same page template,
+which branches on `SpecMetadata.Mode`.
+
+* **Content-based detection**:
+  The kind comes from the bytes, never from the file name or a flag. An agent writes its diff to
+  a temp file whose name says nothing, and a flag would have to be threaded through every entry
+  point and then answered correctly by an agent that has no reason to care. Fenced code blocks are
+  skipped while detecting, so a spec that quotes a diff is still a spec — misreading one would
+  strip its formatting and orphan every existing comment anchor.
+* **The diff path does not post-process**:
+  Badge and callout rewriting would corrupt code, so `postProcessHTML` is skipped. That removes
+  the one thing making the Markdown path safe in a `text/template`, so `RenderDiff` escapes
+  **every** diff-derived string itself: line content, hunk headers, and paths, which also land in
+  attribute values. Hunk headers matter as much as content — a diff touching
+  `func (s *ReviewSession) Done() <-chan struct{}` puts `<-chan` straight into one.
+* **Own parser, kept swappable**:
+  The display-oriented shape a review page needs (line kind, both-side numbers, file boundaries,
+  a stable per-file line index) ends up hand-written whichever library is used. It is plain
+  functions with no interface in the way, so swapping in `go-gitdiff` later is a local change.
+
 Converts raw GFM Markdown into interactive, presentation-ready HTML. In addition to standard GFM translation, it performs custom **HTML post-processing**.
 
 * **Safe Post-Processing Design (Masking Logic)**:
@@ -115,8 +145,18 @@ operations directly: `Wait`, `Reply`, `Progress`.
   It reports `submitted`, `timeout`, or `session_ended` as a value. A cancelled caller context
   maps to `timeout` ("nothing happened, call again") rather than `session_ended`, which would end
   the agent's loop on a cancelled call.
+* **Sidecar mutual exclusion (`sidecarMu`)**:
+  Sidecar reads and writes are plain `os.ReadFile` / `os.WriteFile` and are not atomic against
+  each other, so one mutex covers the four paths that touch the file: the write in
+  `POST /api/feedback`, the read-modify-write in `Reply`, the read in `GET /api/feedback`, and
+  the read in `GET /api/wait`. It is taken at handler and method entry and **never inside
+  `readFeedbackDoc`** — `Reply` calls that helper while already holding it, and `sync.Mutex` is
+  not reentrant, so locking in the shared helper would deadlock the server outright. `Wait` is the
+  deliberate exception: it locks around each read rather than at entry, because it blocks for up
+  to 15 minutes and holding the lock that long would block the submit that is the only thing able
+  to wake it — with no cycle for Go's deadlock detector to see.
 
-### D. Review Server (`reviewer/server.go`, `ReviewSession.newMux`)
+### D. Review Server (`ReviewSession.newMux` in `reviewer/session.go`)
 
 The server hosts a **persistent, in-page review loop** (hunk-inspired): the user comments and
 submits, the agent updates the document and replies, and the open page auto-reloads. Submitting
@@ -128,11 +168,15 @@ goes through MCP.
 * **Dynamic Port Allocation**:
   If the default port (`5500`) is in use, the server dynamically catches this error and queries a free port using `net.Listen("tcp", "127.0.0.1:0")`.
 * **On-the-fly rendering (`GET /`)**:
-  The document is re-rendered from the source `.md` on every request, so the agent's edits appear
+  The document is re-rendered from the source file on every request, so the agent's edits appear
   on the next reload. (The server no longer serves a byte slice captured at startup.)
 * **`/api/feedback`**:
   * `GET`: Returns the feedback document as `{ "comments": [...], "summary": "..." }`. A missing
-    file yields `{"comments":[]}`.
+    file yields `{"comments":[]}`. **When the review target is a diff, the comments are
+    re-anchored against it first** — for display only, never written back (see section 5). A
+    Markdown session is passed through untouched: without that guard every block anchor would
+    fail the file lookup, turn `outdated`, and the Markdown review would silently lose its
+    indicators and connector lines.
   * `POST`: Unmarshals the incoming `Feedback`, **prunes comments the user marked `resolved`**,
     **assigns an `id` to any comment lacking one**, writes the file, **records the submit and
     releases any waiter** (both `ReviewSession.Wait` and `GET /api/wait`), and **keeps the server
@@ -207,9 +251,20 @@ most one live `ReviewSession` per process.
 Embedded into the Go binary at compile-time using the standard `//go:embed` directive.
 
 * **Responsive 3-Column Layout**:
-  * **Sidebar (Left)**: Renders the spec's title, version, date, and navigation.
-  * **Main Content (Middle)**: Renders the compiled body of the specification.
-  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission.
+  * **Sidebar (Left)**: Renders the title, version and date (a diff shows its file count and
+    +/− totals instead), and navigation — headings for a spec, the file list for a diff, where
+    each entry carries a status mark. It folds away, because a diff is read across and the file
+    list is the first thing worth trading for width.
+  * **Main Content (Middle)**: Renders the compiled body. For a diff the layout gives up its
+    1600px cap — a diff has no reading measure to respect — and the column is floored at
+    `--main-min-width`.
+  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider restores the default.
+* **Width lives in custom properties, never in inline styles**:
+  `--feedback-panel-width` and `--main-min-width` are read by both the stylesheet and the resize
+  handle, so the two cannot disagree, and the narrow-viewport media query can still override the
+  panel — which an inline `el.style.width` would outrank, bringing back horizontal scrolling on a
+  small screen. The same reasoning applies to state classes on `<body>` (`is-served`,
+  `sidebar-collapsed`, `diff-review`) rather than inline `display`.
 * **Comment Display Order**:
   The feedback panel renders comments in the **appearance order of their target block** in the
   document, so the panel reads top-down alongside the spec. `commentsInAppearanceOrder()` builds an
@@ -220,7 +275,19 @@ Embedded into the Go binary at compile-time using the standard `//go:embed` dire
   an agent edit, sink to the end in creation order. Only the rendering is reordered: the `comments`
   array and the feedback file written from it stay in creation order.
 * **Interactive DOM Initialization**:
-  Upon load, the frontend JS runs `initializeCommentableElements()`. This attaches `data-anchor` attributes and a hover action `💬` to all root block elements (excluding headers, code tags, or nested child blocks).
+  Upon load, the frontend JS runs `initializeCommentableElements()` for a spec — attaching
+  `data-anchor` attributes and a hover action `💬` to all root block elements (excluding headers,
+  code tags, or nested child blocks) — or `initializeDiffLines()` for a diff, which is selection
+  over line ranges and file headers instead. The template branches on `Mode`: calling the
+  Markdown initializer on a diff would tag every row as a block target and anchor comments that
+  cannot survive the next round.
+* **Syntax highlighting (diff)**:
+  Prism is already loaded for Markdown code blocks, so the diff borrows it. The grammar is chosen
+  **per file** from the path (a diff carries no other signal, and one page routinely mixes Go,
+  Markdown and YAML), and highlighting runs **per line, as lines scroll into view** — the DOM is
+  one row per line because that is what line-range anchoring needs, and a thousand-line diff
+  should not pay for all of it before first paint. The cost is that a construct spanning lines is
+  tokenized without its context.
 * **Inline Comment Editing State Management**:
   To support inline editing, the frontend JS tracks the active edit state using a global variable `editingIdx` (initialized to `-1` when no comment is being edited):
   * **Switching Mode**: Clicking the edit button (✎) or using keyboard shortcuts (`Enter` / `Space`) sets `editingIdx` to the corresponding comment index and triggers a re-render.
@@ -260,6 +327,33 @@ A `tr` may only contain `td`/`th`. Anything else — an extra child element, or 
 
 Note that the badge cannot be placed by writing it into the template's HTML either: the HTML parser foster-parents a non-cell element out of a `tr`, so it must be inserted into a cell from JS.
 
+### Diff targets: line ranges and whole files
+
+A diff's unit of meaning is the line, so its comment targets are a **range of lines**
+(`<path>#<start>-<end>`) or a **whole file** (`<path>#file`). The numbers are 1-based indices into
+the file's rendered diff lines — added, removed and context lines all counted, `@@` headers not.
+New-side source line numbers cannot do the job: a removed line has no number there, so
+"do not delete this line", and any range spanning a removal and its replacement, become
+inexpressible.
+
+* **`data-anchor` goes on the first line of a range only**, with the remaining lines marked
+  `data-anchor-member`. Six functions on the page resolve an anchor with
+  `querySelector('[data-anchor="…"]')` — the connector line, the `💬` indicator, panel ordering,
+  selection, reconciliation. With the attribute on every line they do not throw; they quietly do
+  nothing, which is far harder to notice. The range is collected from the member lines wherever
+  the whole of it must light up.
+* **Selections never cross a hunk.** The coordinate system could express it, but lines on either
+  side of a `@@` header are far apart in the real file, and recording them as adjacent would make
+  them unfindable next round. The re-anchoring search obeys the same boundary.
+* **The file header is a target too**, carrying `data-file` and `data-status`. A whole-file
+  comment sorts above the comments on that file's lines, because the header precedes them in the
+  DOM.
+* **Anchors are parsed by splitting on the last `#`**, so a path containing one still round-trips
+  (`a#1-2` anchors as `a#1-2#3-4`). A whole-file anchor ends in the word `file` rather than a
+  sentinel range like `0-0`, so the two forms stay distinguishable to a human reading the sidecar
+  and to an agent reading `review_wait` — and so the line-range parser keeps rejecting it, which
+  is what lets both kinds travel through the same code paths.
+
 ---
 
 ## 4. Feedback Schema Specification (JSON)
@@ -295,6 +389,16 @@ It is stored as a `Feedback` object:
       "status": "open",
       "reply": "The agent's reply describing how the comment was addressed",
       "replyTimestamp": "2026-06-01T20:50:00.000Z"
+    },
+    {
+      "id": "9f2c07d51e84",
+      "text": "Use the shared constant.\n\n```suggestion\n\tif len(key) > maxKeyLength {\n```",
+      "timestamp": "2026-08-15T09:12:00.000Z",
+      "anchor": "payment/idempotency.go#20-20",
+      "anchorLines": ["\tif len(key) > 255 {"],
+      "context": "payment/idempotency.go:20 — if len(key) > 255 {",
+      "author": "human",
+      "status": "open"
     }
   ],
   "summary": "Agent's page-level summary of the latest pass"
@@ -304,10 +408,70 @@ It is stored as a `Feedback` object:
 * `id`: Assigned by the server on submit to any comment lacking one, and preserved across rounds.
   This is how `review_reply` addresses a comment. Addressing by array index would misfire if the
   human submitted again while a round was still in flight.
-* `anchor`: Refers to the `data-anchor` property of the target DOM node.
+* `anchor`: What the comment is about — `spec-element-12` for a Markdown block, `<path>#12-15` for
+  a range of a diff file's rendered lines, `<path>#file` for a diff file as a whole.
+* `anchorLines`: The exact text of the anchored diff lines, markers stripped (`omitempty`, so a
+  Markdown comment carries none). Line indices move whenever the agent regenerates the diff; this
+  text is what finds the lines again, which is why it is persisted on the comment rather than
+  derived from the anchor.
+* `outdated`: Set on a diff comment whose lines are no longer in the diff (`omitempty`). It keeps
+  its anchor so it can come back if they reappear.
 * `context`: Truncated preview text of the target element (max 57 chars + `...`).
 * `author`: `human` or `agent`. Top-level comments are human-authored.
 * `status`: `open` or `resolved`. Only the **human** sets `resolved` (via a page control); resolved
   comments are pruned on the next submit. The agent must not self-resolve.
 * `reply` / `replyTimestamp`: the agent's response threaded under the human comment.
 * `summary`: the agent's change summary for the latest round, rendered at the top of the panel.
+
+---
+
+## 5. Re-anchoring (diff review)
+
+A review is only useful if it survives the agent acting on it. The moment the agent regenerates
+the diff, every recorded line index moves: a hunk added upstream shifts everything below it, and
+lines change kind as fixes land elsewhere. Comments are therefore located again by matching the
+**content** they were written against (`anchorLines`), not by the numbers in their anchor.
+
+### The rules (`reanchor.go`)
+
+1. **Short circuit** — if the recorded range still holds exactly that content, keep it and do not
+   search.
+2. **Search** — otherwise scan the file. Exactly one match moves the comment; zero or several
+   leave it `outdated`.
+
+Matching compares `Line.Content` only, never `Line.Kind`: a line that was `+foo` in one round and
+` foo` in the next — which happens constantly as a side effect of the agent fixing something
+upstream — is the same line to the reader, and to the comment. The search never crosses a hunk,
+and rule 1 checks inside the hunk too, so both obey the same boundary. A whole-file anchor has no
+lines to match and follows the file itself: it survives any amount of editing and goes outdated
+only when the file leaves the diff.
+
+**Rule 1 is not an optimisation.** Searching by content alone would send most single-line comments
+outdated on the very first reload with the diff byte-for-byte unchanged: `}`, a blank line,
+`return nil` and `if err != nil {` each occur several times in one file, the match count reaches
+two, and an ambiguous match gives up. The comment would disappear moments after being written.
+
+### Where it happens, and what it must not do
+
+Re-anchoring is computed **for display**, in `GET /api/feedback`, and is **never written back to
+the sidecar**. The browser holds the result and posts it at the next submit, so persistence keeps
+riding the existing write path — `pruneResolved` and `assignCommentIDs` already leave anchors
+alone. Two alternatives were rejected:
+
+* *Re-anchor at `GET /` and write back* — races the submit handler on a read-modify-write and can
+  drop comments; a `GET` with side effects is its own problem.
+* *Re-anchor inside the submit handler* — too late. The diff changes when the **agent** writes, so
+  the human would spend the whole round looking at comments still pinned to last round's
+  positions.
+
+The handler must also **not broadcast**: a reload triggered from here would fetch again and loop
+forever.
+
+A comment that cannot be placed is not deleted. It stays in the panel marked `outdated`, showing
+the lines it was written against — with the diff gone, that quotation is the only remaining record
+of what it referred to — and it keeps its anchor, so it re-attaches if the lines come back. That is
+also why `outdated` is set to `false` explicitly when a comment follows again: the flag is
+persisted, so inheriting last round's value would leave it stuck on.
+
+**A formatting-only change (whitespace, import reordering) sends every affected comment outdated.**
+That follows necessarily from matching exactly.
