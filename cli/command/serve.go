@@ -11,21 +11,21 @@ import (
 )
 
 type Serve struct {
-	Input  string `arg:"" help:"Input markdown spec file path." type:"existingfile"`
+	Input  string `arg:"" help:"Input file path. A Markdown document or a unified diff; the format is detected from the content." type:"existingfile"`
 	Output string `short:"o" help:"Output HTML spec file path (defaults to same folder as input)."`
 	Port   int    `short:"p" default:"5500" help:"Target port for HTTP server."`
 	NoOpen bool   `name:"no-open" help:"Do not automatically open the default web browser."`
 }
 
 func (s *Serve) Run(c *Context) error {
-	mdContent, err := os.ReadFile(s.Input)
+	content, err := os.ReadFile(s.Input)
 	if err != nil {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
 
-	htmlContent, err := reviewer.RenderSpec(mdContent)
+	htmlContent, err := reviewer.Render(content)
 	if err != nil {
-		return fmt.Errorf("failed to render spec: %w", err)
+		return fmt.Errorf("failed to render document: %w", err)
 	}
 
 	outPath := s.Output

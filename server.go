@@ -33,10 +33,19 @@ const (
 // create top-level comments; instead it attaches a Reply to the human comment and
 // leaves resolution to the human (Status is only ever set to resolved by the user).
 type Comment struct {
-	ID             string `json:"id,omitempty"` // server-assigned, stable across rounds; how the agent addresses a comment
-	Text           string `json:"text"`
-	Timestamp      string `json:"timestamp"`
-	Anchor         string `json:"anchor,omitempty"`         // Element selector ID/anchor
+	ID        string `json:"id,omitempty"` // server-assigned, stable across rounds; how the agent addresses a comment
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+	// Anchor is the comment's target: a document block (spec-element-N) for Markdown, or a
+	// line range (<path>#<start>-<end>) for a diff. See FormatDiffAnchor for the diff form.
+	Anchor string `json:"anchor,omitempty"`
+	// AnchorLines is the exact content of the anchored diff lines, markers stripped. It is what
+	// lets a comment find its lines again after the agent regenerates the diff, so it has to be
+	// persisted alongside the anchor rather than derived from it.
+	AnchorLines []string `json:"anchorLines,omitempty"`
+	// Outdated marks a diff comment whose lines are no longer in the diff. It keeps its anchor
+	// so it can come back if the lines reappear; the page just stops drawing it in the body.
+	Outdated       bool   `json:"outdated,omitempty"`
 	Context        string `json:"context,omitempty"`        // Preview text context of the commented element
 	Author         string `json:"author,omitempty"`         // human | agent
 	Status         string `json:"status,omitempty"`         // open | resolved (resolved set by the human)

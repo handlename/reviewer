@@ -62,7 +62,7 @@ func (h *sessionHolder) closeCurrent() {
 }
 
 type startInput struct {
-	Path string `json:"path" jsonschema:"path to the Markdown document to review"`
+	Path string `json:"path" jsonschema:"path to the file to review: a Markdown document, or a unified diff written out to a temporary file"`
 }
 
 type startOutput struct {
@@ -177,8 +177,14 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 
 	mcp.AddTool(server,
 		&mcp.Tool{
-			Name:        "review_start",
-			Description: "Open a Markdown document for interactive review. Renders it, serves it, and opens the browser. Returns the review URL.",
+			Name: "review_start",
+			Description: "Open a file for interactive review. Renders it, serves it, and opens the browser. Returns the review URL. " +
+				"The file may be a Markdown document or a unified diff — write the diff of your changes to a temporary file and pass that path " +
+				"to have your own work reviewed. Which one it is is detected from the content; there is nothing to declare. " +
+				"On a diff, a comment's anchor reads \"<path>#<start>-<end>\", where the numbers are 1-based positions among that file's " +
+				"rendered diff lines (added, removed and context lines all counted, @@ headers not) — they are NOT source line numbers. " +
+				"Use the comment's anchorLines, which hold the exact text of those lines, to locate the code. " +
+				"An anchor of \"<path>#file\" is a comment about the change to that file as a whole, not about any line in it; it carries no anchorLines.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
 			// The request context is deliberately unused: the session outlives this call.

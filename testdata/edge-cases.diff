@@ -1,0 +1,38 @@
+diff --git a/added.go b/added.go
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/added.go
+@@ -0,0 +1,2 @@
++package main
++
+diff --git a/gone.go b/gone.go
+deleted file mode 100644
+index 1111111..0000000
+--- a/gone.go
++++ /dev/null
+@@ -1,2 +0,0 @@
+-package main
+-// nothing left
+diff --git a/old/name.go b/new/name.go
+similarity index 95%
+rename from old/name.go
+rename to new/name.go
+index 1111111..2222222 100644
+--- a/old/name.go
++++ b/new/name.go
+@@ -1,2 +1,2 @@
+ package name
+-const Old = 1
++const New = 1
+diff --git a/mode-only.sh b/mode-only.sh
+old mode 100644
+new mode 100755
+diff --git a/tail.txt b/tail.txt
+index 1111111..2222222 100644
+--- a/tail.txt
++++ b/tail.txt
+@@ -1 +1 @@
+-no trailing newline
+\ No newline at end of file
++now with one

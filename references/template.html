@@ -88,6 +88,13 @@
             --radius: 3px;
             --u: 8px;           /* spacing base unit */
 
+            /* Comment panel width. A custom property rather than a fixed width so the
+               drag handle can rewrite it and the narrow-viewport media query can still
+               override it — an inline el.style.width would beat the media query. */
+            --feedback-panel-width: 520px;
+            /* The narrowest the document column may become. Read by the resize handle too. */
+            --main-min-width: 480px;
+
             scrollbar-color: hsl(var(--fg-hsl) / 0.22) transparent;
         }
 
@@ -177,7 +184,9 @@
             flex-direction: column;
             gap: calc(var(--u) * 2);
         }
-        .sidebar > h2 {
+        /* Descendant, not child: the title sits inside .sidebar-header alongside the collapse
+           button, and a child selector would drop it back to document-heading styling. */
+        .sidebar h2 {
             font-size: 1.05rem;
             font-weight: 600;
             line-height: 1.3;
@@ -207,7 +216,7 @@
         }
 
         .feedback-panel {
-            width: 340px;
+            width: var(--feedback-panel-width);
             flex-shrink: 0;
             height: 100vh;
             position: sticky;
@@ -220,6 +229,41 @@
             gap: calc(var(--u) * 2);
             overflow-y: auto;
         }
+
+        /* Drag handle on the panel's left edge: a 7px hit area for the pointer, a 1px
+           line for the eye.
+           Why a sibling of the panel rather than a child: the panel scrolls
+           (overflow-y: auto), and an absolutely positioned child both scrolls away with
+           the comment list and gets clipped where it overhangs the panel's edge. As a
+           sticky flex item pulled back over that edge by a negative margin it stays put,
+           stays hittable, and costs the layout no width. */
+        .panel-resize-handle {
+            display: none;               /* serve mode only — see body.is-served below */
+            position: sticky;
+            top: 0;
+            width: 7px;
+            height: 100vh;
+            margin-right: -7px;
+            flex-shrink: 0;
+            cursor: col-resize;
+            z-index: 30;
+            touch-action: none;
+        }
+        .panel-resize-handle::after {
+            content: "";
+            position: absolute;
+            left: 3px;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background: transparent;
+            transition: background-color 0.18s;
+        }
+        body.is-served .panel-resize-handle { display: block; }
+        .panel-resize-handle:hover::after,
+        .panel-resize-handle.dragging::after { background: var(--accent-color); }
+        /* While dragging, keep the pointer's own cursor and stop text selecting mid-drag. */
+        body.panel-resizing { user-select: none; cursor: col-resize; }
 
         /* ---------- Typography ---------- */
         h1, h2, h3, h4 {
@@ -433,7 +477,11 @@
             font-size: 0.95rem;
             line-height: 1.5;
             outline: none;
-            min-height: 80px;
+            min-height: 96px;
+            /* Grown to fit its content from JS. The ceiling keeps the buttons below it
+               on screen; past it the textarea scrolls instead of pushing them off. */
+            max-height: 50vh;
+            overflow-y: auto;
         }
         .comment-box textarea::placeholder { color: var(--text-tertiary); }
         .btn {
@@ -470,6 +518,9 @@
             color: var(--text-body);
             position: relative;
         }
+        /* A comment may carry a ```suggestion fence, which is only readable if its line breaks
+           and indentation survive. This also keeps a Markdown comment's own paragraphs intact. */
+        .feedback-item > p { white-space: pre-wrap; overflow-wrap: anywhere; }
         .feedback-item .delete-btn {
             position: absolute;
             top: 8px;
@@ -498,6 +549,8 @@
         .edit-textarea {
             width: 100%;
             min-height: 60px;
+            max-height: 50vh;
+            overflow-y: auto;
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius);
@@ -641,6 +694,89 @@
             height: 15px;
             accent-color: var(--accent-color);
             cursor: pointer;
+        }
+
+        /* ---------- ```suggestion rendered as a diff ----------
+           Same tints as the diff body, so a suggestion in the panel and the lines it
+           replaces in the document read as the same kind of object. Code wraps here
+           rather than scrolling: the panel is narrow, and a suggestion is short. */
+        .suggestion-diff {
+            margin-top: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+        .suggestion-diff-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            padding: 0.3rem 0.5rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .suggestion-line {
+            display: flex;
+            align-items: baseline;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.74rem;
+            line-height: 1.55;
+        }
+        .suggestion-marker {
+            flex: 0 0 auto;
+            width: 1.2em;
+            text-align: center;
+            color: var(--text-tertiary);
+            user-select: none;
+        }
+        .suggestion-code {
+            flex: 1 1 auto;
+            min-width: 0;
+            padding-right: 0.4rem;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: var(--text-body);
+        }
+        .suggestion-add { background: var(--diff-add-bg); }
+        .suggestion-del { background: var(--diff-del-bg); }
+        .suggestion-add .suggestion-marker { color: var(--diff-add-fg); font-weight: 600; }
+        .suggestion-del .suggestion-marker { color: var(--diff-del-fg); font-weight: 600; }
+        .suggestion-ctx .suggestion-code { color: var(--text-secondary); }
+
+        /* Outdated: the comment's lines are no longer in the diff. It recedes, but keeps its
+           text and the lines it was written against — with the diff gone, that quotation is the
+           only remaining record of what it referred to. */
+        .feedback-item.outdated { border-style: dashed; background: transparent; }
+        .outdated-tag {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--callout-warning);
+            margin-bottom: 0.3rem;
+        }
+        .outdated-context {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            color: var(--text-tertiary);
+            margin-top: 0.45rem;
+            overflow-wrap: anywhere;
+        }
+        .outdated-lines {
+            margin: 0.35rem 0 0 !important;
+            padding: 0.4rem 0.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            font-size: 0.72rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
         }
 
         /* a comment the user marked resolved recedes but stays visible for the cycle */
@@ -895,6 +1031,225 @@
             box-shadow: 0 0 0 6px var(--hl-halo);
         }
 
+        /* ---------- Diff view ----------
+           A diff is read across, not down: it keeps the full column instead of the
+           reading measure, and each line scrolls on its own rather than wrapping.
+           Added and removed are the one place a second hue is spent — they are not a
+           hierarchy but a distinction of meaning, and nothing else on the page can
+           carry it as fast. The tints are dropped to the saturation of the stone
+           palette so they read as paper, not as a warning. */
+        :root {
+            --diff-add-bg: hsl(150 34% 42% / 0.13);
+            --diff-del-bg: hsl(2 60% 50% / 0.11);
+            --diff-add-fg: hsl(150 40% 32%);
+            --diff-del-fg: hsl(2 55% 44%);
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --diff-add-bg: hsl(150 40% 55% / 0.15);
+                --diff-del-bg: hsl(4 60% 62% / 0.14);
+                --diff-add-fg: hsl(150 40% 62%);
+                --diff-del-fg: hsl(4 58% 67%);
+            }
+        }
+
+        /* A diff has no reading measure to respect — it is as wide as its longest line — so
+           the layout gives up its 1600px cap and the document column takes whatever the
+           window has. --main-min-width is the floor it is never squeezed below; the panel
+           drag reads the same value, so the two cannot disagree. */
+        body.diff-review .layout { max-width: none; }
+        .main-content.diff-mode {
+            max-width: none;
+            min-width: var(--main-min-width);
+            margin: 0;
+            padding: calc(var(--u) * 4) calc(var(--u) * 3);
+        }
+        .diff-file {
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            margin-bottom: calc(var(--u) * 3);
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+        .main-content.diff-mode h2.diff-file-header {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            line-height: 1.5;
+            color: var(--text-primary);
+            margin: 0;
+            padding: 0.55rem 0.85rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            /* The path stays visible while its hunks scroll past. */
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+        .diff-file-note {
+            color: var(--text-tertiary);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            margin-left: 0.5rem;
+        }
+        .diff-empty {
+            margin: 0;
+            padding: 0.5rem 0.85rem;
+            font-size: 0.84rem;
+            color: var(--text-tertiary);
+        }
+        /* The hunk is the horizontal scroll unit. Scrolling per line would make the
+           rows slide independently and destroy the column alignment a diff is read by;
+           scrolling the whole file card would take the sticky path header with it. */
+        .diff-hunk {
+            overflow-x: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .diff-hunk + .diff-hunk { border-top: 1px solid var(--border-color); }
+        .diff-hunk-header {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-tertiary);
+            padding: 0.3rem 0.85rem;
+            background: hsl(var(--fg-hsl) / 0.035);
+            white-space: pre;
+            width: max-content;
+            min-width: 100%;
+        }
+        .diff-line {
+            display: flex;
+            align-items: baseline;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.84rem;
+            line-height: 1.6;
+            white-space: pre;
+            position: relative;
+            /* As wide as its code, but never narrower than the hunk, so the row's tint
+               still spans the full width of a short line. */
+            width: max-content;
+            min-width: 100%;
+        }
+        .diff-no {
+            flex: 0 0 auto;
+            width: 3.6em;
+            text-align: right;
+            padding-right: 0.6em;
+            color: var(--text-tertiary);
+            font-size: 0.72rem;
+            user-select: none;
+        }
+        /* A deletion has no number on the new side, so its own (old) number is shown
+           instead — dimmed, because the column changes coordinate system for that row. */
+        .diff-no-old { opacity: 0.6; font-style: italic; }
+        .diff-marker {
+            flex: 0 0 auto;
+            width: 1.4em;
+            text-align: center;
+            color: var(--text-tertiary);
+            user-select: none;
+        }
+        .diff-code { flex: 0 0 auto; padding-right: 1rem; }
+        .diff-add { background: var(--diff-add-bg); }
+        .diff-del { background: var(--diff-del-bg); }
+        .diff-add .diff-marker { color: var(--diff-add-fg); font-weight: 600; }
+        .diff-del .diff-marker { color: var(--diff-del-fg); font-weight: 600; }
+        .diff-meta .diff-code { color: var(--text-tertiary); font-style: italic; }
+
+        /* ---------- Diff line states ----------
+           The wash is painted as a background IMAGE so it layers over the row's own
+           added/removed tint instead of replacing it: which side a line is on must
+           stay readable while it is selected or commented. */
+        .diff-line { cursor: pointer; }
+        .diff-line:hover { background-image: linear-gradient(var(--hl-wash), var(--hl-wash)); }
+        .diff-line.range-selected,
+        .diff-line.anchored-range {
+            background-image: linear-gradient(var(--hl-wash), var(--hl-wash));
+        }
+        .diff-line.anchored-range[data-anchor] { box-shadow: inset 2px 0 0 var(--hl-mark); }
+        /* A range is several rows, so its states are drawn as a band — a continuous left rule
+           and a wash — rather than an outline per row, which would read as separate boxes
+           stacked on top of each other instead of one selection. */
+        .diff-line.active-comment-target { box-shadow: inset 2px 0 0 var(--hl-ring); }
+        .diff-line.selected-target {
+            background-image: linear-gradient(var(--hl-halo), var(--hl-halo));
+            box-shadow: inset 3px 0 0 var(--hl-ring);
+        }
+        /* The 💬 badge cannot hang in the right gutter here: the hunk scrolls horizontally
+           and would clip it. Sticking it to the scrollport's right edge keeps it in view at
+           any scroll position. */
+        .diff-line .element-comment-indicator {
+            position: sticky;
+            right: 4px;
+            top: auto;
+            transform: none;
+            margin-left: auto;
+            align-self: center;
+        }
+        .diff-line .element-comment-indicator:hover { transform: scale(1.08); }
+
+        /* The file header is a comment target too — for what is true of the change to the file
+           rather than of any line in it. Same states as a line, drawn on the header's own bar. */
+        .main-content.diff-mode h2.diff-file-header { cursor: pointer; }
+        .main-content.diff-mode h2.diff-file-header:hover { background: var(--bg-tertiary); }
+        .diff-file-header.anchored-range { box-shadow: inset 2px 0 0 var(--hl-mark); }
+        .diff-file-header.active-comment-target { box-shadow: inset 2px 0 0 var(--hl-ring); }
+        .diff-file-header.selected-target {
+            background: hsl(var(--accent-hsl) / 0.10);
+            box-shadow: inset 3px 0 0 var(--hl-ring);
+        }
+        /* Inside the header rather than out in the gutter: .diff-file clips its overflow. */
+        .diff-file-header .element-comment-indicator {
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        #suggestionActions { margin-top: -0.4rem; }
+        #quoteSuggestionBtn { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; }
+
+        /* ---------- Collapsing the contents rail ----------
+           A diff is read across, so the contents rail is the first thing worth
+           trading for width. Collapsed state rides a class on <body>, never an
+           inline style, so the narrow-viewport rules can still override it. */
+        .sidebar-header {
+            display: flex;
+            align-items: flex-start;
+            gap: calc(var(--u) * 1.5);
+        }
+        .sidebar-header > h2 { flex: 1 1 auto; min-width: 0; }
+        .rail-toggle {
+            flex: 0 0 auto;
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid transparent;
+            border-radius: var(--radius);
+            background: transparent;
+            color: var(--text-tertiary);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: color 0.18s, border-color 0.18s, background-color 0.18s;
+        }
+        .rail-toggle:hover { color: var(--text-primary); border-color: var(--border-color); background: var(--bg-secondary); }
+        /* The restore handle only exists while the rail is gone. */
+        #showSidebarBtn {
+            display: none;
+            position: fixed;
+            top: calc(var(--u) * 2);
+            left: calc(var(--u) * 2);
+            z-index: 45;
+            background: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+        body.sidebar-collapsed .sidebar { display: none; }
+        body.sidebar-collapsed #showSidebarBtn { display: inline-flex; }
+
         /* ---------- Sidebar TOC ---------- */
         .sidebar-toc {
             display: flex;
@@ -923,6 +1278,23 @@
             font-weight: 500;
             border-left-color: var(--accent-color);
         }
+        /* File list: a fixed-width mark column so the names line up and the list can be
+           scanned down rather than read across. */
+        .sidebar-toc-file { display: flex; align-items: baseline; gap: 0.45rem; }
+        .toc-file-status {
+            flex: 0 0 auto;
+            width: 0.9em;
+            text-align: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1;
+        }
+        .toc-file-status-added    { color: var(--diff-add-fg); }
+        .toc-file-status-deleted  { color: var(--diff-del-fg); }
+        .toc-file-status-renamed  { color: var(--text-secondary); }
+        .toc-file-status-modified { color: var(--text-tertiary); }
+        .toc-file-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
         .sidebar-toc-h1 { padding-left: 0.6rem; }
         .sidebar-toc-h2 { padding-left: 1.35rem; font-size: 0.8rem; }
         .sidebar-toc-h3 { padding-left: 2.1rem; font-size: 0.78rem; }
@@ -949,27 +1321,37 @@
                 border-bottom: 1px solid var(--border-color);
             }
             .feedback-panel { border-bottom: none; border-top: 1px solid var(--border-color); }
+            /* The rails are stacked, so there is no horizontal edge left to drag. */
+            body.is-served .panel-resize-handle { display: none; }
             .main-content { max-width: 46rem; }
             .element-comment-indicator { right: 2px; }
         }
     </style>
 </head>
-<body>
+<body class="{{if eq .Mode "diff"}}diff-review{{end}}">
     <div class="layout">
-        <aside class="sidebar">
-            <h2>{{.Title}}</h2>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>{{.Title}}</h2>
+                <button type="button" class="rail-toggle" id="hideSidebarBtn" title="Hide contents" aria-label="Hide contents" aria-expanded="true" aria-controls="sidebar">&#x2039;</button>
+            </div>
+            {{if eq .Mode "diff"}}
+            <p style="font-size: 0.9rem;">{{.Stats}}</p>
+            {{else}}
             <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
             <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
+            {{end}}
             <nav class="sidebar-toc" id="sidebarToc">
                 <!-- Dynamic headings loaded via JS -->
             </nav>
         </aside>
 
-        <main class="main-content">
+        <main class="main-content{{if eq .Mode "diff"}} diff-mode{{end}}">
             {{.Body}}
         </main>
 
         <!-- Feedback Panel visible in Serve mode -->
+        <div class="panel-resize-handle" id="panelResizeHandle" role="separator" aria-orientation="vertical" aria-label="Resize comment panel" title="Drag to resize"></div>
         <aside class="feedback-panel" id="feedbackPanel" style="display: none;">
             <div class="feedback-header">Review Comments<span class="live-dot offline" id="liveDot" title="Live connection"></span></div>
 
@@ -991,6 +1373,9 @@
             <div class="comment-box">
                 <textarea id="commentInput" placeholder="Type a comment or request changes..."></textarea>
             </div>
+            <div id="suggestionActions" style="display: none;">
+                <button class="btn-sm btn-cancel" id="quoteSuggestionBtn" title="Insert the selected lines as a ```suggestion block">Quote lines as suggestion</button>
+            </div>
             <button class="btn" id="addCommentBtn">Add Comment</button>
             
             <div id="commentsList" style="margin-top: 1rem; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -1008,6 +1393,8 @@
         </aside>
     </div>
 
+    <button type="button" class="rail-toggle" id="showSidebarBtn" title="Show contents" aria-label="Show contents" aria-expanded="false" aria-controls="sidebar">&#x203A;</button>
+
     <svg id="connectorOverlay" aria-hidden="true"></svg>
 
     <script>
@@ -1015,6 +1402,10 @@
         const isServed = window.location.protocol.startsWith('http');
         if (isServed) {
             document.getElementById("feedbackPanel").style.display = "flex";
+            // The handle's visibility rides a body class, not an inline style: the
+            // narrow-viewport media query has to be able to hide it again, and an inline
+            // display would outrank it.
+            document.body.classList.add("is-served");
         }
 
         let comments = [];
@@ -1022,12 +1413,24 @@
         let editingIdx = -1;
         let activeAnchor = "";
         let activeContext = "";
+        // Diff mode only: the exact content of the lines being commented on. It travels with the
+        // comment because it, not the line numbers, is what finds the lines again next round.
+        let activeAnchorLines = [];
         // dirty = the user has unsent local changes; used to defer auto-reload so we never
         // discard an in-progress comment when the agent updates the document.
         let dirty = false;
         let pendingReload = false;
 
         function markDirty() { dirty = true; }
+
+        // Grow a textarea to fit what is in it. A ```suggestion fence is many lines long, and a
+        // three-line window turns writing one into scrolling through it. CSS max-height caps the
+        // growth, so the height is only ever set up to that ceiling.
+        function autoGrowTextarea(el) {
+            if (!el) return;
+            el.style.height = "auto";
+            el.style.height = el.scrollHeight + "px";
+        }
 
         // Tag commentable elements on load
         function initializeCommentableElements() {
@@ -1084,6 +1487,323 @@
             });
         }
 
+        // ---------- Diff mode: line-range comment targets ----------
+        // A diff comment targets a range of lines, not a block, so its anchor is
+        // "<path>#<start>-<end>" where the numbers are 1-based positions among the file's
+        // rendered diff lines. The anchor is built when the range is selected; the DOM
+        // attribute that carries it is (re)applied by applyDiffAnchors.
+        const isDiffMode = !!document.querySelector(".main-content.diff-mode");
+
+        function diffLineElements() { return Array.from(document.querySelectorAll(".diff-line")); }
+        function lineIndexOf(el) { return parseInt(el.getAttribute("data-line-index"), 10); }
+        function formatDiffAnchor(path, start, end) { return `${path}#${start}-${end}`; }
+        function formatDiffFileAnchor(path) { return `${path}#file`; }
+
+        // Mirrors ParseDiffFileAnchor in Go: the whole-file form, split on the last '#'.
+        function parseDiffFileAnchor(anchor) {
+            if (!anchor) return null;
+            const i = anchor.lastIndexOf("#");
+            if (i < 0 || anchor.slice(i + 1) !== "file") return null;
+            return { path: anchor.slice(0, i) };
+        }
+
+        function fileHeaderFor(path) {
+            return Array.from(document.querySelectorAll(".diff-file-header"))
+                .find(el => el.getAttribute("data-file") === path) || null;
+        }
+
+        // Mirrors ParseDiffAnchor in Go, including the split on the LAST '#': a path may
+        // contain one, and the anchor always ends in "#<digits>-<digits>".
+        function parseDiffAnchor(anchor) {
+            if (!anchor) return null;
+            const i = anchor.lastIndexOf("#");
+            if (i < 0) return null;
+            const m = /^(\d+)-(\d+)$/.exec(anchor.slice(i + 1));
+            if (!m) return null;
+            const start = parseInt(m[1], 10), end = parseInt(m[2], 10);
+            if (start < 1 || end < start) return null;
+            return { path: anchor.slice(0, i), start, end };
+        }
+
+        // Matching on the elements rather than through an attribute selector: a file path can
+        // contain quotes and backslashes, which would need escaping to survive a selector.
+        function linesInRange(path, start, end) {
+            return diffLineElements().filter(el => {
+                const idx = lineIndexOf(el);
+                return el.getAttribute("data-file") === path && idx >= start && idx <= end;
+            });
+        }
+
+        function lineCode(el) {
+            const code = el.querySelector(".diff-code");
+            return code ? code.textContent : "";
+        }
+
+        // data-anchor goes on the FIRST line of a range only; the rest are marked with
+        // data-anchor-member. Every anchor-driven function on this page resolves an anchor with
+        // querySelector('[data-anchor="…"]'), which expects exactly one element — with the
+        // attribute on every line of the range they would each silently do nothing.
+        function applyDiffAnchors() {
+            if (!isDiffMode) return;
+            document.querySelectorAll(".diff-line[data-anchor], .diff-line[data-anchor-member], .diff-file-header[data-anchor]").forEach(el => {
+                el.removeAttribute("data-anchor");
+                el.removeAttribute("data-anchor-member");
+                el.classList.remove("anchored-range");
+            });
+
+            const anchors = [];
+            // Outdated comments keep their anchor but are not shown in the diff body (TASK-5);
+            // until then every anchored comment paints.
+            comments.forEach(c => { if (c.anchor && !c.outdated && !anchors.includes(c.anchor)) anchors.push(c.anchor); });
+            if (activeAnchor && !anchors.includes(activeAnchor)) anchors.push(activeAnchor);
+
+            anchors.forEach(anchor => {
+                const whole = parseDiffFileAnchor(anchor);
+                if (whole) {
+                    const header = fileHeaderFor(whole.path);
+                    if (header) {
+                        header.setAttribute("data-anchor", anchor);
+                        header.classList.add("anchored-range");
+                    }
+                    return;
+                }
+
+                const parsed = parseDiffAnchor(anchor);
+                if (!parsed) return;
+                linesInRange(parsed.path, parsed.start, parsed.end).forEach((el, i) => {
+                    if (i === 0) {
+                        el.setAttribute("data-anchor", anchor);
+                    } else {
+                        el.setAttribute("data-anchor-member", anchor);
+                    }
+                    el.classList.add("anchored-range");
+                });
+            });
+        }
+
+        function clearRangeSelection() {
+            document.querySelectorAll(".diff-line.range-selected").forEach(el => el.classList.remove("range-selected"));
+        }
+
+        // Target a line range for the next comment. Selections never cross a hunk: the
+        // coordinate system could express it, but lines on either side of a hunk boundary are
+        // hundreds of lines apart in the real file, and storing them as if they were adjacent
+        // would make them impossible to find again.
+        function setDiffCommentTarget(fromEl, toEl) {
+            if (fromEl.parentElement !== toEl.parentElement) return;
+
+            const path = fromEl.getAttribute("data-file");
+            const a = lineIndexOf(fromEl), b = lineIndexOf(toEl);
+            const start = Math.min(a, b), end = Math.max(a, b);
+            const els = linesInRange(path, start, end);
+            if (!els.length) return;
+
+            document.querySelectorAll(".active-comment-target").forEach(el => el.classList.remove("active-comment-target"));
+            clearRangeSelection();
+            els.forEach(el => el.classList.add("range-selected"));
+
+            activeAnchor = formatDiffAnchor(path, start, end);
+            activeAnchorLines = els.map(lineCode);
+            activeContext = diffContextPreview(path, start, end, activeAnchorLines[0] || "");
+
+            applyDiffAnchors();
+            els.forEach(el => el.classList.add("active-comment-target"));
+
+            document.getElementById("commentContextText").textContent = activeContext;
+            document.getElementById("commentContextContainer").style.display = "block";
+            document.getElementById("suggestionActions").style.display = "block";
+
+            clearConnectionMarks();
+            connection = { kind: "compose", anchor: activeAnchor };
+            hoverAnchor = null;
+            drawConnection(connection, true);
+        }
+
+        // Target a whole file. There is no line content to carry, so no anchorLines and no
+        // suggestion: a suggestion replaces specific lines, and this comment names none.
+        function setDiffFileCommentTarget(header) {
+            const path = header.getAttribute("data-file");
+            if (!path) return;
+
+            document.querySelectorAll(".active-comment-target").forEach(el => el.classList.remove("active-comment-target"));
+            clearRangeSelection();
+
+            activeAnchor = formatDiffFileAnchor(path);
+            activeAnchorLines = [];
+            activeContext = path.length > 60 ? path.substring(0, 57) + "..." : path;
+
+            applyDiffAnchors();
+            header.classList.add("active-comment-target");
+
+            document.getElementById("commentContextText").textContent = activeContext;
+            document.getElementById("commentContextContainer").style.display = "block";
+            document.getElementById("suggestionActions").style.display = "none";
+
+            clearConnectionMarks();
+            connection = { kind: "compose", anchor: activeAnchor };
+            hoverAnchor = null;
+            drawConnection(connection, true);
+        }
+
+        function diffContextPreview(path, start, end, firstLine) {
+            const where = start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
+            const code = firstLine.trim().replace(/\s+/g, " ");
+            const text = code ? `${where} — ${code}` : where;
+            return text.length > 60 ? text.substring(0, 57) + "..." : text;
+        }
+
+        // ---------- Syntax highlighting ----------
+        // Prism is already on the page for Markdown code blocks, so the diff borrows it. The
+        // grammar is chosen per FILE, from the path in data-file — a diff has no other signal,
+        // and one page routinely mixes Go, Markdown and YAML.
+        const DIFF_LANGUAGE_BY_EXTENSION = {
+            go: "go", js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx",
+            ts: "typescript", tsx: "tsx", py: "python", rb: "ruby", rs: "rust", java: "java",
+            kt: "kotlin", swift: "swift", scala: "scala", c: "c", h: "c", cc: "cpp", cpp: "cpp",
+            hpp: "cpp", cs: "csharp", php: "php", pl: "perl", lua: "lua", sh: "bash",
+            bash: "bash", zsh: "bash", fish: "bash", sql: "sql", css: "css", scss: "scss",
+            html: "markup", xml: "markup", svg: "markup", vue: "markup", json: "json",
+            yaml: "yaml", yml: "yaml", toml: "toml", ini: "ini", md: "markdown",
+            markdown: "markdown", tf: "hcl", hcl: "hcl", graphql: "graphql", proto: "protobuf",
+            dockerfile: "docker", mk: "makefile",
+        };
+        const DIFF_LANGUAGE_BY_NAME = {
+            Dockerfile: "docker", Makefile: "makefile", Gemfile: "ruby", Rakefile: "ruby",
+            ".gitignore": "git", ".gitattributes": "git",
+        };
+
+        function languageForPath(path) {
+            if (!path) return null;
+            const name = path.split("/").pop();
+            if (DIFF_LANGUAGE_BY_NAME[name]) return DIFF_LANGUAGE_BY_NAME[name];
+            const dot = name.lastIndexOf(".");
+            if (dot < 0) return null;
+            return DIFF_LANGUAGE_BY_EXTENSION[name.slice(dot + 1).toLowerCase()] || null;
+        }
+
+        // Highlighting is done line by line as lines come into view. A diff is a list of
+        // fragments, not a document, so there is no whole-file parse to share anyway — and
+        // deferring it keeps a thousand-line diff from paying for all of it up front.
+        function highlightDiffLine(line) {
+            const code = line.querySelector(".diff-code");
+            if (!code || !code.textContent || line.classList.contains("diff-meta")) return;
+            const language = languageForPath(line.getAttribute("data-file"));
+            if (!language || !window.Prism) return;
+            code.classList.add("language-" + language);
+            Prism.highlightElement(code);
+        }
+
+        function initializeDiffHighlighting() {
+            // Prism's <script> tags are deferred, so they have not run while this inline script
+            // does. DOMContentLoaded fires after them.
+            window.addEventListener("DOMContentLoaded", () => {
+                if (!window.Prism) return;
+                const lines = document.querySelectorAll(".diff-line");
+                if (!("IntersectionObserver" in window)) {
+                    lines.forEach(highlightDiffLine);
+                    return;
+                }
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (!entry.isIntersecting) return;
+                        observer.unobserve(entry.target);
+                        highlightDiffLine(entry.target);
+                    });
+                }, { rootMargin: "300px 0px" });
+                lines.forEach(line => observer.observe(line));
+            });
+        }
+
+        function initializeDiffLines() {
+            const container = document.querySelector(".main-content");
+            if (!container) return;
+
+            let dragFrom = null;    // where the current drag started
+            let dragging = false;
+            let pendingFocus = false;
+
+            container.addEventListener("mousedown", (e) => {
+                // The 💬 badge runs selectComment from its own click handler. Letting this one
+                // run too selects the comment on mousedown and then toggles it straight back off
+                // on click, so the connector line appears and vanishes within the same gesture.
+                if (e.target.closest(".element-comment-indicator, a")) return;
+
+                const header = e.target.closest(".diff-file-header");
+                if (header) {
+                    const existing = header.getAttribute("data-anchor");
+                    if (existing && isCommented(existing)) {
+                        selectComment(existing);
+                    } else {
+                        setDiffFileCommentTarget(header);
+                        pendingFocus = true;
+                    }
+                    return;
+                }
+
+                const line = e.target.closest(".diff-line");
+                if (!line) return;
+
+                // A line that already carries a comment shows it instead of starting a new
+                // selection — the same "commented targets select, uncommented targets compose"
+                // rule the Markdown page follows.
+                const existing = line.getAttribute("data-anchor") || line.getAttribute("data-anchor-member");
+                if (existing && !e.shiftKey && isCommented(existing)) {
+                    selectComment(existing);
+                    return;
+                }
+
+                if (e.shiftKey && dragFrom && dragFrom.parentElement === line.parentElement) {
+                    setDiffCommentTarget(dragFrom, line);
+                    pendingFocus = true;
+                    return;
+                }
+                dragFrom = line;
+                dragging = true;
+                pendingFocus = true;
+                setDiffCommentTarget(line, line);
+            });
+
+            container.addEventListener("mouseover", (e) => {
+                if (!dragging || !dragFrom) return;
+                const line = e.target.closest(".diff-line");
+                // A drag that wanders out of the hunk keeps the last valid range rather than
+                // extending across the boundary.
+                if (!line || line.parentElement !== dragFrom.parentElement) return;
+                setDiffCommentTarget(dragFrom, line);
+            });
+
+            // Focus lands on mouseup, not on mousedown: the browser's own default handling of
+            // mousedown moves focus after our handler runs, so focusing there is undone before
+            // the user can type. preventScroll keeps the panel from jumping the page while the
+            // eye is still on the line that was just picked.
+            window.addEventListener("mouseup", () => {
+                if (pendingFocus && activeAnchor) {
+                    document.getElementById("commentInput").focus({ preventScroll: true });
+                }
+                dragging = false;
+                pendingFocus = false;
+            });
+        }
+
+        // Quote the selected lines into the comment box as a ```suggestion fence. Only ever on
+        // click: a fence inserted automatically would be in the way of every comment that is
+        // just a question, and would train the agent to expect a patch that is not there.
+        function quoteSelectionAsSuggestion() {
+            if (!activeAnchorLines.length) return;
+            const input = document.getElementById("commentInput");
+            const fence = "```suggestion\n" + activeAnchorLines.join("\n") + "\n```\n";
+            const at = input.selectionStart != null ? input.selectionStart : input.value.length;
+            const before = input.value.slice(0, at);
+            const after = input.value.slice(at);
+            const prefix = before && !before.endsWith("\n") ? "\n" : "";
+            input.value = before + prefix + fence + after;
+            const caret = (before + prefix + fence).length;
+            autoGrowTextarea(input);
+            input.focus();
+            input.setSelectionRange(caret, caret);
+            markDirty();
+        }
+
         // Set active target for next comment
         function setCommentTarget(anchorId, text) {
             // Remove previous active state
@@ -1122,6 +1842,11 @@
             });
             activeAnchor = "";
             activeContext = "";
+            activeAnchorLines = [];
+            clearRangeSelection();
+            applyDiffAnchors();
+            const suggestionActions = document.getElementById("suggestionActions");
+            if (suggestionActions) suggestionActions.style.display = "none";
             document.getElementById("commentContextContainer").style.display = "none";
 
             if (connection && connection.kind === "compose") {
@@ -1131,6 +1856,7 @@
         }
 
         document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
+        document.getElementById("quoteSuggestionBtn").addEventListener("click", quoteSelectionAsSuggestion);
 
         // Fetch existing comments on load. The server returns {comments, summary}.
         function loadExistingComments() {
@@ -1203,9 +1929,15 @@
             document.querySelectorAll('.element-comment-indicator').forEach(el => el.remove());
             document.querySelectorAll('.has-comments-highlight').forEach(el => el.classList.remove('has-comments-highlight'));
 
+            // In diff mode the anchors are attributes this page puts on the lines, so they have
+            // to be (re)applied before anything resolves one.
+            applyDiffAnchors();
+
             const countsByAnchor = {};
             comments.forEach(c => {
-                if (c.anchor) {
+                // An outdated comment keeps its anchor (so it can come back if its lines do),
+                // but it has nothing to point at in the current diff.
+                if (c.anchor && !c.outdated) {
                     countsByAnchor[c.anchor] = (countsByAnchor[c.anchor] || 0) + 1;
                 }
             });
@@ -1272,6 +2004,18 @@
         let hoverAnchor = null;
 
         function anchorElement(anchor) { return document.querySelector(`.main-content [data-anchor="${anchor}"]`); }
+
+        // Every element the anchor covers. Only the first line of a diff range carries
+        // data-anchor (so the querySelector-based lookups above resolve to one element), but the
+        // whole range is what the comment is about, so the whole range is what lights up.
+        // Filtered in JS rather than by attribute selector: a path may contain quotes.
+        function anchorElements(anchor) {
+            const first = anchorElement(anchor);
+            if (!first) return [];
+            const members = Array.from(document.querySelectorAll(".main-content [data-anchor-member]"))
+                .filter(el => el.getAttribute("data-anchor-member") === anchor);
+            return [first].concat(members);
+        }
         function commentCard(anchor) { return document.querySelector(`.feedback-item[data-anchor="${anchor}"]`); }
         function isCommented(anchor) { return !!anchor && comments.some(c => c.anchor === anchor); }
 
@@ -1389,7 +2133,9 @@
 
         function clearConnectionMarks() {
             document.querySelectorAll(".feedback-item.selected").forEach(n => n.classList.remove("selected"));
-            document.querySelectorAll(".commentable-element.selected-target").forEach(n => n.classList.remove("selected-target"));
+            // Not scoped to .commentable-element: a diff line is a target too, and leaving the
+            // class on it would strand the highlight of a range that is no longer selected.
+            document.querySelectorAll(".selected-target").forEach(n => n.classList.remove("selected-target"));
         }
 
         // Scroll the body so the target element's vertical centre lines up with
@@ -1418,11 +2164,11 @@
             connection = { kind: "selected", anchor };
             hoverAnchor = null;
             const card = commentCard(anchor);
-            const el = anchorElement(anchor);
+            const els = anchorElements(anchor);
             if (card) card.classList.add("selected");
-            if (el && card) {
-                el.classList.add("selected-target");
-                alignAndDraw(el, card);
+            if (els.length && card) {
+                els.forEach(el => el.classList.add("selected-target"));
+                alignAndDraw(els[0], card);
             }
         }
 
@@ -1440,11 +2186,11 @@
         function reconcileConnection() {
             if (connection && connection.kind === "selected") {
                 const card = commentCard(connection.anchor);
-                const el = anchorElement(connection.anchor);
-                if (!card || !el) { clearConnection(); return; }
+                const els = anchorElements(connection.anchor);
+                if (!card || !els.length) { clearConnection(); return; }
                 clearConnectionMarks();
                 card.classList.add("selected");
-                el.classList.add("selected-target");
+                els.forEach(el => el.classList.add("selected-target"));
             }
             refreshConnector();
         }
@@ -1459,8 +2205,11 @@
         window.addEventListener("resize", scheduleConnectorRefresh);
         document.addEventListener("keydown", (e) => { if (e.key === "Escape") { clearConnection(); clearCommentTarget(); } });
         // Click on empty space (not a comment / element / composer) deselects.
+        // .diff-line belongs in this list for the same reason .commentable-element does: it is a
+        // comment target, and without it selecting a diff comment is undone by the very click
+        // that made it, connector line included.
         document.addEventListener("click", (e) => {
-            if (e.target.closest(".feedback-item, .commentable-element, .comment-box, #commentContextContainer")) return;
+            if (e.target.closest(".feedback-item, .commentable-element, .diff-line, .diff-file-header, .comment-box, #commentContextContainer")) return;
             if (connection && connection.kind === "selected") clearConnection();
         });
 
@@ -1468,15 +2217,20 @@
             const input = document.getElementById("commentInput");
             const text = input.value.trim();
             if (text) {
-                comments.push({
+                const comment = {
                     text: text,
                     timestamp: new Date().toISOString(),
                     anchor: activeAnchor,
                     context: activeContext,
                     author: "human",
                     status: "open"
-                });
+                };
+                // Only a diff comment has line content to carry; omitempty keeps it out of the
+                // sidecar for Markdown comments.
+                if (activeAnchorLines.length) comment.anchorLines = activeAnchorLines.slice();
+                comments.push(comment);
                 input.value = "";
+                autoGrowTextarea(input);
                 markDirty();
                 clearCommentTarget();
                 renderComments();
@@ -1492,6 +2246,7 @@
         // Any text in the composer counts as an unsent change (guards auto-reload).
         document.getElementById("commentInput").addEventListener("input", (e) => {
             if (e.target.value.trim()) markDirty();
+            autoGrowTextarea(e.target);
         });
 
         // Sidebar display order follows the target block's appearance in the document, so the
@@ -1504,12 +2259,84 @@
             document.querySelectorAll('.main-content [data-anchor]').forEach((el, i) => {
                 order.set(el.getAttribute('data-anchor'), i);
             });
-            // No anchor, or an anchor whose element is gone after an agent edit: sink to the end.
-            const rank = c => (c.anchor && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
+            // No anchor, an anchor whose element is gone after an agent edit, or a comment whose
+            // lines left the diff: sink to the end.
+            const rank = c => (c.anchor && !c.outdated && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
             // sort is stable, so comments sharing a rank (same block, or both unplaced) stay in creation order.
             return comments
                 .map((c, idx) => ({ c, idx }))
                 .sort((a, b) => rank(a.c) - rank(b.c));
+        }
+
+        // ---------- Comment body: prose plus ```suggestion blocks ----------
+        // A suggestion is a replacement for the anchored lines, so it is shown the way a
+        // replacement is read anywhere else: as a diff against those lines. Reading it as a bare
+        // code block means holding the original in your head to see what actually changed.
+        const suggestionFenceRegex = /```suggestion[ \t]*\r?\n([\s\S]*?)\r?\n?```/g;
+
+        function renderCommentBody(item, c) {
+            const text = c.text || "";
+            suggestionFenceRegex.lastIndex = 0;
+
+            let cursor = 0;
+            let match;
+            while ((match = suggestionFenceRegex.exec(text)) !== null) {
+                appendProse(item, text.slice(cursor, match.index));
+                item.appendChild(suggestionDiff(c.anchorLines || [], match[1].split("\n")));
+                cursor = match.index + match[0].length;
+            }
+            appendProse(item, text.slice(cursor));
+        }
+
+        function appendProse(item, text) {
+            const trimmed = text.replace(/^\s*\n|\n\s*$/g, "");
+            if (!trimmed.trim()) return;
+            const p = document.createElement("p");
+            p.style.marginBottom = "0";
+            p.textContent = trimmed;
+            item.appendChild(p);
+        }
+
+        // Lines shared at either end stay as context, so a one-line edit inside a six-line quote
+        // shows as a one-line change instead of six removals and six additions.
+        function suggestionDiff(original, suggested) {
+            const box = document.createElement("div");
+            box.className = "suggestion-diff";
+
+            const label = document.createElement("div");
+            label.className = "suggestion-diff-label";
+            label.textContent = original.length ? "Suggested change" : "Suggestion";
+            box.appendChild(label);
+
+            let head = 0;
+            while (head < original.length && head < suggested.length && original[head] === suggested[head]) head++;
+            let tail = 0;
+            while (
+                tail < original.length - head &&
+                tail < suggested.length - head &&
+                original[original.length - 1 - tail] === suggested[suggested.length - 1 - tail]
+            ) tail++;
+
+            const row = (kind, marker, content) => {
+                const line = document.createElement("div");
+                line.className = "suggestion-line suggestion-" + kind;
+                const m = document.createElement("span");
+                m.className = "suggestion-marker";
+                m.textContent = marker;
+                const code = document.createElement("span");
+                code.className = "suggestion-code";
+                code.textContent = content;
+                line.appendChild(m);
+                line.appendChild(code);
+                box.appendChild(line);
+            };
+
+            original.slice(0, head).forEach(l => row("ctx", " ", l));
+            original.slice(head, original.length - tail).forEach(l => row("del", "-", l));
+            suggested.slice(head, suggested.length - tail).forEach(l => row("add", "+", l));
+            if (tail) original.slice(original.length - tail).forEach(l => row("ctx", " ", l));
+
+            return box;
         }
 
         function renderComments() {
@@ -1529,6 +2356,7 @@
                     const textarea = document.createElement("textarea");
                     textarea.className = "edit-textarea";
                     textarea.value = c.text;
+                    textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
                     textarea.addEventListener("keydown", (e) => {
                         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                             saveComment(idx, textarea.value.trim());
@@ -1558,8 +2386,8 @@
                     item.appendChild(btnGroup);
 
                     container.appendChild(item);
-                    // Auto-focus the textarea
-                    setTimeout(() => textarea.focus(), 0);
+                    // Auto-focus the textarea, sized to the comment it already holds.
+                    setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
                 } else {
                     const deleteBtn = document.createElement("span");
                     deleteBtn.className = "delete-btn";
@@ -1591,14 +2419,37 @@
                     authorTag.className = "comment-author";
                     authorTag.textContent = (c.author === "agent") ? "Agent" : "You";
 
-                    const p = document.createElement("p");
-                    p.style.marginBottom = "0";
-                    p.textContent = c.text;
+                    // A comment whose lines are no longer in the diff stays in the panel, with
+                    // the lines it was written against — that text is the only way left to tell
+                    // what it was about.
+                    if (c.outdated) {
+                        item.classList.add("outdated");
+                        const tag = document.createElement("div");
+                        tag.className = "outdated-tag";
+                        tag.textContent = "Outdated";
+                        if (c.context) tag.title = c.context;
+                        item.appendChild(tag);
+                    }
 
                     item.appendChild(deleteBtn);
                     item.appendChild(editBtn);
                     item.appendChild(authorTag);
-                    item.appendChild(p);
+                    renderCommentBody(item, c);
+
+                    if (c.outdated) {
+                        if (c.context) {
+                            const where = document.createElement("div");
+                            where.className = "outdated-context";
+                            where.textContent = c.context;
+                            item.appendChild(where);
+                        }
+                        if (c.anchorLines && c.anchorLines.length) {
+                            const lines = document.createElement("pre");
+                            lines.className = "outdated-lines";
+                            lines.textContent = c.anchorLines.join("\n");
+                            item.appendChild(lines);
+                        }
+                    }
 
                     // Agent's reply, threaded beneath the human comment.
                     if (c.reply && c.reply.trim()) {
@@ -1636,8 +2487,9 @@
                     }
 
                     // Click the card to select it (and draw its line); hover to preview.
-                    // Ignore clicks on the card's own controls.
-                    if (c.anchor) {
+                    // Ignore clicks on the card's own controls. An outdated comment has no
+                    // target left in the body, so it is not selectable.
+                    if (c.anchor && !c.outdated) {
                         item.addEventListener("click", (e) => {
                             if (e.target.closest(".delete-btn, .edit-btn, .resolve-toggle, input, button, textarea, a")) return;
                             selectComment(c.anchor);
@@ -1780,6 +2632,28 @@
             isProgrammaticScroll = false;
         }
 
+        // Marks for the file list. Glyphs rather than an icon font or SVG: they inherit the
+        // monospace column and the text colour, so the list stays one typographic system and
+        // the page keeps loading nothing it does not already load.
+        const FILE_STATUS_MARK = {
+            added: "+",
+            deleted: "−",   // minus sign, not a hyphen: it pairs with + at the same weight
+            renamed: "⇄",   // two arrows: it went from somewhere to somewhere
+            modified: "·",
+        };
+
+        function appendFileStatusMark(link, heading) {
+            const status = heading.getAttribute("data-status") || "modified";
+            const mark = document.createElement("span");
+            mark.className = "toc-file-status toc-file-status-" + status;
+            mark.textContent = FILE_STATUS_MARK[status] || FILE_STATUS_MARK.modified;
+            mark.setAttribute("aria-hidden", "true");
+            // The words are still available, just not spent on the list's width.
+            const note = heading.querySelector(".diff-file-note");
+            mark.title = note ? note.textContent.trim() : status;
+            link.appendChild(mark);
+        }
+
         function initializeTableOfContents() {
             const tocContainer = document.getElementById("sidebarToc");
             const mainContent = document.querySelector(".main-content");
@@ -1826,10 +2700,24 @@
                 if (idx === 0) {
                     link.classList.add("active");
                 }
-                
-                // Clean heading text for display in TOC
-                const text = heading.textContent.replace(/💬/g, "").trim();
-                link.textContent = text;
+
+                const filePath = heading.getAttribute("data-file");
+                if (filePath) {
+                    // A file list, not a table of contents: what happened to the file is a mark
+                    // in front of its name, so the names line up in one column and the list can
+                    // be scanned down instead of read. The words stay on the header itself,
+                    // where there is room to say "renamed from …" in full.
+                    link.classList.add("sidebar-toc-file");
+                    appendFileStatusMark(link, heading);
+                    const label = document.createElement("span");
+                    label.className = "toc-file-name";
+                    label.textContent = filePath;
+                    link.appendChild(label);
+                } else {
+                    // Clean heading text for display in TOC
+                    const text = heading.textContent.replace(/💬/g, "").trim();
+                    link.textContent = text;
+                }
 
                 link.addEventListener("click", (e) => {
                     e.preventDefault();
@@ -1899,8 +2787,144 @@
             });
         }
 
+        // ---------- Resizable comment panel ----------
+        // The width lives in a CSS custom property, never in el.style.width: an inline style
+        // outranks the width:100% the narrow-viewport media query applies to the stacked
+        // layout, which would leave the page scrolling sideways on a small screen.
+        (function initPanelResize() {
+            const PANEL_WIDTH_KEY = "reviewer.feedbackPanelWidth";
+            const MIN_WIDTH = 300;
+
+            // The document column's floor comes from the stylesheet, so the drag can never
+            // squeeze the column past the width CSS already refuses to go below.
+            function mainMinWidth() {
+                const declared = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--main-min-width"), 10);
+                return Number.isFinite(declared) ? declared : 480;
+            }
+
+            // Whatever the rails already take is not the panel's to claim. Folding the
+            // contents rail away therefore hands its width straight to the panel's ceiling.
+            function railWidth() {
+                const sidebar = document.getElementById("sidebar");
+                if (!sidebar || document.body.classList.contains("sidebar-collapsed")) return 0;
+                return sidebar.getBoundingClientRect().width;
+            }
+
+            const maxWidth = () => Math.max(MIN_WIDTH, window.innerWidth - railWidth() - mainMinWidth());
+
+            function applyWidth(px) {
+                document.documentElement.style.setProperty("--feedback-panel-width", px + "px");
+            }
+
+            function currentWidth() {
+                const set = parseInt(document.documentElement.style.getPropertyValue("--feedback-panel-width"), 10);
+                return Number.isFinite(set) ? set : 0;
+            }
+
+            const stored = parseInt(localStorage.getItem(PANEL_WIDTH_KEY) || "", 10);
+            if (Number.isFinite(stored)) {
+                applyWidth(Math.min(maxWidth(), Math.max(MIN_WIDTH, stored)));
+            }
+
+            const handle = document.getElementById("panelResizeHandle");
+            const panel = document.getElementById("feedbackPanel");
+            if (!handle || !panel) return;
+
+            let width = 0;
+            // The panel's right edge, measured when the drag starts. It is NOT the right edge of
+            // the window: the layout is capped at 1600px and centred, and a vertical scrollbar
+            // eats into window.innerWidth as well. Measuring instead of assuming is what keeps
+            // the panel edge under the pointer rather than a scrollbar's width to its left.
+            let panelRight = 0;
+
+            handle.addEventListener("pointerdown", (e) => {
+                e.preventDefault();
+                // Cleared per drag, so a click that moves nothing cannot re-save a width the
+                // user has since reset.
+                width = 0;
+                panelRight = panel.getBoundingClientRect().right;
+                handle.setPointerCapture(e.pointerId);
+                handle.classList.add("dragging");
+                document.body.classList.add("panel-resizing");
+            });
+
+            // Double-click the divider to go back to the default width, the same way a window
+            // manager treats a double-clicked edge. The stored width is dropped and the property
+            // removed, so the value falls back to the one the stylesheet declares.
+            handle.addEventListener("dblclick", () => {
+                width = 0;
+                localStorage.removeItem(PANEL_WIDTH_KEY);
+                document.documentElement.style.removeProperty("--feedback-panel-width");
+                scheduleConnectorRefresh();
+            });
+            handle.addEventListener("pointermove", (e) => {
+                if (!handle.hasPointerCapture(e.pointerId)) return;
+                // Width is the distance from the pointer to the panel's own right edge, so the
+                // edge being dragged tracks the pointer exactly.
+                width = Math.min(maxWidth(), Math.max(MIN_WIDTH, panelRight - e.clientX));
+                applyWidth(width);
+                // The connector line ends on the panel, so it has to follow the drag.
+                scheduleConnectorRefresh();
+            });
+            const finishDrag = (e) => {
+                if (!handle.classList.contains("dragging")) return;
+                handle.releasePointerCapture(e.pointerId);
+                handle.classList.remove("dragging");
+                document.body.classList.remove("panel-resizing");
+                if (width) localStorage.setItem(PANEL_WIDTH_KEY, String(width));
+                scheduleConnectorRefresh();
+            };
+            handle.addEventListener("pointerup", finishDrag);
+            handle.addEventListener("pointercancel", finishDrag);
+
+            // Shrinking the window must not let a panel set when it was wider push the
+            // document column below its floor. The stored width is left alone: it is what the
+            // panel returns to once there is room for it again.
+            window.addEventListener("resize", () => {
+                const set = currentWidth();
+                if (!set) return;
+                const clamped = Math.min(maxWidth(), Math.max(MIN_WIDTH, set));
+                if (clamped !== set) applyWidth(clamped);
+            });
+        })();
+
+        // ---------- Collapsible contents rail ----------
+        // Reading a diff is worth more width than the file list is, so the rail folds away and
+        // stays folded across the reloads the review loop performs.
+        (function initSidebarToggle() {
+            const SIDEBAR_KEY = "reviewer.sidebarCollapsed";
+            const hideBtn = document.getElementById("hideSidebarBtn");
+            const showBtn = document.getElementById("showSidebarBtn");
+            if (!hideBtn || !showBtn) return;
+
+            function setCollapsed(collapsed) {
+                document.body.classList.toggle("sidebar-collapsed", collapsed);
+                hideBtn.setAttribute("aria-expanded", String(!collapsed));
+                showBtn.setAttribute("aria-expanded", String(!collapsed));
+                localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+                scheduleConnectorRefresh();
+            }
+
+            if (localStorage.getItem(SIDEBAR_KEY) === "1") {
+                document.body.classList.add("sidebar-collapsed");
+                hideBtn.setAttribute("aria-expanded", "false");
+                showBtn.setAttribute("aria-expanded", "false");
+            }
+
+            hideBtn.addEventListener("click", () => setCollapsed(true));
+            showBtn.addEventListener("click", () => setCollapsed(false));
+        })();
+
         // Initialize elements and load existing comments on page start
+        {{if eq .Mode "diff"}}
+        // Diff mode targets line ranges, not document blocks. Calling the Markdown initializer
+        // here would tag every diff row as a block-level comment target and anchor comments
+        // that cannot survive the next round.
+        initializeDiffLines();
+        initializeDiffHighlighting();
+        {{else}}
         initializeCommentableElements();
+        {{end}}
         loadExistingComments();
         // Initialize Table of Contents
         initializeTableOfContents();

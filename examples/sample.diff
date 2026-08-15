@@ -1,0 +1,160 @@
+diff --git a/docs/CHANGELOG.md b/docs/CHANGELOG.md
+index 1420d91..a499274 100644
+--- a/docs/CHANGELOG.md
++++ b/docs/CHANGELOG.md
+@@ -3,3 +3,5 @@
+ ## Unreleased
+ 
+ - Tokenized checkout flow behind the `payments.v3` flag.
++- Refunds (`POST /api/payment/refund`).
++- TLS 1.3 required for every gateway call.
+\ No newline at end of file
+diff --git a/payment/gateway.go b/payment/gateway.go
+index 03fc8ed..e69e1ae 100644
+--- a/payment/gateway.go
++++ b/payment/gateway.go
+@@ -11,10 +11,12 @@ const (
+ 	// sandboxBaseURL is the environment named in the integration spec.
+ 	sandboxBaseURL = "https://sandbox.gateway-api.com/v3"
+ 
+-	// TLS 1.2 is still accepted while the rollout finishes.
+-	minTLSVersion = tls.VersionTLS12
++	// PCI-DSS: TLS 1.3 only. SSLv3 and TLS 1.0/1.1 are forbidden outright,
++	// and 1.2 stopped being acceptable once the rollout finished.
++	minTLSVersion = tls.VersionTLS13
+ 
+ 	chargeTimeout = 20 * time.Second
++	tokenTTL      = 5 * time.Minute
+ )
+ 
+ // Client talks to the payment gateway on behalf of the checkout API.
+@@ -40,7 +42,7 @@ func (c *Client) Charge(ctx context.Context, in ChargeInput) <-chan Result {
+ 
+ 		receipt, err := c.post(ctx, "/payments", in)
+ 		if err != nil {
+-			out <- Result{Err: err}
++			out <- Result{Err: fmt.Errorf("charge %s: %w", in.OrderID, err)}
+ 			return
+ 		}
+ 		out <- Result{Receipt: receipt}
+diff --git a/payment/idempotency.go b/payment/idempotency.go
+index da96fe7..8dd2646 100644
+--- a/payment/idempotency.go
++++ b/payment/idempotency.go
+@@ -4,20 +4,27 @@ import (
+ 	"context"
+ 	"errors"
+ 	"net/http"
++	"strings"
+ )
+ 
+ // ErrMissingIdempotencyKey is returned when the caller omits the header.
+ var ErrMissingIdempotencyKey = errors.New("payment: missing X-Idempotency-Key")
+ 
+-// IdempotencyKey extracts the key every charge must carry.
++// ErrMalformedIdempotencyKey is returned for a key we cannot store safely.
++var ErrMalformedIdempotencyKey = errors.New("payment: malformed X-Idempotency-Key")
++
++// IdempotencyKey extracts and validates the key every charge must carry.
+ //
+ // Without it a retried request charges the customer twice, which the spec
+ // calls out as a [Must].
+ func IdempotencyKey(ctx context.Context, req *http.Request) (string, error) {
+-	key := req.Header.Get("X-Idempotency-Key")
++	key := strings.TrimSpace(req.Header.Get("X-Idempotency-Key"))
+ 	if key == "" {
+ 		return "", ErrMissingIdempotencyKey
+ 	}
++	if len(key) > 255 {
++		return "", ErrMalformedIdempotencyKey
++	}
+ 
+ 	return key, nil
+ }
+diff --git a/payment/legacy_tls.go b/payment/legacy_tls.go
+deleted file mode 100644
+index fbb851e..0000000
+--- a/payment/legacy_tls.go
++++ /dev/null
+@@ -1,14 +0,0 @@
+-package payment
+-
+-import "crypto/tls"
+-
+-// legacyTLSConfig kept the pre-PCI-DSS gateway reachable during the migration.
+-//
+-// It is the last place in the codebase that still names SSLv3, and the
+-// migration is over.
+-func legacyTLSConfig() *tls.Config {
+-	return &tls.Config{
+-		MinVersion: tls.VersionSSL30,
+-		MaxVersion: tls.VersionTLS11,
+-	}
+-}
+diff --git a/payment/refund.go b/payment/refund.go
+new file mode 100644
+index 0000000..ce08f44
+--- /dev/null
++++ b/payment/refund.go
+@@ -0,0 +1,29 @@
++package payment
++
++import (
++	"context"
++	"fmt"
++)
++
++// RefundInput is one refund request against a settled payment.
++type RefundInput struct {
++	PaymentID      string
++	AmountMinor    int64
++	Currency       string
++	IdempotencyKey string
++}
++
++// Refund returns money for a payment that has already settled.
++//
++// Partial refunds are allowed; the gateway rejects anything above the
++// original amount, so no local bookkeeping is duplicated here.
++func (c *Client) Refund(ctx context.Context, in RefundInput) (Receipt, error) {
++	if in.IdempotencyKey == "" {
++		return Receipt{}, ErrMissingIdempotencyKey
++	}
++	if in.AmountMinor <= 0 {
++		return Receipt{}, fmt.Errorf("refund %s: amount must be positive", in.PaymentID)
++	}
++
++	return c.post(ctx, "/refunds", in)
++}
+diff --git a/payment/tokenizer.go b/payment/token.go
+similarity index 69%
+rename from payment/tokenizer.go
+rename to payment/token.go
+index 55a4a78..0f1c3fd 100644
+--- a/payment/tokenizer.go
++++ b/payment/token.go
+@@ -11,15 +11,24 @@ import (
+ // to the gateway, and we only ever see the token that comes back.
+ type Tokenizer struct {
+ 	client *Client
++	cache  *TokenCache
+ 	ttl    time.Duration
+ }
+ 
+ // Tokenize returns the payment method ID for an initialized transaction.
++//
++// Successful responses are cached for tokenTTL: the gateway rate-limits
++// tokenization far more tightly than it does charges.
+ func (t *Tokenizer) Tokenize(ctx context.Context, clientToken string) (string, error) {
++	if id, ok := t.cache.Get(clientToken); ok {
++		return id, nil
++	}
++
+ 	res, err := t.client.post(ctx, "/tokens", clientToken)
+ 	if err != nil {
+ 		return "", err
+ 	}
++	t.cache.Set(clientToken, res.MethodID, t.ttl)
+ 
+ 	return res.MethodID, nil
+ }

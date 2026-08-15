@@ -5,18 +5,30 @@ reviewer is a spec-to-readable HTML compiler and review server.
 ## Features
 
 - Compiling Markdown to styled HTML documents
+- Reviewing unified diffs, detected from the file's content — no flag, no separate subcommand
 - Interactive local review server
-- Gutter commenting on specific block elements
+- Gutter commenting on specific block elements, and on line ranges or whole files of a diff
+- Comments that follow their lines into the next round, by content rather than by line number
+- ` ```suggestion ` blocks, shown in the panel as a diff against the lines they replace
+- A resizable comment panel and a foldable contents rail
 - Inline comment editing (with keyboard accessibility) and deletion before submission
 - A built-in MCP server, so AI agents drive the review loop through standard tool calls
 
 ## Synopsis
 
 ```console
-$ reviewer build <input.md> -o <output.html>
-$ reviewer serve <input.md> -p <port>
+$ reviewer build <input.md|input.diff> -o <output.html>
+$ reviewer serve <input.md|input.diff> -p <port>
 $ reviewer mcp
 $ reviewer agent-skill explain
+```
+
+Both commands take either a Markdown document or a unified diff; which one it is is decided from
+the file's content:
+
+```console
+$ git diff > /tmp/review.diff
+$ reviewer serve /tmp/review.diff
 ```
 
 ## Installation
@@ -41,10 +53,17 @@ it, opens the browser, and exposes four tools.
 
 | Tool | Purpose |
 | --- | --- |
-| `review_start` | Open a document for review. Returns the review URL. |
+| `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
 | `review_wait` | Block until the human submits. Returns their comments. |
 | `review_reply` | Write a reply under each comment, plus a summary of the round. |
 | `review_progress` | Report the agent's current activity, live, on the review page. |
+
+An agent can have its **own change** reviewed the same way: write `git diff` to a temporary file
+and open that. Comments then come back anchored to line ranges (`<path>#<start>-<end>`, positions
+among the rendered diff lines — not source line numbers) or to whole files (`<path>#file`), with
+the exact text of the anchored lines in `anchorLines`, and may carry a ` ```suggestion ` block to
+apply. Regenerate the diff into the same file each round: comments follow their lines by content,
+and only go `outdated` when those lines are gone.
 
 The loop is: `review_start`, then `review_wait`, edit the document, `review_reply`, and back to
 `review_wait`. `review_wait` reports `submitted`, `timeout` (nothing yet — call again), or

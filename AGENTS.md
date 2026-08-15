@@ -62,6 +62,21 @@ func postProcessHTML(htmlStr string) string {
 }
 ```
 
+### The diff path does not post-process — it escapes
+
+`Render` dispatches on the content: Markdown goes through `postProcessHTML`, a unified diff does
+not. Badge and callout rewriting would corrupt code, and there is no Markdown to enhance.
+
+* **Rule**:
+  * The template is `text/template`, and nothing upstream of the diff renderer produces HTML, so
+    **every diff-derived string MUST be escaped with `html.EscapeString` before it is embedded** —
+    line content, hunk headers, and file paths, which also land in attribute values.
+  * Hunk headers are not optional: a diff touching
+    `func (s *ReviewSession) Done() <-chan struct{}` puts `<-chan` straight into one, and a path
+    containing `"` breaks out of `data-file="…"`.
+  * **Never route diff output through `postProcessHTML`** to "reuse" its table or badge handling.
+    A `[Must]` inside a code comment must stay text.
+
 ---
 
 ## 4. Double Comment Anchor Prevention (No Nested Anchors)
@@ -71,6 +86,15 @@ The client-side JavaScript in `template.html` walks the DOM tree of the spec pag
 * **Rule**:
   * **Never attach multiple nested comment triggers to parent-child blocks.** For instance, callouts (`.callout`), tables (`spec-table`), and lists (`ul`/`ol`) are block-level items that can receive comments. Their inner child elements (`p`, `li`, `tr`) must **not** get their own nested comment triggers, as this breaks layout alignment and produces messy overlapping icons.
   * Do not modify or break the parent-traversal logic (`isNested` check) defined in `initializeCommentableElements()`. If you extend commentable target `selectors`, ensure this containment check continues to correctly filter out nested elements.
+
+* **Rule (diff review)**:
+  * A diff comment targets a range of lines, but **`data-anchor` MUST be set on the first line of
+    the range only**; the remaining lines carry `data-anchor-member`. Six functions resolve an
+    anchor with `document.querySelector('[data-anchor="…"]')`, which expects exactly one element.
+    Duplicating the attribute does not throw — those functions silently do nothing, which is far
+    harder to notice than a crash. Collect the rest of the range from the member lines when the
+    whole of it has to light up.
+  * Selections must not cross a hunk boundary, and the re-anchoring search must not either.
 
 ---
 
@@ -84,12 +108,22 @@ Communication between the browser interface (`template.html`) and the local HTTP
 
 ```go
 type Comment struct {
-    Text      string `json:"text"`
-    Timestamp string `json:"timestamp"`
-    Anchor    string `json:"anchor,omitempty"`  // DOM element ID data-anchor
-    Context   string `json:"context,omitempty"` // Text preview of the block
+    Text        string   `json:"text"`
+    Timestamp   string   `json:"timestamp"`
+    Anchor      string   `json:"anchor,omitempty"`      // spec-element-N | <path>#<start>-<end> | <path>#file
+    AnchorLines []string `json:"anchorLines,omitempty"` // diff only: the lines the comment was written against
+    Outdated    bool     `json:"outdated,omitempty"`    // diff only: those lines are gone
+    Context     string   `json:"context,omitempty"`     // Text preview of the target
 }
 ```
+
+* **Rule (fields added for diff review)**:
+  * New fields **MUST** be `omitempty`. The sidecar round-trips `Comment` through
+    `encoding/json`, and a Markdown comment must serialise exactly as it did before — old sidecars
+    are read back after an upgrade.
+  * `Comment` **is** the MCP response schema (`waitOutput.Comments`), so anything added here is
+    something every agent sees. Document its meaning in the `review_start` description and in
+    `references/skills/review-doc.md` at the same time.
 
 ---
 
@@ -103,6 +137,12 @@ This project embraces high-test coverage and maintains rigorous regression tests
     $ go test ./... -v
     ```
   * Added features to post-processing must be accompanied by new test cases in `render_test.go`.
+  * Changes to diff detection, parsing or rendering belong in `diff_test.go`; changes to how
+    comments survive a round belong in `reanchor_test.go`.
+  * `RenderDiff`'s output is pinned by golden files under `testdata/`. Regenerate them with
+    `go test . -run TestRenderDiffBody -update` (the flag is defined in the root package only, so
+    `./...` will fail on it) and **read the resulting diff before committing it** — the point of a
+    golden file is that a surprising change is visible.
   * Changes to the HTTP server, APIs, or shutdown triggers must be covered by `server_test.go` or `session_test.go`, whichever owns the code.
   * Changes to the MCP tool surface must be covered by `mcpserver_test.go`.
   * Ensure your server-probing port logic preserves dynamic binding (`port 0`) behavior to prevent port collisions during integration testing.
