@@ -241,6 +241,31 @@ new mode 100755
 	}
 }
 
+// Status is what the sidebar draws its mark from, so the four cases are pinned down here
+// rather than left to the renderer's golden files alone.
+func TestFileStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		file File
+		want FileStatus
+	}{
+		{name: "added", file: File{OldPath: devNull, NewPath: "new.go"}, want: FileAdded},
+		{name: "deleted", file: File{OldPath: "gone.go", NewPath: devNull}, want: FileDeleted},
+		{name: "renamed", file: File{OldPath: "old/name.go", NewPath: "new/name.go"}, want: FileRenamed},
+		{name: "modified", file: File{OldPath: "main.go", NewPath: "main.go"}, want: FileModified},
+		// A header-only entry (a mode change) names the same file on both sides.
+		{name: "mode change only", file: File{OldPath: "script.sh", NewPath: "script.sh"}, want: FileModified},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.file.Status(); got != tt.want {
+				t.Errorf("Status() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseUnifiedDiffNoNewlineMarker(t *testing.T) {
 	files, err := ParseUnifiedDiff([]byte(`diff --git a/a.txt b/a.txt
 --- a/a.txt

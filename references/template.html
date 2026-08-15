@@ -92,6 +92,8 @@
                drag handle can rewrite it and the narrow-viewport media query can still
                override it — an inline el.style.width would beat the media query. */
             --feedback-panel-width: 520px;
+            /* The narrowest the document column may become. Read by the resize handle too. */
+            --main-min-width: 480px;
 
             scrollbar-color: hsl(var(--fg-hsl) / 0.22) transparent;
         }
@@ -1051,8 +1053,14 @@
             }
         }
 
+        /* A diff has no reading measure to respect — it is as wide as its longest line — so
+           the layout gives up its 1600px cap and the document column takes whatever the
+           window has. --main-min-width is the floor it is never squeezed below; the panel
+           drag reads the same value, so the two cannot disagree. */
+        body.diff-review .layout { max-width: none; }
         .main-content.diff-mode {
             max-width: none;
+            min-width: var(--main-min-width);
             margin: 0;
             padding: calc(var(--u) * 4) calc(var(--u) * 3);
         }
@@ -1270,6 +1278,23 @@
             font-weight: 500;
             border-left-color: var(--accent-color);
         }
+        /* File list: a fixed-width mark column so the names line up and the list can be
+           scanned down rather than read across. */
+        .sidebar-toc-file { display: flex; align-items: baseline; gap: 0.45rem; }
+        .toc-file-status {
+            flex: 0 0 auto;
+            width: 0.9em;
+            text-align: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1;
+        }
+        .toc-file-status-added    { color: var(--diff-add-fg); }
+        .toc-file-status-deleted  { color: var(--diff-del-fg); }
+        .toc-file-status-renamed  { color: var(--text-secondary); }
+        .toc-file-status-modified { color: var(--text-tertiary); }
+        .toc-file-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
         .sidebar-toc-h1 { padding-left: 0.6rem; }
         .sidebar-toc-h2 { padding-left: 1.35rem; font-size: 0.8rem; }
         .sidebar-toc-h3 { padding-left: 2.1rem; font-size: 0.78rem; }
@@ -1303,7 +1328,7 @@
         }
     </style>
 </head>
-<body>
+<body class="{{if eq .Mode "diff"}}diff-review{{end}}">
     <div class="layout">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
@@ -2607,6 +2632,28 @@
             isProgrammaticScroll = false;
         }
 
+        // Marks for the file list. Glyphs rather than an icon font or SVG: they inherit the
+        // monospace column and the text colour, so the list stays one typographic system and
+        // the page keeps loading nothing it does not already load.
+        const FILE_STATUS_MARK = {
+            added: "+",
+            deleted: "−",   // minus sign, not a hyphen: it pairs with + at the same weight
+            renamed: "⇄",   // two arrows: it went from somewhere to somewhere
+            modified: "·",
+        };
+
+        function appendFileStatusMark(link, heading) {
+            const status = heading.getAttribute("data-status") || "modified";
+            const mark = document.createElement("span");
+            mark.className = "toc-file-status toc-file-status-" + status;
+            mark.textContent = FILE_STATUS_MARK[status] || FILE_STATUS_MARK.modified;
+            mark.setAttribute("aria-hidden", "true");
+            // The words are still available, just not spent on the list's width.
+            const note = heading.querySelector(".diff-file-note");
+            mark.title = note ? note.textContent.trim() : status;
+            link.appendChild(mark);
+        }
+
         function initializeTableOfContents() {
             const tocContainer = document.getElementById("sidebarToc");
             const mainContent = document.querySelector(".main-content");
@@ -2653,10 +2700,24 @@
                 if (idx === 0) {
                     link.classList.add("active");
                 }
-                
-                // Clean heading text for display in TOC
-                const text = heading.textContent.replace(/💬/g, "").trim();
-                link.textContent = text;
+
+                const filePath = heading.getAttribute("data-file");
+                if (filePath) {
+                    // A file list, not a table of contents: what happened to the file is a mark
+                    // in front of its name, so the names line up in one column and the list can
+                    // be scanned down instead of read. The words stay on the header itself,
+                    // where there is room to say "renamed from …" in full.
+                    link.classList.add("sidebar-toc-file");
+                    appendFileStatusMark(link, heading);
+                    const label = document.createElement("span");
+                    label.className = "toc-file-name";
+                    label.textContent = filePath;
+                    link.appendChild(label);
+                } else {
+                    // Clean heading text for display in TOC
+                    const text = heading.textContent.replace(/💬/g, "").trim();
+                    link.textContent = text;
+                }
 
                 link.addEventListener("click", (e) => {
                     e.preventDefault();
@@ -2733,11 +2794,31 @@
         (function initPanelResize() {
             const PANEL_WIDTH_KEY = "reviewer.feedbackPanelWidth";
             const MIN_WIDTH = 300;
-            // Leave the document column a usable measure no matter how far the drag goes.
-            const maxWidth = () => Math.max(MIN_WIDTH, window.innerWidth - 420);
+
+            // The document column's floor comes from the stylesheet, so the drag can never
+            // squeeze the column past the width CSS already refuses to go below.
+            function mainMinWidth() {
+                const declared = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--main-min-width"), 10);
+                return Number.isFinite(declared) ? declared : 480;
+            }
+
+            // Whatever the rails already take is not the panel's to claim. Folding the
+            // contents rail away therefore hands its width straight to the panel's ceiling.
+            function railWidth() {
+                const sidebar = document.getElementById("sidebar");
+                if (!sidebar || document.body.classList.contains("sidebar-collapsed")) return 0;
+                return sidebar.getBoundingClientRect().width;
+            }
+
+            const maxWidth = () => Math.max(MIN_WIDTH, window.innerWidth - railWidth() - mainMinWidth());
 
             function applyWidth(px) {
                 document.documentElement.style.setProperty("--feedback-panel-width", px + "px");
+            }
+
+            function currentWidth() {
+                const set = parseInt(document.documentElement.style.getPropertyValue("--feedback-panel-width"), 10);
+                return Number.isFinite(set) ? set : 0;
             }
 
             const stored = parseInt(localStorage.getItem(PANEL_WIDTH_KEY) || "", 10);
@@ -2795,6 +2876,16 @@
             };
             handle.addEventListener("pointerup", finishDrag);
             handle.addEventListener("pointercancel", finishDrag);
+
+            // Shrinking the window must not let a panel set when it was wider push the
+            // document column below its floor. The stored width is left alone: it is what the
+            // panel returns to once there is room for it again.
+            window.addEventListener("resize", () => {
+                const set = currentWidth();
+                if (!set) return;
+                const clamped = Math.min(maxWidth(), Math.max(MIN_WIDTH, set));
+                if (clamped !== set) applyWidth(clamped);
+            });
         })();
 
         // ---------- Collapsible contents rail ----------

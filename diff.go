@@ -71,6 +71,30 @@ func (f File) DisplayPath() string {
 	return f.NewPath
 }
 
+// FileStatus is what happened to a file in this diff.
+type FileStatus string
+
+const (
+	FileAdded    FileStatus = "added"
+	FileDeleted  FileStatus = "deleted"
+	FileRenamed  FileStatus = "renamed"
+	FileModified FileStatus = "modified"
+)
+
+// Status reports the file's fate, which the page shows as a mark beside its name.
+func (f File) Status() FileStatus {
+	switch {
+	case f.OldPath == devNull:
+		return FileAdded
+	case f.NewPath == devNull:
+		return FileDeleted
+	case f.OldPath != "" && f.NewPath != "" && f.OldPath != f.NewPath:
+		return FileRenamed
+	default:
+		return FileModified
+	}
+}
+
 // Lines returns the file's lines in rendering order, which is also the order the 1-based
 // indices in a comment anchor count.
 func (f File) Lines() []Line {
@@ -381,7 +405,10 @@ func renderDiffBody(files []File) string {
 		b.WriteString(`<section class="diff-file">` + "\n")
 		// data-file makes the header a comment target in its own right: a comment about the
 		// file as a whole anchors here rather than to a line that happens to be in it.
-		b.WriteString(`<h2 class="diff-file-header" data-file="` + html.EscapeString(path) + `">` +
+		// data-status carries what happened to the file, so the sidebar can show it as a mark
+		// beside the name instead of repeating the words after it.
+		b.WriteString(`<h2 class="diff-file-header" data-file="` + html.EscapeString(path) +
+			`" data-status="` + string(f.Status()) + `">` +
 			html.EscapeString(path) + renderRenameNote(f) + "</h2>\n")
 		if len(f.Hunks) == 0 {
 			b.WriteString(`<p class="diff-empty">No textual changes.</p>` + "\n")
@@ -404,16 +431,17 @@ func renderDiffBody(files []File) string {
 
 // renderRenameNote spells out a rename, which the display path alone cannot show.
 func renderRenameNote(f File) string {
-	if f.OldPath == "" || f.NewPath == "" || f.OldPath == f.NewPath {
+	switch f.Status() {
+	case FileAdded:
+		return ` <span class="diff-file-note">added</span>`
+	case FileDeleted:
+		return ` <span class="diff-file-note">deleted</span>`
+	case FileRenamed:
+		// The one case the display path cannot show on its own: where the file came from.
+		return ` <span class="diff-file-note">renamed from ` + html.EscapeString(f.OldPath) + `</span>`
+	default:
 		return ""
 	}
-	if f.OldPath == devNull {
-		return ` <span class="diff-file-note">added</span>`
-	}
-	if f.NewPath == devNull {
-		return ` <span class="diff-file-note">deleted</span>`
-	}
-	return ` <span class="diff-file-note">renamed from ` + html.EscapeString(f.OldPath) + `</span>`
 }
 
 var lineKindClass = map[LineKind]string{
