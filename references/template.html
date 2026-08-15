@@ -694,6 +694,56 @@
             cursor: pointer;
         }
 
+        /* ---------- ```suggestion rendered as a diff ----------
+           Same tints as the diff body, so a suggestion in the panel and the lines it
+           replaces in the document read as the same kind of object. Code wraps here
+           rather than scrolling: the panel is narrow, and a suggestion is short. */
+        .suggestion-diff {
+            margin-top: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+        .suggestion-diff-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            padding: 0.3rem 0.5rem;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .suggestion-line {
+            display: flex;
+            align-items: baseline;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.74rem;
+            line-height: 1.55;
+        }
+        .suggestion-marker {
+            flex: 0 0 auto;
+            width: 1.2em;
+            text-align: center;
+            color: var(--text-tertiary);
+            user-select: none;
+        }
+        .suggestion-code {
+            flex: 1 1 auto;
+            min-width: 0;
+            padding-right: 0.4rem;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            color: var(--text-body);
+        }
+        .suggestion-add { background: var(--diff-add-bg); }
+        .suggestion-del { background: var(--diff-del-bg); }
+        .suggestion-add .suggestion-marker { color: var(--diff-add-fg); font-weight: 600; }
+        .suggestion-del .suggestion-marker { color: var(--diff-del-fg); font-weight: 600; }
+        .suggestion-ctx .suggestion-code { color: var(--text-secondary); }
+
         /* Outdated: the comment's lines are no longer in the diff. It recedes, but keeps its
            text and the lines it was written against — with the diff gone, that quotation is the
            only remaining record of what it referred to. */
@@ -1510,6 +1560,68 @@
             return text.length > 60 ? text.substring(0, 57) + "..." : text;
         }
 
+        // ---------- Syntax highlighting ----------
+        // Prism is already on the page for Markdown code blocks, so the diff borrows it. The
+        // grammar is chosen per FILE, from the path in data-file — a diff has no other signal,
+        // and one page routinely mixes Go, Markdown and YAML.
+        const DIFF_LANGUAGE_BY_EXTENSION = {
+            go: "go", js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx",
+            ts: "typescript", tsx: "tsx", py: "python", rb: "ruby", rs: "rust", java: "java",
+            kt: "kotlin", swift: "swift", scala: "scala", c: "c", h: "c", cc: "cpp", cpp: "cpp",
+            hpp: "cpp", cs: "csharp", php: "php", pl: "perl", lua: "lua", sh: "bash",
+            bash: "bash", zsh: "bash", fish: "bash", sql: "sql", css: "css", scss: "scss",
+            html: "markup", xml: "markup", svg: "markup", vue: "markup", json: "json",
+            yaml: "yaml", yml: "yaml", toml: "toml", ini: "ini", md: "markdown",
+            markdown: "markdown", tf: "hcl", hcl: "hcl", graphql: "graphql", proto: "protobuf",
+            dockerfile: "docker", mk: "makefile",
+        };
+        const DIFF_LANGUAGE_BY_NAME = {
+            Dockerfile: "docker", Makefile: "makefile", Gemfile: "ruby", Rakefile: "ruby",
+            ".gitignore": "git", ".gitattributes": "git",
+        };
+
+        function languageForPath(path) {
+            if (!path) return null;
+            const name = path.split("/").pop();
+            if (DIFF_LANGUAGE_BY_NAME[name]) return DIFF_LANGUAGE_BY_NAME[name];
+            const dot = name.lastIndexOf(".");
+            if (dot < 0) return null;
+            return DIFF_LANGUAGE_BY_EXTENSION[name.slice(dot + 1).toLowerCase()] || null;
+        }
+
+        // Highlighting is done line by line as lines come into view. A diff is a list of
+        // fragments, not a document, so there is no whole-file parse to share anyway — and
+        // deferring it keeps a thousand-line diff from paying for all of it up front.
+        function highlightDiffLine(line) {
+            const code = line.querySelector(".diff-code");
+            if (!code || !code.textContent || line.classList.contains("diff-meta")) return;
+            const language = languageForPath(line.getAttribute("data-file"));
+            if (!language || !window.Prism) return;
+            code.classList.add("language-" + language);
+            Prism.highlightElement(code);
+        }
+
+        function initializeDiffHighlighting() {
+            // Prism's <script> tags are deferred, so they have not run while this inline script
+            // does. DOMContentLoaded fires after them.
+            window.addEventListener("DOMContentLoaded", () => {
+                if (!window.Prism) return;
+                const lines = document.querySelectorAll(".diff-line");
+                if (!("IntersectionObserver" in window)) {
+                    lines.forEach(highlightDiffLine);
+                    return;
+                }
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (!entry.isIntersecting) return;
+                        observer.unobserve(entry.target);
+                        highlightDiffLine(entry.target);
+                    });
+                }, { rootMargin: "300px 0px" });
+                lines.forEach(line => observer.observe(line));
+            });
+        }
+
         function initializeDiffLines() {
             const container = document.querySelector(".main-content");
             if (!container) return;
@@ -2044,6 +2156,77 @@
                 .sort((a, b) => rank(a.c) - rank(b.c));
         }
 
+        // ---------- Comment body: prose plus ```suggestion blocks ----------
+        // A suggestion is a replacement for the anchored lines, so it is shown the way a
+        // replacement is read anywhere else: as a diff against those lines. Reading it as a bare
+        // code block means holding the original in your head to see what actually changed.
+        const suggestionFenceRegex = /```suggestion[ \t]*\r?\n([\s\S]*?)\r?\n?```/g;
+
+        function renderCommentBody(item, c) {
+            const text = c.text || "";
+            suggestionFenceRegex.lastIndex = 0;
+
+            let cursor = 0;
+            let match;
+            while ((match = suggestionFenceRegex.exec(text)) !== null) {
+                appendProse(item, text.slice(cursor, match.index));
+                item.appendChild(suggestionDiff(c.anchorLines || [], match[1].split("\n")));
+                cursor = match.index + match[0].length;
+            }
+            appendProse(item, text.slice(cursor));
+        }
+
+        function appendProse(item, text) {
+            const trimmed = text.replace(/^\s*\n|\n\s*$/g, "");
+            if (!trimmed.trim()) return;
+            const p = document.createElement("p");
+            p.style.marginBottom = "0";
+            p.textContent = trimmed;
+            item.appendChild(p);
+        }
+
+        // Lines shared at either end stay as context, so a one-line edit inside a six-line quote
+        // shows as a one-line change instead of six removals and six additions.
+        function suggestionDiff(original, suggested) {
+            const box = document.createElement("div");
+            box.className = "suggestion-diff";
+
+            const label = document.createElement("div");
+            label.className = "suggestion-diff-label";
+            label.textContent = original.length ? "Suggested change" : "Suggestion";
+            box.appendChild(label);
+
+            let head = 0;
+            while (head < original.length && head < suggested.length && original[head] === suggested[head]) head++;
+            let tail = 0;
+            while (
+                tail < original.length - head &&
+                tail < suggested.length - head &&
+                original[original.length - 1 - tail] === suggested[suggested.length - 1 - tail]
+            ) tail++;
+
+            const row = (kind, marker, content) => {
+                const line = document.createElement("div");
+                line.className = "suggestion-line suggestion-" + kind;
+                const m = document.createElement("span");
+                m.className = "suggestion-marker";
+                m.textContent = marker;
+                const code = document.createElement("span");
+                code.className = "suggestion-code";
+                code.textContent = content;
+                line.appendChild(m);
+                line.appendChild(code);
+                box.appendChild(line);
+            };
+
+            original.slice(0, head).forEach(l => row("ctx", " ", l));
+            original.slice(head, original.length - tail).forEach(l => row("del", "-", l));
+            suggested.slice(head, suggested.length - tail).forEach(l => row("add", "+", l));
+            if (tail) original.slice(original.length - tail).forEach(l => row("ctx", " ", l));
+
+            return box;
+        }
+
         function renderComments() {
             const container = document.getElementById("commentsList");
             container.innerHTML = "";
@@ -2136,14 +2319,10 @@
                         item.appendChild(tag);
                     }
 
-                    const p = document.createElement("p");
-                    p.style.marginBottom = "0";
-                    p.textContent = c.text;
-
                     item.appendChild(deleteBtn);
                     item.appendChild(editBtn);
                     item.appendChild(authorTag);
-                    item.appendChild(p);
+                    renderCommentBody(item, c);
 
                     if (c.outdated) {
                         if (c.context) {
@@ -2556,6 +2735,7 @@
         // here would tag every diff row as a block-level comment target and anchor comments
         // that cannot survive the next round.
         initializeDiffLines();
+        initializeDiffHighlighting();
         {{else}}
         initializeCommentableElements();
         {{end}}
