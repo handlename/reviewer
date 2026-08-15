@@ -8,8 +8,7 @@ import (
 )
 
 func TestReviewStart_OpensSessionAndReturnsURL(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
@@ -24,8 +23,7 @@ func TestReviewStart_OpensSessionAndReturnsURL(t *testing.T) {
 }
 
 func TestReviewStart_SessionOutlivesTheToolCall(t *testing.T) {
-	base, cancelBase := context.WithCancel(context.Background())
-	defer cancelBase()
+	base := t.Context()
 
 	h := newSessionHolder(base)
 	defer h.closeCurrent()
@@ -48,8 +46,7 @@ func TestReviewStart_SessionOutlivesTheToolCall(t *testing.T) {
 }
 
 func TestReviewStart_RejectsMissingDocument(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
@@ -62,8 +59,7 @@ func TestReviewStart_RejectsMissingDocument(t *testing.T) {
 }
 
 func TestReviewStart_RejectsDirectory(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
@@ -74,8 +70,7 @@ func TestReviewStart_RejectsDirectory(t *testing.T) {
 }
 
 func TestReviewWait_TimeoutIsNotAnError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
@@ -96,8 +91,7 @@ func TestReviewWait_TimeoutIsNotAnError(t *testing.T) {
 }
 
 func TestReviewWait_AfterSessionEndedReportsSessionEnded(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
@@ -126,8 +120,7 @@ func TestReviewWait_AfterSessionEndedReportsSessionEnded(t *testing.T) {
 }
 
 func TestReviewWait_WithoutSessionIsAnError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	// Calling wait before start is an agent mistake, not an expected outcome, so it IS an error.
@@ -137,8 +130,7 @@ func TestReviewWait_WithoutSessionIsAnError(t *testing.T) {
 }
 
 func TestReviewStart_ReplacesEndedSession(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
@@ -155,8 +147,7 @@ func TestReviewStart_ReplacesEndedSession(t *testing.T) {
 }
 
 func TestReviewStart_RejectsSecondLiveSession(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
 	defer h.closeCurrent()
