@@ -2,6 +2,10 @@
 
 reviewer is a spec-to-readable HTML compiler and review server.
 
+![A Markdown spec under review: a comment anchored to a requirement, its thread open in the panel](docs/images/review-markdown.png)
+
+![A unified diff under review: a comment on a line range, its suggestion shown as a diff](docs/images/review-diff.png)
+
 ## Features
 
 - Compiling Markdown to styled HTML documents
