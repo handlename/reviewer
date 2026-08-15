@@ -104,6 +104,14 @@ func reAnchorComments(comments []Comment, files []File) []Comment {
 	copy(out, comments)
 
 	for i := range out {
+		// A whole-file comment has no lines to match, so it follows the file itself: it stays
+		// live for as long as the file is in the diff, however much its contents change.
+		if path, ok := ParseDiffFileAnchor(out[i].Anchor); ok {
+			_, found := FindFile(files, path)
+			out[i].Outdated = !found
+			continue
+		}
+
 		path, start, end, ok := ParseDiffAnchor(out[i].Anchor)
 		if !ok {
 			continue

@@ -69,6 +69,10 @@ A comment made on a diff carries two extra things:
 - `anchorLines` — the exact text of those lines, markers stripped. This is what you locate the
   code with; search the file for it rather than trusting a line number.
 
+An anchor of `<path>#file` is a comment about the change to that file **as a whole** — its
+placement, its tests, whether it should exist at all — not about any line in it. It carries no
+`anchorLines`, and it stays live for as long as the file is in the diff.
+
 A comment may contain a ` ```suggestion ` block: the replacement the human wants for the
 anchored lines. Apply it yourself — reviewer does not touch your source — and say so in your
 reply. Treat it as a proposal you understand, not a patch to paste blindly: if it is wrong or

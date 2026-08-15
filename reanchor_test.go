@@ -253,6 +253,30 @@ func TestReAnchorCommentsMarksMissingFileOutdated(t *testing.T) {
 	}
 }
 
+// A whole-file comment has no lines to match, so it follows the file: it survives every edit
+// inside it, and only goes outdated when the file itself leaves the diff.
+func TestReAnchorCommentsFollowsWholeFileComments(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(round1Diff))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := reAnchorComments([]Comment{
+		{Text: "split this file", Anchor: FormatDiffFileAnchor("main.go"), Outdated: true},
+		{Text: "where are the tests", Anchor: FormatDiffFileAnchor("other.go")},
+	}, files)
+
+	if got[0].Outdated {
+		t.Error("a comment on a file still in the diff was marked outdated")
+	}
+	if got[0].Anchor != FormatDiffFileAnchor("main.go") {
+		t.Errorf("anchor was rewritten to %q", got[0].Anchor)
+	}
+	if !got[1].Outdated {
+		t.Error("a comment on a file no longer in the diff should be outdated")
+	}
+}
+
 // Markdown anchors share every code path here, so they must come out exactly as they went in.
 func TestReAnchorCommentsPassesNonDiffAnchorsThrough(t *testing.T) {
 	files, err := ParseUnifiedDiff([]byte(round1Diff))

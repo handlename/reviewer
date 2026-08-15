@@ -1181,6 +1181,23 @@
         }
         .diff-line .element-comment-indicator:hover { transform: scale(1.08); }
 
+        /* The file header is a comment target too — for what is true of the change to the file
+           rather than of any line in it. Same states as a line, drawn on the header's own bar. */
+        .main-content.diff-mode h2.diff-file-header { cursor: pointer; }
+        .main-content.diff-mode h2.diff-file-header:hover { background: var(--bg-tertiary); }
+        .diff-file-header.anchored-range { box-shadow: inset 2px 0 0 var(--hl-mark); }
+        .diff-file-header.active-comment-target { box-shadow: inset 2px 0 0 var(--hl-ring); }
+        .diff-file-header.selected-target {
+            background: hsl(var(--accent-hsl) / 0.10);
+            box-shadow: inset 3px 0 0 var(--hl-ring);
+        }
+        /* Inside the header rather than out in the gutter: .diff-file clips its overflow. */
+        .diff-file-header .element-comment-indicator {
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
         #suggestionActions { margin-top: -0.4rem; }
         #quoteSuggestionBtn { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; }
 
@@ -1455,6 +1472,20 @@
         function diffLineElements() { return Array.from(document.querySelectorAll(".diff-line")); }
         function lineIndexOf(el) { return parseInt(el.getAttribute("data-line-index"), 10); }
         function formatDiffAnchor(path, start, end) { return `${path}#${start}-${end}`; }
+        function formatDiffFileAnchor(path) { return `${path}#file`; }
+
+        // Mirrors ParseDiffFileAnchor in Go: the whole-file form, split on the last '#'.
+        function parseDiffFileAnchor(anchor) {
+            if (!anchor) return null;
+            const i = anchor.lastIndexOf("#");
+            if (i < 0 || anchor.slice(i + 1) !== "file") return null;
+            return { path: anchor.slice(0, i) };
+        }
+
+        function fileHeaderFor(path) {
+            return Array.from(document.querySelectorAll(".diff-file-header"))
+                .find(el => el.getAttribute("data-file") === path) || null;
+        }
 
         // Mirrors ParseDiffAnchor in Go, including the split on the LAST '#': a path may
         // contain one, and the anchor always ends in "#<digits>-<digits>".
@@ -1489,7 +1520,7 @@
         // attribute on every line of the range they would each silently do nothing.
         function applyDiffAnchors() {
             if (!isDiffMode) return;
-            document.querySelectorAll(".diff-line[data-anchor], .diff-line[data-anchor-member]").forEach(el => {
+            document.querySelectorAll(".diff-line[data-anchor], .diff-line[data-anchor-member], .diff-file-header[data-anchor]").forEach(el => {
                 el.removeAttribute("data-anchor");
                 el.removeAttribute("data-anchor-member");
                 el.classList.remove("anchored-range");
@@ -1502,6 +1533,16 @@
             if (activeAnchor && !anchors.includes(activeAnchor)) anchors.push(activeAnchor);
 
             anchors.forEach(anchor => {
+                const whole = parseDiffFileAnchor(anchor);
+                if (whole) {
+                    const header = fileHeaderFor(whole.path);
+                    if (header) {
+                        header.setAttribute("data-anchor", anchor);
+                        header.classList.add("anchored-range");
+                    }
+                    return;
+                }
+
                 const parsed = parseDiffAnchor(anchor);
                 if (!parsed) return;
                 linesInRange(parsed.path, parsed.start, parsed.end).forEach((el, i) => {
@@ -1546,6 +1587,32 @@
             document.getElementById("commentContextText").textContent = activeContext;
             document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("suggestionActions").style.display = "block";
+
+            clearConnectionMarks();
+            connection = { kind: "compose", anchor: activeAnchor };
+            hoverAnchor = null;
+            drawConnection(connection, true);
+        }
+
+        // Target a whole file. There is no line content to carry, so no anchorLines and no
+        // suggestion: a suggestion replaces specific lines, and this comment names none.
+        function setDiffFileCommentTarget(header) {
+            const path = header.getAttribute("data-file");
+            if (!path) return;
+
+            document.querySelectorAll(".active-comment-target").forEach(el => el.classList.remove("active-comment-target"));
+            clearRangeSelection();
+
+            activeAnchor = formatDiffFileAnchor(path);
+            activeAnchorLines = [];
+            activeContext = path.length > 60 ? path.substring(0, 57) + "..." : path;
+
+            applyDiffAnchors();
+            header.classList.add("active-comment-target");
+
+            document.getElementById("commentContextText").textContent = activeContext;
+            document.getElementById("commentContextContainer").style.display = "block";
+            document.getElementById("suggestionActions").style.display = "none";
 
             clearConnectionMarks();
             connection = { kind: "compose", anchor: activeAnchor };
@@ -1631,12 +1698,25 @@
             let pendingFocus = false;
 
             container.addEventListener("mousedown", (e) => {
-                const line = e.target.closest(".diff-line");
-                if (!line) return;
                 // The 💬 badge runs selectComment from its own click handler. Letting this one
                 // run too selects the comment on mousedown and then toggles it straight back off
                 // on click, so the connector line appears and vanishes within the same gesture.
                 if (e.target.closest(".element-comment-indicator, a")) return;
+
+                const header = e.target.closest(".diff-file-header");
+                if (header) {
+                    const existing = header.getAttribute("data-anchor");
+                    if (existing && isCommented(existing)) {
+                        selectComment(existing);
+                    } else {
+                        setDiffFileCommentTarget(header);
+                        pendingFocus = true;
+                    }
+                    return;
+                }
+
+                const line = e.target.closest(".diff-line");
+                if (!line) return;
 
                 // A line that already carries a comment shows it instead of starting a new
                 // selection — the same "commented targets select, uncommented targets compose"
@@ -2104,7 +2184,7 @@
         // comment target, and without it selecting a diff comment is undone by the very click
         // that made it, connector line included.
         document.addEventListener("click", (e) => {
-            if (e.target.closest(".feedback-item, .commentable-element, .diff-line, .comment-box, #commentContextContainer")) return;
+            if (e.target.closest(".feedback-item, .commentable-element, .diff-line, .diff-file-header, .comment-box, #commentContextContainer")) return;
             if (connection && connection.kind === "selected") clearConnection();
         });
 

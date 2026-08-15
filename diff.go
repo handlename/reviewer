@@ -267,6 +267,11 @@ func trimDiffPath(s string) string {
 // diffAnchorRangeRegex matches the "<start>-<end>" tail of a diff anchor.
 var diffAnchorRangeRegex = regexp.MustCompile(`^(\d+)-(\d+)$`)
 
+// diffFileAnchorTail marks an anchor that means the whole file rather than a range of its
+// lines. It is a word rather than a range like "0-0" so the two forms cannot be confused by a
+// reader — or by an agent — and so a file comment survives every edit inside the file.
+const diffFileAnchorTail = "file"
+
 // FormatDiffAnchor builds the anchor for a commented line range: "<display path>#<start>-<end>".
 //
 // start and end are 1-based indices into the file's rendered diff lines — added, removed and
@@ -298,6 +303,25 @@ func ParseDiffAnchor(anchor string) (path string, start, end int, ok bool) {
 		return "", 0, 0, false
 	}
 	return anchor[:i], start, end, true
+}
+
+// FormatDiffFileAnchor builds the anchor for a comment on a file as a whole: "<path>#file".
+//
+// Some review comments are about the change to a file rather than about any line in it — "this
+// belongs in the other package", "where are the tests" — and pinning those to an arbitrary line
+// both misplaces them and sends them outdated the moment that line is edited.
+func FormatDiffFileAnchor(path string) string {
+	return path + "#" + diffFileAnchorTail
+}
+
+// ParseDiffFileAnchor reads a whole-file anchor back. Like ParseDiffAnchor it splits on the last
+// '#', so a path containing one still round-trips.
+func ParseDiffFileAnchor(anchor string) (path string, ok bool) {
+	i := strings.LastIndexByte(anchor, '#')
+	if i < 0 || anchor[i+1:] != diffFileAnchorTail {
+		return "", false
+	}
+	return anchor[:i], true
 }
 
 // RenderDiff compiles parsed diff files into the same interactive review page RenderSpec
@@ -355,7 +379,10 @@ func renderDiffBody(files []File) string {
 	for _, f := range files {
 		path := f.DisplayPath()
 		b.WriteString(`<section class="diff-file">` + "\n")
-		b.WriteString(`<h2 class="diff-file-header">` + html.EscapeString(path) + renderRenameNote(f) + "</h2>\n")
+		// data-file makes the header a comment target in its own right: a comment about the
+		// file as a whole anchors here rather than to a line that happens to be in it.
+		b.WriteString(`<h2 class="diff-file-header" data-file="` + html.EscapeString(path) + `">` +
+			html.EscapeString(path) + renderRenameNote(f) + "</h2>\n")
 		if len(f.Hunks) == 0 {
 			b.WriteString(`<p class="diff-empty">No textual changes.</p>` + "\n")
 		}

@@ -183,7 +183,8 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 				"to have your own work reviewed. Which one it is is detected from the content; there is nothing to declare. " +
 				"On a diff, a comment's anchor reads \"<path>#<start>-<end>\", where the numbers are 1-based positions among that file's " +
 				"rendered diff lines (added, removed and context lines all counted, @@ headers not) — they are NOT source line numbers. " +
-				"Use the comment's anchorLines, which hold the exact text of those lines, to locate the code.",
+				"Use the comment's anchorLines, which hold the exact text of those lines, to locate the code. " +
+				"An anchor of \"<path>#file\" is a comment about the change to that file as a whole, not about any line in it; it carries no anchorLines.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
 			// The request context is deliberately unused: the session outlives this call.

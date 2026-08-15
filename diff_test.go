@@ -332,6 +332,32 @@ func TestParseDiffAnchorRejectsNonDiffAnchors(t *testing.T) {
 	}
 }
 
+func TestDiffFileAnchorRoundTrip(t *testing.T) {
+	for _, path := range []string{"render.go", "cli/command/serve.go", "notes/a#1-2.md"} {
+		anchor := FormatDiffFileAnchor(path)
+		got, ok := ParseDiffFileAnchor(anchor)
+		if !ok {
+			t.Fatalf("ParseDiffFileAnchor(%q) reported not-an-anchor", anchor)
+		}
+		if got != path {
+			t.Errorf("ParseDiffFileAnchor(%q) = %q, want %q", anchor, got, path)
+		}
+		// The two anchor forms must not be mistaken for each other, in either direction.
+		if _, _, _, ok := ParseDiffAnchor(anchor); ok {
+			t.Errorf("ParseDiffAnchor accepted the whole-file anchor %q", anchor)
+		}
+		if _, ok := ParseDiffFileAnchor(FormatDiffAnchor(path, 1, 2)); ok {
+			t.Errorf("ParseDiffFileAnchor accepted the line-range anchor for %q", path)
+		}
+	}
+
+	for _, anchor := range []string{"spec-element-7", "", "main.go#files", "main.go#FILE", "file"} {
+		if _, ok := ParseDiffFileAnchor(anchor); ok {
+			t.Errorf("ParseDiffFileAnchor(%q) accepted a non-anchor", anchor)
+		}
+	}
+}
+
 func TestRenderDiffBody(t *testing.T) {
 	names, err := filepath.Glob(filepath.Join("testdata", "*.diff"))
 	if err != nil {
