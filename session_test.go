@@ -1,7 +1,6 @@
 package reviewer
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -23,8 +22,7 @@ func writeTempSpec(t *testing.T) string {
 }
 
 func TestStartSession_ServesAndCloses(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -57,8 +55,7 @@ func TestStartSession_ServesAndCloses(t *testing.T) {
 }
 
 func TestStartSession_ClosesServerAfterSessionAlreadyEnded(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -86,8 +83,7 @@ func TestStartSession_ClosesServerAfterSessionAlreadyEnded(t *testing.T) {
 }
 
 func TestSessionWait_ReturnsSubmittedComments(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -127,8 +123,7 @@ func TestSessionWait_ReturnsSubmittedComments(t *testing.T) {
 }
 
 func TestSessionWait_ReturnsSubmitThatLandedBeforeTheCall(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -152,8 +147,7 @@ func TestSessionWait_ReturnsSubmitThatLandedBeforeTheCall(t *testing.T) {
 }
 
 func TestSessionWait_DoesNotRedeliverTheSameSubmit(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -173,8 +167,7 @@ func TestSessionWait_DoesNotRedeliverTheSameSubmit(t *testing.T) {
 }
 
 func TestSessionWait_TimesOutWithoutError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -189,8 +182,7 @@ func TestSessionWait_TimesOutWithoutError(t *testing.T) {
 }
 
 func TestSessionWait_ReportsSessionEnded(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -232,8 +224,7 @@ func submitComment(t *testing.T, s *ReviewSession, text string) string {
 }
 
 func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -264,8 +255,7 @@ func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
 }
 
 func TestSessionReply_CannotResolveComment(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -286,8 +276,7 @@ func TestSessionReply_CannotResolveComment(t *testing.T) {
 }
 
 func TestSessionReply_RejectsUnknownCommentID(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -303,8 +292,7 @@ func TestSessionReply_RejectsUnknownCommentID(t *testing.T) {
 }
 
 func TestSessionProgress_WritesStatusFile(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {
@@ -330,8 +318,7 @@ func TestSessionProgress_WritesStatusFile(t *testing.T) {
 }
 
 func TestSessionProgress_RejectsUnknownState(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
 	if err != nil {

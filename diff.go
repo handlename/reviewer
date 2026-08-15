@@ -166,7 +166,7 @@ func ParseUnifiedDiff(content []byte) ([]File, error) {
 		hunk = nil
 	}
 
-	for _, line := range strings.Split(string(content), "\n") {
+	for line := range strings.SplitSeq(string(content), "\n") {
 		switch {
 		case combinedHunkRegex.MatchString(line):
 			// A combined diff (git diff --cc, merge commits) has one column per parent, so a

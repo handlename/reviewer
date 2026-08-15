@@ -165,8 +165,7 @@ func TestStartReviewServer_CloseEndsSession(t *testing.T) {
 	inputPath := filepath.Join(tempDir, "spec.md")
 	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	readyChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 	go func() { errChan <- StartReviewServer(ctx, inputPath, 0, true, readyChan) }()
@@ -319,7 +318,7 @@ func TestStartReviewServer_WaitMultipleWaiters(t *testing.T) {
 
 	const n = 3
 	codes := make(chan int, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			resp, err := http.Get(url + "/api/wait")
 			if err != nil {
@@ -337,7 +336,7 @@ func TestStartReviewServer_WaitMultipleWaiters(t *testing.T) {
 	fb := Feedback{Comments: []Comment{{Text: "shared", Timestamp: time.Now().Format(time.RFC3339), Author: AuthorHuman, Status: StatusOpen}}}
 	postFeedback(t, url, fb)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		select {
 		case code := <-codes:
 			if code != http.StatusOK {
@@ -424,8 +423,7 @@ func TestStatusPath(t *testing.T) {
 }
 
 func TestSidecars_AreNotWrittenBesideTheDocument(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "spec.md")
@@ -458,8 +456,7 @@ func TestSidecars_AreNotWrittenBesideTheDocument(t *testing.T) {
 // The agent's status file drives a live "status" SSE event and a /api/status endpoint,
 // so the page can show progress between submit and reply without a full reload.
 func TestStartReviewServer_AgentStatus(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "spec.md")
