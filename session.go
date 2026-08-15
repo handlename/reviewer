@@ -34,6 +34,15 @@ type ReviewSession struct {
 	submitSeq    uint64
 	deliveredSeq uint64
 
+	// sidecarMu serialises access to the feedback sidecar, whose reads and writes are plain
+	// os.ReadFile / os.WriteFile and so are not atomic against each other.
+	//
+	// It is taken at the entry of handlers and exported methods, never inside readFeedbackDoc:
+	// Reply calls that helper while already holding the lock, and sync.Mutex is not reentrant,
+	// so locking in the helper would deadlock the server. Wait is the other exception — see the
+	// comment there.
+	sidecarMu sync.Mutex
+
 	// done signals "the session is over". shutdown is separate and happens exactly once,
 	// whoever gets there first: /api/close closes done without shutting the server down, and
 	// StartReviewServer then calls Close() to do the shutdown after it stops blocking.
@@ -191,8 +200,15 @@ func (s *ReviewSession) Wait(ctx context.Context, timeout time.Duration) WaitRes
 
 	// Subscribe first, then check: a submit racing in between wakes the channel instead of
 	// being missed by both the check and the subscription.
+	//
+	// The sidecar lock is taken around each read rather than at the entry of Wait: this call
+	// blocks for the full timeout (15 minutes by default), and holding the lock for that long
+	// would block POST /api/feedback before it can record the submit and broadcast — and that
+	// broadcast is the only thing that can wake this wait. The two would sit on each other with
+	// the submit button hanging, and Go's deadlock detector never fires because it is not a
+	// cycle it can see.
 	if s.takePendingSubmit() {
-		fb := s.readFeedbackDoc()
+		fb := s.readFeedbackLocked()
 		return WaitResult{Outcome: WaitSubmitted, Comments: fb.Comments, Summary: fb.Summary}
 	}
 
@@ -202,7 +218,7 @@ func (s *ReviewSession) Wait(ctx context.Context, timeout time.Duration) WaitRes
 	select {
 	case <-ch:
 		s.takePendingSubmit()
-		fb := s.readFeedbackDoc()
+		fb := s.readFeedbackLocked()
 		return WaitResult{Outcome: WaitSubmitted, Comments: fb.Comments, Summary: fb.Summary}
 	case <-timer.C:
 		return WaitResult{Outcome: WaitTimeout, Comments: []Comment{}}
@@ -216,8 +232,17 @@ func (s *ReviewSession) Wait(ctx context.Context, timeout time.Duration) WaitRes
 	}
 }
 
+// readFeedbackLocked is readFeedbackDoc for callers that do not already hold sidecarMu.
+func (s *ReviewSession) readFeedbackLocked() Feedback {
+	s.sidecarMu.Lock()
+	defer s.sidecarMu.Unlock()
+	return s.readFeedbackDoc()
+}
+
 // readFeedbackDoc loads the feedback sidecar. A missing or malformed file yields an empty
 // document rather than an error — the review can still proceed.
+//
+// It does not lock: callers hold sidecarMu, and Reply calls it while holding it.
 func (s *ReviewSession) readFeedbackDoc() Feedback {
 	fb := Feedback{Comments: []Comment{}}
 	raw, err := os.ReadFile(s.feedbackPath)
@@ -232,6 +257,43 @@ func (s *ReviewSession) readFeedbackDoc() Feedback {
 		fb.Comments = []Comment{}
 	}
 	return fb
+}
+
+// feedbackForDisplay is what GET /api/feedback answers with: the stored comments, re-anchored
+// against the diff as it is right now.
+//
+// It deliberately writes nothing. The browser holds the result and posts it back when the human
+// submits, so the existing write path persists the new anchors — no second writer, and the human
+// sees correctly placed comments the moment the page reloads rather than after a submit. It must
+// also never broadcast: a reload triggered from here would fetch again and loop forever.
+func (s *ReviewSession) feedbackForDisplay() []byte {
+	fb := s.readFeedbackLocked()
+
+	content, err := os.ReadFile(s.inputPath)
+	// Not a diff — a Markdown review, or a document that vanished — so nothing is re-anchored.
+	// Without this guard every Markdown comment fails FindFile, turns Outdated, and the Markdown
+	// review silently loses its indicators and connector lines.
+	if err != nil || DetectKind(content) != KindDiff {
+		return marshalFeedback(fb)
+	}
+
+	files, err := ParseUnifiedDiff(content)
+	if err != nil {
+		return marshalFeedback(fb)
+	}
+	fb.Comments = reAnchorComments(fb.Comments, files)
+	return marshalFeedback(fb)
+}
+
+func marshalFeedback(fb Feedback) []byte {
+	if fb.Comments == nil {
+		fb.Comments = []Comment{}
+	}
+	out, err := json.Marshal(fb)
+	if err != nil {
+		return []byte(`{"comments":[]}`)
+	}
+	return out
 }
 
 // Agent activity states surfaced on the review page.
@@ -251,6 +313,11 @@ type ReplyInput struct {
 // summary. It writes only Reply and ReplyTimestamp: Status is deliberately untouched, because
 // marking a comment resolved is the human's decision alone (see DESIGN.md section 4).
 func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
+	// A read-modify-write: the lock spans the whole thing, or a submit landing in the middle
+	// is overwritten by the version this call read.
+	s.sidecarMu.Lock()
+	defer s.sidecarMu.Unlock()
+
 	fb := s.readFeedbackDoc()
 
 	byID := make(map[string]int, len(fb.Comments))
@@ -335,7 +402,7 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 		switch r.Method {
 		case http.MethodGet:
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(readFeedback(s.feedbackPath))
+			_, _ = w.Write(s.feedbackForDisplay())
 
 		case http.MethodPost:
 			var fb Feedback
@@ -343,6 +410,9 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+
+			s.sidecarMu.Lock()
+			defer s.sidecarMu.Unlock()
 
 			// Prune comments the user marked resolved in the previous cycle; only open ones carry forward.
 			fb.Comments = pruneResolved(fb.Comments)
@@ -425,9 +495,12 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 
 		select {
 		case <-ch:
+			s.sidecarMu.Lock()
+			raw := readFeedback(s.feedbackPath)
+			s.sidecarMu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(readFeedback(s.feedbackPath))
+			_, _ = w.Write(raw)
 		case <-time.After(waitTimeout):
 			w.WriteHeader(http.StatusNoContent)
 		case <-s.done:

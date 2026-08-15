@@ -686,6 +686,39 @@
             cursor: pointer;
         }
 
+        /* Outdated: the comment's lines are no longer in the diff. It recedes, but keeps its
+           text and the lines it was written against — with the diff gone, that quotation is the
+           only remaining record of what it referred to. */
+        .feedback-item.outdated { border-style: dashed; background: transparent; }
+        .outdated-tag {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--callout-warning);
+            margin-bottom: 0.3rem;
+        }
+        .outdated-context {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            color: var(--text-tertiary);
+            margin-top: 0.45rem;
+            overflow-wrap: anywhere;
+        }
+        .outdated-lines {
+            margin: 0.35rem 0 0 !important;
+            padding: 0.4rem 0.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 2px;
+            font-size: 0.72rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
         /* a comment the user marked resolved recedes but stays visible for the cycle */
         .feedback-item.resolved {
             opacity: 0.6;
@@ -1604,7 +1637,9 @@
 
             const countsByAnchor = {};
             comments.forEach(c => {
-                if (c.anchor) {
+                // An outdated comment keeps its anchor (so it can come back if its lines do),
+                // but it has nothing to point at in the current diff.
+                if (c.anchor && !c.outdated) {
                     countsByAnchor[c.anchor] = (countsByAnchor[c.anchor] || 0) + 1;
                 }
             });
@@ -1907,8 +1942,9 @@
             document.querySelectorAll('.main-content [data-anchor]').forEach((el, i) => {
                 order.set(el.getAttribute('data-anchor'), i);
             });
-            // No anchor, or an anchor whose element is gone after an agent edit: sink to the end.
-            const rank = c => (c.anchor && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
+            // No anchor, an anchor whose element is gone after an agent edit, or a comment whose
+            // lines left the diff: sink to the end.
+            const rank = c => (c.anchor && !c.outdated && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
             // sort is stable, so comments sharing a rank (same block, or both unplaced) stay in creation order.
             return comments
                 .map((c, idx) => ({ c, idx }))
@@ -1994,6 +2030,18 @@
                     authorTag.className = "comment-author";
                     authorTag.textContent = (c.author === "agent") ? "Agent" : "You";
 
+                    // A comment whose lines are no longer in the diff stays in the panel, with
+                    // the lines it was written against — that text is the only way left to tell
+                    // what it was about.
+                    if (c.outdated) {
+                        item.classList.add("outdated");
+                        const tag = document.createElement("div");
+                        tag.className = "outdated-tag";
+                        tag.textContent = "Outdated";
+                        if (c.context) tag.title = c.context;
+                        item.appendChild(tag);
+                    }
+
                     const p = document.createElement("p");
                     p.style.marginBottom = "0";
                     p.textContent = c.text;
@@ -2002,6 +2050,21 @@
                     item.appendChild(editBtn);
                     item.appendChild(authorTag);
                     item.appendChild(p);
+
+                    if (c.outdated) {
+                        if (c.context) {
+                            const where = document.createElement("div");
+                            where.className = "outdated-context";
+                            where.textContent = c.context;
+                            item.appendChild(where);
+                        }
+                        if (c.anchorLines && c.anchorLines.length) {
+                            const lines = document.createElement("pre");
+                            lines.className = "outdated-lines";
+                            lines.textContent = c.anchorLines.join("\n");
+                            item.appendChild(lines);
+                        }
+                    }
 
                     // Agent's reply, threaded beneath the human comment.
                     if (c.reply && c.reply.trim()) {
@@ -2039,8 +2102,9 @@
                     }
 
                     // Click the card to select it (and draw its line); hover to preview.
-                    // Ignore clicks on the card's own controls.
-                    if (c.anchor) {
+                    // Ignore clicks on the card's own controls. An outdated comment has no
+                    // target left in the body, so it is not selectable.
+                    if (c.anchor && !c.outdated) {
                         item.addEventListener("click", (e) => {
                             if (e.target.closest(".delete-btn, .edit-btn, .resolve-toggle, input, button, textarea, a")) return;
                             selectComment(c.anchor);

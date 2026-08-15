@@ -42,12 +42,15 @@ type Comment struct {
 	// AnchorLines is the exact content of the anchored diff lines, markers stripped. It is what
 	// lets a comment find its lines again after the agent regenerates the diff, so it has to be
 	// persisted alongside the anchor rather than derived from it.
-	AnchorLines    []string `json:"anchorLines,omitempty"`
-	Context        string   `json:"context,omitempty"`        // Preview text context of the commented element
-	Author         string   `json:"author,omitempty"`         // human | agent
-	Status         string   `json:"status,omitempty"`         // open | resolved (resolved set by the human)
-	Reply          string   `json:"reply,omitempty"`          // agent's reply describing how the comment was addressed
-	ReplyTimestamp string   `json:"replyTimestamp,omitempty"` // when the agent replied
+	AnchorLines []string `json:"anchorLines,omitempty"`
+	// Outdated marks a diff comment whose lines are no longer in the diff. It keeps its anchor
+	// so it can come back if the lines reappear; the page just stops drawing it in the body.
+	Outdated       bool   `json:"outdated,omitempty"`
+	Context        string `json:"context,omitempty"`        // Preview text context of the commented element
+	Author         string `json:"author,omitempty"`         // human | agent
+	Status         string `json:"status,omitempty"`         // open | resolved (resolved set by the human)
+	Reply          string `json:"reply,omitempty"`          // agent's reply describing how the comment was addressed
+	ReplyTimestamp string `json:"replyTimestamp,omitempty"` // when the agent replied
 }
 
 // Feedback is the review state for one document, persisted under the OS temp directory (see
