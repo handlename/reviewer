@@ -180,7 +180,10 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 			Name: "review_start",
 			Description: "Open a file for interactive review. Renders it, serves it, and opens the browser. Returns the review URL. " +
 				"The file may be a Markdown document or a unified diff — write the diff of your changes to a temporary file and pass that path " +
-				"to have your own work reviewed. Which one it is is detected from the content; there is nothing to declare.",
+				"to have your own work reviewed. Which one it is is detected from the content; there is nothing to declare. " +
+				"On a diff, a comment's anchor reads \"<path>#<start>-<end>\", where the numbers are 1-based positions among that file's " +
+				"rendered diff lines (added, removed and context lines all counted, @@ headers not) — they are NOT source line numbers. " +
+				"Use the comment's anchorLines, which hold the exact text of those lines, to locate the code.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
 			// The request context is deliberately unused: the session outlives this call.

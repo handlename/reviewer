@@ -510,6 +510,9 @@
             color: var(--text-body);
             position: relative;
         }
+        /* A comment may carry a ```suggestion fence, which is only readable if its line breaks
+           and indentation survive. This also keeps a Markdown comment's own paragraphs intact. */
+        .feedback-item > p { white-space: pre-wrap; overflow-wrap: anywhere; }
         .feedback-item .delete-btn {
             position: absolute;
             top: 8px;
@@ -1055,6 +1058,39 @@
         .diff-del .diff-marker { color: var(--diff-del-fg); font-weight: 600; }
         .diff-meta .diff-code { color: var(--text-tertiary); font-style: italic; }
 
+        /* ---------- Diff line states ----------
+           The wash is painted as a background IMAGE so it layers over the row's own
+           added/removed tint instead of replacing it: which side a line is on must
+           stay readable while it is selected or commented. */
+        .diff-line { cursor: pointer; }
+        .diff-line:hover { background-image: linear-gradient(var(--hl-wash), var(--hl-wash)); }
+        .diff-line.range-selected,
+        .diff-line.anchored-range {
+            background-image: linear-gradient(var(--hl-wash), var(--hl-wash));
+        }
+        .diff-line.anchored-range[data-anchor] { box-shadow: inset 2px 0 0 var(--hl-mark); }
+        .diff-line.active-comment-target { outline: 1.5px dashed var(--hl-ring); outline-offset: -1px; }
+        .diff-line.selected-target {
+            outline: 1.5px solid var(--hl-ring);
+            outline-offset: -1px;
+            box-shadow: inset 3px 0 0 var(--hl-ring);
+        }
+        /* The 💬 badge cannot hang in the right gutter here: the hunk scrolls horizontally
+           and would clip it. Sticking it to the scrollport's right edge keeps it in view at
+           any scroll position. */
+        .diff-line .element-comment-indicator {
+            position: sticky;
+            right: 4px;
+            top: auto;
+            transform: none;
+            margin-left: auto;
+            align-self: center;
+        }
+        .diff-line .element-comment-indicator:hover { transform: scale(1.08); }
+
+        #suggestionActions { margin-top: -0.4rem; }
+        #quoteSuggestionBtn { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; }
+
         /* ---------- Sidebar TOC ---------- */
         .sidebar-toc {
             display: flex;
@@ -1158,6 +1194,9 @@
             <div class="comment-box">
                 <textarea id="commentInput" placeholder="Type a comment or request changes..."></textarea>
             </div>
+            <div id="suggestionActions" style="display: none;">
+                <button class="btn-sm btn-cancel" id="quoteSuggestionBtn" title="Insert the selected lines as a ```suggestion block">Quote lines as suggestion</button>
+            </div>
             <button class="btn" id="addCommentBtn">Add Comment</button>
             
             <div id="commentsList" style="margin-top: 1rem; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
@@ -1193,6 +1232,9 @@
         let editingIdx = -1;
         let activeAnchor = "";
         let activeContext = "";
+        // Diff mode only: the exact content of the lines being commented on. It travels with the
+        // comment because it, not the line numbers, is what finds the lines again next round.
+        let activeAnchorLines = [];
         // dirty = the user has unsent local changes; used to defer auto-reload so we never
         // discard an in-progress comment when the agent updates the document.
         let dirty = false;
@@ -1255,6 +1297,182 @@
             });
         }
 
+        // ---------- Diff mode: line-range comment targets ----------
+        // A diff comment targets a range of lines, not a block, so its anchor is
+        // "<path>#<start>-<end>" where the numbers are 1-based positions among the file's
+        // rendered diff lines. The anchor is built when the range is selected; the DOM
+        // attribute that carries it is (re)applied by applyDiffAnchors.
+        const isDiffMode = !!document.querySelector(".main-content.diff-mode");
+
+        function diffLineElements() { return Array.from(document.querySelectorAll(".diff-line")); }
+        function lineIndexOf(el) { return parseInt(el.getAttribute("data-line-index"), 10); }
+        function formatDiffAnchor(path, start, end) { return `${path}#${start}-${end}`; }
+
+        // Mirrors ParseDiffAnchor in Go, including the split on the LAST '#': a path may
+        // contain one, and the anchor always ends in "#<digits>-<digits>".
+        function parseDiffAnchor(anchor) {
+            if (!anchor) return null;
+            const i = anchor.lastIndexOf("#");
+            if (i < 0) return null;
+            const m = /^(\d+)-(\d+)$/.exec(anchor.slice(i + 1));
+            if (!m) return null;
+            const start = parseInt(m[1], 10), end = parseInt(m[2], 10);
+            if (start < 1 || end < start) return null;
+            return { path: anchor.slice(0, i), start, end };
+        }
+
+        // Matching on the elements rather than through an attribute selector: a file path can
+        // contain quotes and backslashes, which would need escaping to survive a selector.
+        function linesInRange(path, start, end) {
+            return diffLineElements().filter(el => {
+                const idx = lineIndexOf(el);
+                return el.getAttribute("data-file") === path && idx >= start && idx <= end;
+            });
+        }
+
+        function lineCode(el) {
+            const code = el.querySelector(".diff-code");
+            return code ? code.textContent : "";
+        }
+
+        // data-anchor goes on the FIRST line of a range only; the rest are marked with
+        // data-anchor-member. Every anchor-driven function on this page resolves an anchor with
+        // querySelector('[data-anchor="…"]'), which expects exactly one element — with the
+        // attribute on every line of the range they would each silently do nothing.
+        function applyDiffAnchors() {
+            if (!isDiffMode) return;
+            document.querySelectorAll(".diff-line[data-anchor], .diff-line[data-anchor-member]").forEach(el => {
+                el.removeAttribute("data-anchor");
+                el.removeAttribute("data-anchor-member");
+                el.classList.remove("anchored-range");
+            });
+
+            const anchors = [];
+            // Outdated comments keep their anchor but are not shown in the diff body (TASK-5);
+            // until then every anchored comment paints.
+            comments.forEach(c => { if (c.anchor && !c.outdated && !anchors.includes(c.anchor)) anchors.push(c.anchor); });
+            if (activeAnchor && !anchors.includes(activeAnchor)) anchors.push(activeAnchor);
+
+            anchors.forEach(anchor => {
+                const parsed = parseDiffAnchor(anchor);
+                if (!parsed) return;
+                linesInRange(parsed.path, parsed.start, parsed.end).forEach((el, i) => {
+                    if (i === 0) {
+                        el.setAttribute("data-anchor", anchor);
+                    } else {
+                        el.setAttribute("data-anchor-member", anchor);
+                    }
+                    el.classList.add("anchored-range");
+                });
+            });
+        }
+
+        function clearRangeSelection() {
+            document.querySelectorAll(".diff-line.range-selected").forEach(el => el.classList.remove("range-selected"));
+        }
+
+        // Target a line range for the next comment. Selections never cross a hunk: the
+        // coordinate system could express it, but lines on either side of a hunk boundary are
+        // hundreds of lines apart in the real file, and storing them as if they were adjacent
+        // would make them impossible to find again.
+        function setDiffCommentTarget(fromEl, toEl) {
+            if (fromEl.parentElement !== toEl.parentElement) return;
+
+            const path = fromEl.getAttribute("data-file");
+            const a = lineIndexOf(fromEl), b = lineIndexOf(toEl);
+            const start = Math.min(a, b), end = Math.max(a, b);
+            const els = linesInRange(path, start, end);
+            if (!els.length) return;
+
+            document.querySelectorAll(".active-comment-target").forEach(el => el.classList.remove("active-comment-target"));
+            clearRangeSelection();
+            els.forEach(el => el.classList.add("range-selected"));
+
+            activeAnchor = formatDiffAnchor(path, start, end);
+            activeAnchorLines = els.map(lineCode);
+            activeContext = diffContextPreview(path, start, end, activeAnchorLines[0] || "");
+
+            applyDiffAnchors();
+            const first = document.querySelector(`.diff-line[data-anchor][data-line-index="${start}"]`);
+            if (first) first.classList.add("active-comment-target");
+
+            document.getElementById("commentContextText").textContent = activeContext;
+            document.getElementById("commentContextContainer").style.display = "block";
+            document.getElementById("suggestionActions").style.display = "block";
+            document.getElementById("commentInput").focus();
+
+            clearConnectionMarks();
+            connection = { kind: "compose", anchor: activeAnchor };
+            hoverAnchor = null;
+            drawConnection(connection, true);
+        }
+
+        function diffContextPreview(path, start, end, firstLine) {
+            const where = start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
+            const code = firstLine.trim().replace(/\s+/g, " ");
+            const text = code ? `${where} — ${code}` : where;
+            return text.length > 60 ? text.substring(0, 57) + "..." : text;
+        }
+
+        function initializeDiffLines() {
+            const container = document.querySelector(".main-content");
+            if (!container) return;
+
+            let dragFrom = null;   // where the current drag started
+            let dragging = false;
+
+            container.addEventListener("mousedown", (e) => {
+                const line = e.target.closest(".diff-line");
+                if (!line) return;
+
+                // A line that already carries a comment shows it instead of starting a new
+                // selection — the same "commented targets select, uncommented targets compose"
+                // rule the Markdown page follows.
+                const existing = line.getAttribute("data-anchor") || line.getAttribute("data-anchor-member");
+                if (existing && !e.shiftKey && isCommented(existing)) {
+                    selectComment(existing);
+                    return;
+                }
+
+                if (e.shiftKey && dragFrom && dragFrom.parentElement === line.parentElement) {
+                    setDiffCommentTarget(dragFrom, line);
+                    return;
+                }
+                dragFrom = line;
+                dragging = true;
+                setDiffCommentTarget(line, line);
+            });
+
+            container.addEventListener("mouseover", (e) => {
+                if (!dragging || !dragFrom) return;
+                const line = e.target.closest(".diff-line");
+                // A drag that wanders out of the hunk keeps the last valid range rather than
+                // extending across the boundary.
+                if (!line || line.parentElement !== dragFrom.parentElement) return;
+                setDiffCommentTarget(dragFrom, line);
+            });
+
+            window.addEventListener("mouseup", () => { dragging = false; });
+        }
+
+        // Quote the selected lines into the comment box as a ```suggestion fence. Only ever on
+        // click: a fence inserted automatically would be in the way of every comment that is
+        // just a question, and would train the agent to expect a patch that is not there.
+        function quoteSelectionAsSuggestion() {
+            if (!activeAnchorLines.length) return;
+            const input = document.getElementById("commentInput");
+            const fence = "```suggestion\n" + activeAnchorLines.join("\n") + "\n```\n";
+            const at = input.selectionStart != null ? input.selectionStart : input.value.length;
+            const before = input.value.slice(0, at);
+            const after = input.value.slice(at);
+            const prefix = before && !before.endsWith("\n") ? "\n" : "";
+            input.value = before + prefix + fence + after;
+            const caret = (before + prefix + fence).length;
+            input.focus();
+            input.setSelectionRange(caret, caret);
+            markDirty();
+        }
+
         // Set active target for next comment
         function setCommentTarget(anchorId, text) {
             // Remove previous active state
@@ -1293,6 +1511,11 @@
             });
             activeAnchor = "";
             activeContext = "";
+            activeAnchorLines = [];
+            clearRangeSelection();
+            applyDiffAnchors();
+            const suggestionActions = document.getElementById("suggestionActions");
+            if (suggestionActions) suggestionActions.style.display = "none";
             document.getElementById("commentContextContainer").style.display = "none";
 
             if (connection && connection.kind === "compose") {
@@ -1302,6 +1525,7 @@
         }
 
         document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
+        document.getElementById("quoteSuggestionBtn").addEventListener("click", quoteSelectionAsSuggestion);
 
         // Fetch existing comments on load. The server returns {comments, summary}.
         function loadExistingComments() {
@@ -1373,6 +1597,10 @@
             // Clear existing indicators
             document.querySelectorAll('.element-comment-indicator').forEach(el => el.remove());
             document.querySelectorAll('.has-comments-highlight').forEach(el => el.classList.remove('has-comments-highlight'));
+
+            // In diff mode the anchors are attributes this page puts on the lines, so they have
+            // to be (re)applied before anything resolves one.
+            applyDiffAnchors();
 
             const countsByAnchor = {};
             comments.forEach(c => {
@@ -1639,14 +1867,18 @@
             const input = document.getElementById("commentInput");
             const text = input.value.trim();
             if (text) {
-                comments.push({
+                const comment = {
                     text: text,
                     timestamp: new Date().toISOString(),
                     anchor: activeAnchor,
                     context: activeContext,
                     author: "human",
                     status: "open"
-                });
+                };
+                // Only a diff comment has line content to carry; omitempty keeps it out of the
+                // sidecar for Markdown comments.
+                if (activeAnchorLines.length) comment.anchorLines = activeAnchorLines.slice();
+                comments.push(comment);
                 input.value = "";
                 markDirty();
                 clearCommentTarget();
@@ -2122,9 +2354,10 @@
 
         // Initialize elements and load existing comments on page start
         {{if eq .Mode "diff"}}
-        // Diff mode targets line ranges, not document blocks; its initializer lands with
-        // line-range selection. Calling the Markdown one here would tag every diff row as a
-        // block-level comment target and anchor comments that cannot survive the next round.
+        // Diff mode targets line ranges, not document blocks. Calling the Markdown initializer
+        // here would tag every diff row as a block-level comment target and anchor comments
+        // that cannot survive the next round.
+        initializeDiffLines();
         {{else}}
         initializeCommentableElements();
         {{end}}

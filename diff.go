@@ -264,6 +264,42 @@ func trimDiffPath(s string) string {
 	return s
 }
 
+// diffAnchorRangeRegex matches the "<start>-<end>" tail of a diff anchor.
+var diffAnchorRangeRegex = regexp.MustCompile(`^(\d+)-(\d+)$`)
+
+// FormatDiffAnchor builds the anchor for a commented line range: "<display path>#<start>-<end>".
+//
+// start and end are 1-based indices into the file's rendered diff lines — added, removed and
+// context lines all counted, @@ headers not — and NOT source line numbers. A removed line has no
+// number on the new side, so source numbering could not express "do not delete this line", nor a
+// selection spanning a removal and its replacement, which is exactly what a suggestion is for.
+func FormatDiffAnchor(path string, start, end int) string {
+	return fmt.Sprintf("%s#%d-%d", path, start, end)
+}
+
+// ParseDiffAnchor reads an anchor back. ok is false for anything that is not a diff anchor —
+// a Markdown "spec-element-7", say — so callers can pass those through untouched.
+//
+// The split is on the LAST '#', because a path may contain one: FormatDiffAnchor always ends in
+// "#<digits>-<digits>", so an anchor into a file literally named "a#1-2" reads back correctly
+// from "a#1-2#3-4". Splitting on the first '#' would not.
+func ParseDiffAnchor(anchor string) (path string, start, end int, ok bool) {
+	i := strings.LastIndexByte(anchor, '#')
+	if i < 0 {
+		return "", 0, 0, false
+	}
+	m := diffAnchorRangeRegex.FindStringSubmatch(anchor[i+1:])
+	if m == nil {
+		return "", 0, 0, false
+	}
+	start, _ = strconv.Atoi(m[1])
+	end, _ = strconv.Atoi(m[2])
+	if start < 1 || end < start {
+		return "", 0, 0, false
+	}
+	return anchor[:i], start, end, true
+}
+
 // RenderDiff compiles parsed diff files into the same interactive review page RenderSpec
 // produces for Markdown.
 //

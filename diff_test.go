@@ -280,6 +280,58 @@ index 1111111,2222222..3333333
 	}
 }
 
+func TestDiffAnchorRoundTrip(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		start, end int
+		anchor     string
+	}{
+		{name: "single line", path: "render.go", start: 3, end: 3, anchor: "render.go#3-3"},
+		{name: "range", path: "cli/command/serve.go", start: 12, end: 15, anchor: "cli/command/serve.go#12-15"},
+		// The split is on the last '#', so a path that contains one still reads back whole.
+		{name: "path containing a hash", path: "notes/a#1-2.md", start: 3, end: 4, anchor: "notes/a#1-2.md#3-4"},
+		{name: "path containing a colon", path: "weird:name.go", start: 1, end: 2, anchor: "weird:name.go#1-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatDiffAnchor(tt.path, tt.start, tt.end)
+			if got != tt.anchor {
+				t.Fatalf("FormatDiffAnchor() = %q, want %q", got, tt.anchor)
+			}
+			path, start, end, ok := ParseDiffAnchor(got)
+			if !ok {
+				t.Fatalf("ParseDiffAnchor(%q) reported not-an-anchor", got)
+			}
+			if path != tt.path || start != tt.start || end != tt.end {
+				t.Errorf("ParseDiffAnchor() = %q,%d,%d; want %q,%d,%d", path, start, end, tt.path, tt.start, tt.end)
+			}
+		})
+	}
+}
+
+// Anything that is not a diff anchor has to be recognisable as such, because the Markdown
+// review shares every code path that handles anchors.
+func TestParseDiffAnchorRejectsNonDiffAnchors(t *testing.T) {
+	for _, anchor := range []string{
+		"spec-element-7",
+		"",
+		"main.go#",
+		"main.go#12",
+		"main.go#L12-L15",
+		"main.go#0-3",  // 1-based; 0 is not a line
+		"main.go#5-3",  // end before start
+		"main.go#1-2x", // trailing junk
+		"main.go# 1-2", // space is not a digit
+		"main.go#1--2", // not two numbers
+	} {
+		if _, _, _, ok := ParseDiffAnchor(anchor); ok {
+			t.Errorf("ParseDiffAnchor(%q) accepted a non-anchor", anchor)
+		}
+	}
+}
+
 func TestRenderDiffBody(t *testing.T) {
 	names, err := filepath.Glob(filepath.Join("testdata", "*.diff"))
 	if err != nil {

@@ -60,6 +60,20 @@ Call `review_wait`. It returns one of three outcomes:
 
 Never ask the user whether they have submitted. Waiting is what `review_wait` is for.
 
+### 3.5. Reading a comment on a diff
+A comment made on a diff carries two extra things:
+
+- `anchor` — `<path>#<start>-<end>`. **The numbers are 1-based positions among that file's
+  rendered diff lines** (added, removed and context lines all counted, `@@` headers not). They
+  are **not** source line numbers, and they are not GitHub's `#L12-L15`.
+- `anchorLines` — the exact text of those lines, markers stripped. This is what you locate the
+  code with; search the file for it rather than trusting a line number.
+
+A comment may contain a ` ```suggestion ` block: the replacement the human wants for the
+anchored lines. Apply it yourself — reviewer does not touch your source — and say so in your
+reply. Treat it as a proposal you understand, not a patch to paste blindly: if it is wrong or
+incomplete, say why in the reply instead of applying it.
+
 ### 4. Address the comments
 Call `review_progress` with `state: "working"` and a short message as you go, so the user can
 watch without leaving the page. Then:

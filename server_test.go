@@ -551,6 +551,56 @@ func postFeedback(t *testing.T, url string, fb Feedback) {
 	}
 }
 
+// The sidecar round-trips Comment through encoding/json, so a field added for diffs must not
+// change what a Markdown comment serialises to — old sidecars are read back after an upgrade.
+func TestCommentJSONRoundTrip(t *testing.T) {
+	t.Run("markdown comment carries no anchorLines", func(t *testing.T) {
+		encoded, err := json.Marshal(Comment{
+			ID: "abc", Text: "tighten this", Timestamp: "2026-08-15T00:00:00Z",
+			Anchor: "spec-element-3", Context: "The system MUST…", Author: AuthorHuman, Status: StatusOpen,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "anchorLines") {
+			t.Errorf("anchorLines leaked into a Markdown comment: %s", encoded)
+		}
+	})
+
+	t.Run("diff comment keeps its lines", func(t *testing.T) {
+		want := Comment{
+			ID: "def", Text: "rename this", Timestamp: "2026-08-15T00:00:00Z",
+			Anchor:      FormatDiffAnchor("render.go", 3, 4),
+			AnchorLines: []string{"\tfoo()", "}"},
+			Author:      AuthorHuman, Status: StatusOpen,
+		}
+		encoded, err := json.Marshal(want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got Comment
+		if err := json.Unmarshal(encoded, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Anchor != want.Anchor {
+			t.Errorf("anchor = %q, want %q", got.Anchor, want.Anchor)
+		}
+		if len(got.AnchorLines) != 2 || got.AnchorLines[0] != "\tfoo()" || got.AnchorLines[1] != "}" {
+			t.Errorf("anchorLines = %#v, want %#v", got.AnchorLines, want.AnchorLines)
+		}
+	})
+
+	t.Run("a sidecar written before diff support still parses", func(t *testing.T) {
+		var fb Feedback
+		if err := json.Unmarshal([]byte(`{"comments":[{"id":"old","text":"hi","timestamp":"t","anchor":"spec-element-1"}]}`), &fb); err != nil {
+			t.Fatalf("legacy sidecar failed to parse: %v", err)
+		}
+		if len(fb.Comments) != 1 || fb.Comments[0].AnchorLines != nil {
+			t.Errorf("legacy comment = %#v", fb.Comments)
+		}
+	})
+}
+
 func readJSONFile(t *testing.T, path string, v any) {
 	t.Helper()
 	b, err := os.ReadFile(path)
