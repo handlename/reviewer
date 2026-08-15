@@ -88,6 +88,11 @@
             --radius: 3px;
             --u: 8px;           /* spacing base unit */
 
+            /* Comment panel width. A custom property rather than a fixed width so the
+               drag handle can rewrite it and the narrow-viewport media query can still
+               override it — an inline el.style.width would beat the media query. */
+            --feedback-panel-width: 520px;
+
             scrollbar-color: hsl(var(--fg-hsl) / 0.22) transparent;
         }
 
@@ -207,7 +212,7 @@
         }
 
         .feedback-panel {
-            width: 340px;
+            width: var(--feedback-panel-width);
             flex-shrink: 0;
             height: 100vh;
             position: sticky;
@@ -220,6 +225,41 @@
             gap: calc(var(--u) * 2);
             overflow-y: auto;
         }
+
+        /* Drag handle on the panel's left edge: a 7px hit area for the pointer, a 1px
+           line for the eye.
+           Why a sibling of the panel rather than a child: the panel scrolls
+           (overflow-y: auto), and an absolutely positioned child both scrolls away with
+           the comment list and gets clipped where it overhangs the panel's edge. As a
+           sticky flex item pulled back over that edge by a negative margin it stays put,
+           stays hittable, and costs the layout no width. */
+        .panel-resize-handle {
+            display: none;               /* serve mode only — see body.is-served below */
+            position: sticky;
+            top: 0;
+            width: 7px;
+            height: 100vh;
+            margin-right: -7px;
+            flex-shrink: 0;
+            cursor: col-resize;
+            z-index: 30;
+            touch-action: none;
+        }
+        .panel-resize-handle::after {
+            content: "";
+            position: absolute;
+            left: 3px;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background: transparent;
+            transition: background-color 0.18s;
+        }
+        body.is-served .panel-resize-handle { display: block; }
+        .panel-resize-handle:hover::after,
+        .panel-resize-handle.dragging::after { background: var(--accent-color); }
+        /* While dragging, keep the pointer's own cursor and stop text selecting mid-drag. */
+        body.panel-resizing { user-select: none; cursor: col-resize; }
 
         /* ---------- Typography ---------- */
         h1, h2, h3, h4 {
@@ -949,6 +989,8 @@
                 border-bottom: 1px solid var(--border-color);
             }
             .feedback-panel { border-bottom: none; border-top: 1px solid var(--border-color); }
+            /* The rails are stacked, so there is no horizontal edge left to drag. */
+            body.is-served .panel-resize-handle { display: none; }
             .main-content { max-width: 46rem; }
             .element-comment-indicator { right: 2px; }
         }
@@ -970,6 +1012,7 @@
         </main>
 
         <!-- Feedback Panel visible in Serve mode -->
+        <div class="panel-resize-handle" id="panelResizeHandle" role="separator" aria-orientation="vertical" aria-label="Resize comment panel" title="Drag to resize"></div>
         <aside class="feedback-panel" id="feedbackPanel" style="display: none;">
             <div class="feedback-header">Review Comments<span class="live-dot offline" id="liveDot" title="Live connection"></span></div>
 
@@ -1015,6 +1058,10 @@
         const isServed = window.location.protocol.startsWith('http');
         if (isServed) {
             document.getElementById("feedbackPanel").style.display = "flex";
+            // The handle's visibility rides a body class, not an inline style: the
+            // narrow-viewport media query has to be able to hide it again, and an inline
+            // display would outrank it.
+            document.body.classList.add("is-served");
         }
 
         let comments = [];
@@ -1898,6 +1945,56 @@
                 }
             });
         }
+
+        // ---------- Resizable comment panel ----------
+        // The width lives in a CSS custom property, never in el.style.width: an inline style
+        // outranks the width:100% the narrow-viewport media query applies to the stacked
+        // layout, which would leave the page scrolling sideways on a small screen.
+        (function initPanelResize() {
+            const PANEL_WIDTH_KEY = "reviewer.feedbackPanelWidth";
+            const MIN_WIDTH = 300;
+            // Leave the document column a usable measure no matter how far the drag goes.
+            const maxWidth = () => Math.max(MIN_WIDTH, window.innerWidth - 420);
+
+            function applyWidth(px) {
+                document.documentElement.style.setProperty("--feedback-panel-width", px + "px");
+            }
+
+            const stored = parseInt(localStorage.getItem(PANEL_WIDTH_KEY) || "", 10);
+            if (Number.isFinite(stored)) {
+                applyWidth(Math.min(maxWidth(), Math.max(MIN_WIDTH, stored)));
+            }
+
+            const handle = document.getElementById("panelResizeHandle");
+            if (!handle) return;
+
+            let width = 0;
+            handle.addEventListener("pointerdown", (e) => {
+                e.preventDefault();
+                handle.setPointerCapture(e.pointerId);
+                handle.classList.add("dragging");
+                document.body.classList.add("panel-resizing");
+            });
+            handle.addEventListener("pointermove", (e) => {
+                if (!handle.hasPointerCapture(e.pointerId)) return;
+                // The panel is flush with the right edge, so its width is the distance from
+                // the pointer to that edge — no need to read the panel's own geometry.
+                width = Math.min(maxWidth(), Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
+                applyWidth(width);
+                // The connector line ends on the panel, so it has to follow the drag.
+                scheduleConnectorRefresh();
+            });
+            const finishDrag = (e) => {
+                if (!handle.classList.contains("dragging")) return;
+                handle.releasePointerCapture(e.pointerId);
+                handle.classList.remove("dragging");
+                document.body.classList.remove("panel-resizing");
+                if (width) localStorage.setItem(PANEL_WIDTH_KEY, String(width));
+                scheduleConnectorRefresh();
+            };
+            handle.addEventListener("pointerup", finishDrag);
+            handle.addEventListener("pointercancel", finishDrag);
+        })();
 
         // Initialize elements and load existing comments on page start
         initializeCommentableElements();
