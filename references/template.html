@@ -182,7 +182,9 @@
             flex-direction: column;
             gap: calc(var(--u) * 2);
         }
-        .sidebar > h2 {
+        /* Descendant, not child: the title sits inside .sidebar-header alongside the collapse
+           button, and a child selector would drop it back to document-heading styling. */
+        .sidebar h2 {
             font-size: 1.05rem;
             font-weight: 600;
             line-height: 1.3;
@@ -473,7 +475,11 @@
             font-size: 0.95rem;
             line-height: 1.5;
             outline: none;
-            min-height: 80px;
+            min-height: 96px;
+            /* Grown to fit its content from JS. The ceiling keeps the buttons below it
+               on screen; past it the textarea scrolls instead of pushing them off. */
+            max-height: 50vh;
+            overflow-y: auto;
         }
         .comment-box textarea::placeholder { color: var(--text-tertiary); }
         .btn {
@@ -541,6 +547,8 @@
         .edit-textarea {
             width: 100%;
             min-height: 60px;
+            max-height: 50vh;
+            overflow-y: auto;
             background: var(--bg-primary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius);
@@ -1102,10 +1110,12 @@
             background-image: linear-gradient(var(--hl-wash), var(--hl-wash));
         }
         .diff-line.anchored-range[data-anchor] { box-shadow: inset 2px 0 0 var(--hl-mark); }
-        .diff-line.active-comment-target { outline: 1.5px dashed var(--hl-ring); outline-offset: -1px; }
+        /* A range is several rows, so its states are drawn as a band — a continuous left rule
+           and a wash — rather than an outline per row, which would read as separate boxes
+           stacked on top of each other instead of one selection. */
+        .diff-line.active-comment-target { box-shadow: inset 2px 0 0 var(--hl-ring); }
         .diff-line.selected-target {
-            outline: 1.5px solid var(--hl-ring);
-            outline-offset: -1px;
+            background-image: linear-gradient(var(--hl-halo), var(--hl-halo));
             box-shadow: inset 3px 0 0 var(--hl-ring);
         }
         /* The 💬 badge cannot hang in the right gutter here: the hunk scrolls horizontally
@@ -1123,6 +1133,47 @@
 
         #suggestionActions { margin-top: -0.4rem; }
         #quoteSuggestionBtn { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; }
+
+        /* ---------- Collapsing the contents rail ----------
+           A diff is read across, so the contents rail is the first thing worth
+           trading for width. Collapsed state rides a class on <body>, never an
+           inline style, so the narrow-viewport rules can still override it. */
+        .sidebar-header {
+            display: flex;
+            align-items: flex-start;
+            gap: calc(var(--u) * 1.5);
+        }
+        .sidebar-header > h2 { flex: 1 1 auto; min-width: 0; }
+        .rail-toggle {
+            flex: 0 0 auto;
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid transparent;
+            border-radius: var(--radius);
+            background: transparent;
+            color: var(--text-tertiary);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: color 0.18s, border-color 0.18s, background-color 0.18s;
+        }
+        .rail-toggle:hover { color: var(--text-primary); border-color: var(--border-color); background: var(--bg-secondary); }
+        /* The restore handle only exists while the rail is gone. */
+        #showSidebarBtn {
+            display: none;
+            position: fixed;
+            top: calc(var(--u) * 2);
+            left: calc(var(--u) * 2);
+            z-index: 45;
+            background: var(--bg-secondary);
+            border-color: var(--border-color);
+        }
+        body.sidebar-collapsed .sidebar { display: none; }
+        body.sidebar-collapsed #showSidebarBtn { display: inline-flex; }
 
         /* ---------- Sidebar TOC ---------- */
         .sidebar-toc {
@@ -1187,8 +1238,11 @@
 </head>
 <body>
     <div class="layout">
-        <aside class="sidebar">
-            <h2>{{.Title}}</h2>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>{{.Title}}</h2>
+                <button type="button" class="rail-toggle" id="hideSidebarBtn" title="Hide contents" aria-label="Hide contents" aria-expanded="true" aria-controls="sidebar">&#x2039;</button>
+            </div>
             {{if eq .Mode "diff"}}
             <p style="font-size: 0.9rem;">{{.Stats}}</p>
             {{else}}
@@ -1247,6 +1301,8 @@
         </aside>
     </div>
 
+    <button type="button" class="rail-toggle" id="showSidebarBtn" title="Show contents" aria-label="Show contents" aria-expanded="false" aria-controls="sidebar">&#x203A;</button>
+
     <svg id="connectorOverlay" aria-hidden="true"></svg>
 
     <script>
@@ -1274,6 +1330,15 @@
         let pendingReload = false;
 
         function markDirty() { dirty = true; }
+
+        // Grow a textarea to fit what is in it. A ```suggestion fence is many lines long, and a
+        // three-line window turns writing one into scrolling through it. CSS max-height caps the
+        // growth, so the height is only ever set up to that ceiling.
+        function autoGrowTextarea(el) {
+            if (!el) return;
+            el.style.height = "auto";
+            el.style.height = el.scrollHeight + "px";
+        }
 
         // Tag commentable elements on load
         function initializeCommentableElements() {
@@ -1426,13 +1491,11 @@
             activeContext = diffContextPreview(path, start, end, activeAnchorLines[0] || "");
 
             applyDiffAnchors();
-            const first = document.querySelector(`.diff-line[data-anchor][data-line-index="${start}"]`);
-            if (first) first.classList.add("active-comment-target");
+            els.forEach(el => el.classList.add("active-comment-target"));
 
             document.getElementById("commentContextText").textContent = activeContext;
             document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("suggestionActions").style.display = "block";
-            document.getElementById("commentInput").focus();
 
             clearConnectionMarks();
             connection = { kind: "compose", anchor: activeAnchor };
@@ -1451,8 +1514,9 @@
             const container = document.querySelector(".main-content");
             if (!container) return;
 
-            let dragFrom = null;   // where the current drag started
+            let dragFrom = null;    // where the current drag started
             let dragging = false;
+            let pendingFocus = false;
 
             container.addEventListener("mousedown", (e) => {
                 const line = e.target.closest(".diff-line");
@@ -1469,10 +1533,12 @@
 
                 if (e.shiftKey && dragFrom && dragFrom.parentElement === line.parentElement) {
                     setDiffCommentTarget(dragFrom, line);
+                    pendingFocus = true;
                     return;
                 }
                 dragFrom = line;
                 dragging = true;
+                pendingFocus = true;
                 setDiffCommentTarget(line, line);
             });
 
@@ -1485,7 +1551,17 @@
                 setDiffCommentTarget(dragFrom, line);
             });
 
-            window.addEventListener("mouseup", () => { dragging = false; });
+            // Focus lands on mouseup, not on mousedown: the browser's own default handling of
+            // mousedown moves focus after our handler runs, so focusing there is undone before
+            // the user can type. preventScroll keeps the panel from jumping the page while the
+            // eye is still on the line that was just picked.
+            window.addEventListener("mouseup", () => {
+                if (pendingFocus && activeAnchor) {
+                    document.getElementById("commentInput").focus({ preventScroll: true });
+                }
+                dragging = false;
+                pendingFocus = false;
+            });
         }
 
         // Quote the selected lines into the comment box as a ```suggestion fence. Only ever on
@@ -1501,6 +1577,7 @@
             const prefix = before && !before.endsWith("\n") ? "\n" : "";
             input.value = before + prefix + fence + after;
             const caret = (before + prefix + fence).length;
+            autoGrowTextarea(input);
             input.focus();
             input.setSelectionRange(caret, caret);
             markDirty();
@@ -1706,6 +1783,18 @@
         let hoverAnchor = null;
 
         function anchorElement(anchor) { return document.querySelector(`.main-content [data-anchor="${anchor}"]`); }
+
+        // Every element the anchor covers. Only the first line of a diff range carries
+        // data-anchor (so the querySelector-based lookups above resolve to one element), but the
+        // whole range is what the comment is about, so the whole range is what lights up.
+        // Filtered in JS rather than by attribute selector: a path may contain quotes.
+        function anchorElements(anchor) {
+            const first = anchorElement(anchor);
+            if (!first) return [];
+            const members = Array.from(document.querySelectorAll(".main-content [data-anchor-member]"))
+                .filter(el => el.getAttribute("data-anchor-member") === anchor);
+            return [first].concat(members);
+        }
         function commentCard(anchor) { return document.querySelector(`.feedback-item[data-anchor="${anchor}"]`); }
         function isCommented(anchor) { return !!anchor && comments.some(c => c.anchor === anchor); }
 
@@ -1823,7 +1912,9 @@
 
         function clearConnectionMarks() {
             document.querySelectorAll(".feedback-item.selected").forEach(n => n.classList.remove("selected"));
-            document.querySelectorAll(".commentable-element.selected-target").forEach(n => n.classList.remove("selected-target"));
+            // Not scoped to .commentable-element: a diff line is a target too, and leaving the
+            // class on it would strand the highlight of a range that is no longer selected.
+            document.querySelectorAll(".selected-target").forEach(n => n.classList.remove("selected-target"));
         }
 
         // Scroll the body so the target element's vertical centre lines up with
@@ -1852,11 +1943,11 @@
             connection = { kind: "selected", anchor };
             hoverAnchor = null;
             const card = commentCard(anchor);
-            const el = anchorElement(anchor);
+            const els = anchorElements(anchor);
             if (card) card.classList.add("selected");
-            if (el && card) {
-                el.classList.add("selected-target");
-                alignAndDraw(el, card);
+            if (els.length && card) {
+                els.forEach(el => el.classList.add("selected-target"));
+                alignAndDraw(els[0], card);
             }
         }
 
@@ -1874,11 +1965,11 @@
         function reconcileConnection() {
             if (connection && connection.kind === "selected") {
                 const card = commentCard(connection.anchor);
-                const el = anchorElement(connection.anchor);
-                if (!card || !el) { clearConnection(); return; }
+                const els = anchorElements(connection.anchor);
+                if (!card || !els.length) { clearConnection(); return; }
                 clearConnectionMarks();
                 card.classList.add("selected");
-                el.classList.add("selected-target");
+                els.forEach(el => el.classList.add("selected-target"));
             }
             refreshConnector();
         }
@@ -1915,6 +2006,7 @@
                 if (activeAnchorLines.length) comment.anchorLines = activeAnchorLines.slice();
                 comments.push(comment);
                 input.value = "";
+                autoGrowTextarea(input);
                 markDirty();
                 clearCommentTarget();
                 renderComments();
@@ -1930,6 +2022,7 @@
         // Any text in the composer counts as an unsent change (guards auto-reload).
         document.getElementById("commentInput").addEventListener("input", (e) => {
             if (e.target.value.trim()) markDirty();
+            autoGrowTextarea(e.target);
         });
 
         // Sidebar display order follows the target block's appearance in the document, so the
@@ -1968,6 +2061,7 @@
                     const textarea = document.createElement("textarea");
                     textarea.className = "edit-textarea";
                     textarea.value = c.text;
+                    textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
                     textarea.addEventListener("keydown", (e) => {
                         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                             saveComment(idx, textarea.value.trim());
@@ -1997,8 +2091,8 @@
                     item.appendChild(btnGroup);
 
                     container.appendChild(item);
-                    // Auto-focus the textarea
-                    setTimeout(() => textarea.focus(), 0);
+                    // Auto-focus the textarea, sized to the comment it already holds.
+                    setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
                 } else {
                     const deleteBtn = document.createElement("span");
                     deleteBtn.className = "delete-btn";
@@ -2391,9 +2485,22 @@
             let width = 0;
             handle.addEventListener("pointerdown", (e) => {
                 e.preventDefault();
+                // Cleared per drag, so a click that moves nothing cannot re-save a width the
+                // user has since reset.
+                width = 0;
                 handle.setPointerCapture(e.pointerId);
                 handle.classList.add("dragging");
                 document.body.classList.add("panel-resizing");
+            });
+
+            // Double-click the divider to go back to the default width, the same way a window
+            // manager treats a double-clicked edge. The stored width is dropped and the property
+            // removed, so the value falls back to the one the stylesheet declares.
+            handle.addEventListener("dblclick", () => {
+                width = 0;
+                localStorage.removeItem(PANEL_WIDTH_KEY);
+                document.documentElement.style.removeProperty("--feedback-panel-width");
+                scheduleConnectorRefresh();
             });
             handle.addEventListener("pointermove", (e) => {
                 if (!handle.hasPointerCapture(e.pointerId)) return;
@@ -2414,6 +2521,33 @@
             };
             handle.addEventListener("pointerup", finishDrag);
             handle.addEventListener("pointercancel", finishDrag);
+        })();
+
+        // ---------- Collapsible contents rail ----------
+        // Reading a diff is worth more width than the file list is, so the rail folds away and
+        // stays folded across the reloads the review loop performs.
+        (function initSidebarToggle() {
+            const SIDEBAR_KEY = "reviewer.sidebarCollapsed";
+            const hideBtn = document.getElementById("hideSidebarBtn");
+            const showBtn = document.getElementById("showSidebarBtn");
+            if (!hideBtn || !showBtn) return;
+
+            function setCollapsed(collapsed) {
+                document.body.classList.toggle("sidebar-collapsed", collapsed);
+                hideBtn.setAttribute("aria-expanded", String(!collapsed));
+                showBtn.setAttribute("aria-expanded", String(!collapsed));
+                localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+                scheduleConnectorRefresh();
+            }
+
+            if (localStorage.getItem(SIDEBAR_KEY) === "1") {
+                document.body.classList.add("sidebar-collapsed");
+                hideBtn.setAttribute("aria-expanded", "false");
+                showBtn.setAttribute("aria-expanded", "false");
+            }
+
+            hideBtn.addEventListener("click", () => setCollapsed(true));
+            showBtn.addEventListener("click", () => setCollapsed(false));
         })();
 
         // Initialize elements and load existing comments on page start
