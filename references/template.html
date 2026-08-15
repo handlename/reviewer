@@ -1633,6 +1633,10 @@
             container.addEventListener("mousedown", (e) => {
                 const line = e.target.closest(".diff-line");
                 if (!line) return;
+                // The 💬 badge runs selectComment from its own click handler. Letting this one
+                // run too selects the comment on mousedown and then toggles it straight back off
+                // on click, so the connector line appears and vanishes within the same gesture.
+                if (e.target.closest(".element-comment-indicator, a")) return;
 
                 // A line that already carries a comment shows it instead of starting a new
                 // selection — the same "commented targets select, uncommented targets compose"
@@ -2096,8 +2100,11 @@
         window.addEventListener("resize", scheduleConnectorRefresh);
         document.addEventListener("keydown", (e) => { if (e.key === "Escape") { clearConnection(); clearCommentTarget(); } });
         // Click on empty space (not a comment / element / composer) deselects.
+        // .diff-line belongs in this list for the same reason .commentable-element does: it is a
+        // comment target, and without it selecting a diff comment is undone by the very click
+        // that made it, connector line included.
         document.addEventListener("click", (e) => {
-            if (e.target.closest(".feedback-item, .commentable-element, .comment-box, #commentContextContainer")) return;
+            if (e.target.closest(".feedback-item, .commentable-element, .diff-line, .comment-box, #commentContextContainer")) return;
             if (connection && connection.kind === "selected") clearConnection();
         });
 
@@ -2659,14 +2666,22 @@
             }
 
             const handle = document.getElementById("panelResizeHandle");
-            if (!handle) return;
+            const panel = document.getElementById("feedbackPanel");
+            if (!handle || !panel) return;
 
             let width = 0;
+            // The panel's right edge, measured when the drag starts. It is NOT the right edge of
+            // the window: the layout is capped at 1600px and centred, and a vertical scrollbar
+            // eats into window.innerWidth as well. Measuring instead of assuming is what keeps
+            // the panel edge under the pointer rather than a scrollbar's width to its left.
+            let panelRight = 0;
+
             handle.addEventListener("pointerdown", (e) => {
                 e.preventDefault();
                 // Cleared per drag, so a click that moves nothing cannot re-save a width the
                 // user has since reset.
                 width = 0;
+                panelRight = panel.getBoundingClientRect().right;
                 handle.setPointerCapture(e.pointerId);
                 handle.classList.add("dragging");
                 document.body.classList.add("panel-resizing");
@@ -2683,9 +2698,9 @@
             });
             handle.addEventListener("pointermove", (e) => {
                 if (!handle.hasPointerCapture(e.pointerId)) return;
-                // The panel is flush with the right edge, so its width is the distance from
-                // the pointer to that edge — no need to read the panel's own geometry.
-                width = Math.min(maxWidth(), Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
+                // Width is the distance from the pointer to the panel's own right edge, so the
+                // edge being dragged tracks the pointer exactly.
+                width = Math.min(maxWidth(), Math.max(MIN_WIDTH, panelRight - e.clientX));
                 applyWidth(width);
                 // The connector line ends on the panel, so it has to follow the drag.
                 scheduleConnectorRefresh();
