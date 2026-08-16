@@ -27,11 +27,31 @@ const (
 	StatusResolved = "resolved"
 )
 
+// Message is one turn in a comment's thread: an agent response, or a human answer to it.
+//
+// The thread's first message is the Comment itself (see Comment.thread), so a Message only ever
+// describes what came after it.
+type Message struct {
+	Author    string `json:"author"` // human | agent
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+	// NeedsAnswer marks an agent message as a question the human is expected to answer. It is
+	// opt-in: an ordinary "fixed it" report carries no flag, so an agent that predates threading
+	// never leaves the page warning about an unanswered question.
+	NeedsAnswer bool `json:"needsAnswer,omitempty"`
+	// Declined records that the human closed the thread without answering that question. It is
+	// what tells the agent its question did not come back, rather than leaving it to infer.
+	Declined bool `json:"declined,omitempty"`
+}
+
 // Comment defines the unified structure for feedback comments.
 //
-// A comment is authored by a human against a document block. The agent does not
-// create top-level comments; instead it attaches a Reply to the human comment and
-// leaves resolution to the human (Status is only ever set to resolved by the user).
+// A comment is a thread. Its head — Text, Timestamp, Author — is the first message, and Messages
+// holds everything said after it. Keeping the head on the Comment itself is what leaves Anchor,
+// AnchorLines, Outdated and Context attached to the thread as a whole, and it reads the same
+// whether the thread was opened by the human or by the agent.
+//
+// Resolution stays the human's: Status is only ever set to resolved from the page.
 type Comment struct {
 	ID        string `json:"id,omitempty"` // server-assigned, stable across rounds; how the agent addresses a comment
 	Text      string `json:"text"`
@@ -45,12 +65,64 @@ type Comment struct {
 	AnchorLines []string `json:"anchorLines,omitempty"`
 	// Outdated marks a diff comment whose lines are no longer in the diff. It keeps its anchor
 	// so it can come back if the lines reappear; the page just stops drawing it in the body.
-	Outdated       bool   `json:"outdated,omitempty"`
-	Context        string `json:"context,omitempty"`        // Preview text context of the commented element
-	Author         string `json:"author,omitempty"`         // human | agent
-	Status         string `json:"status,omitempty"`         // open | resolved (resolved set by the human)
-	Reply          string `json:"reply,omitempty"`          // agent's reply describing how the comment was addressed
-	ReplyTimestamp string `json:"replyTimestamp,omitempty"` // when the agent replied
+	Outdated bool   `json:"outdated,omitempty"`
+	Context  string `json:"context,omitempty"` // Preview text context of the commented element
+	Author   string `json:"author,omitempty"`  // human | agent
+	Status   string `json:"status,omitempty"`  // open | resolved (resolved set by the human)
+	// NeedsAnswer and Declined apply to the head message, for a thread the agent opened.
+	NeedsAnswer bool `json:"needsAnswer,omitempty"`
+	Declined    bool `json:"declined,omitempty"`
+	// AnchorQuote is the passage an agent-opened thread was written against. It is re-resolved to
+	// an Anchor on every render rather than trusted, so the thread survives the document moving.
+	AnchorQuote string `json:"anchorQuote,omitempty"`
+	// Messages is the rest of the thread, in chronological order.
+	Messages []Message `json:"messages,omitempty"`
+	// Reply and ReplyTimestamp are the pre-threading shape of a single agent response.
+	//
+	// Deprecated: superseded by Messages. They are still read so a sidecar written by an older
+	// reviewer migrates (see migrateFeedback); nothing writes them any more.
+	Reply          string `json:"reply,omitempty"`
+	ReplyTimestamp string `json:"replyTimestamp,omitempty"`
+}
+
+// thread returns the head followed by Messages, so every rule about questions and answers is
+// written once against a flat sequence instead of special-casing the head.
+func (c Comment) thread() []Message {
+	head := Message{
+		Author:      c.Author,
+		Text:        c.Text,
+		Timestamp:   c.Timestamp,
+		NeedsAnswer: c.NeedsAnswer,
+		Declined:    c.Declined,
+	}
+	if head.Author == "" {
+		head.Author = AuthorHuman
+	}
+	return append([]Message{head}, c.Messages...)
+}
+
+// PendingQuestion reports whether the thread's last flagged question is still unanswered.
+//
+// A question counts as answered by any human message appended after it — there is no dedicated
+// answer control, because a second posting path would buy nothing over the reply the human is
+// already writing.
+func (c Comment) PendingQuestion() bool {
+	msgs := c.thread()
+	last := -1
+	for i, m := range msgs {
+		if m.NeedsAnswer {
+			last = i
+		}
+	}
+	if last < 0 {
+		return false
+	}
+	for _, m := range msgs[last+1:] {
+		if m.Author == AuthorHuman {
+			return false
+		}
+	}
+	return true
 }
 
 // Feedback is the review state for one document, persisted under the OS temp directory (see
@@ -263,14 +335,37 @@ func readFeedback(feedbackPath string) []byte {
 	}
 	var fb Feedback
 	if err := json.Unmarshal(raw, &fb); err == nil {
-		if fb.Comments == nil {
-			fb.Comments = []Comment{}
-		}
+		fb = migrateFeedback(fb)
 		if out, err := json.Marshal(fb); err == nil {
 			return out
 		}
 	}
 	return raw
+}
+
+// migrateFeedback brings a sidecar written by an older reviewer into the threaded shape: the
+// single Reply becomes the thread's first agent message.
+//
+// It runs on the read path rather than as a one-off upgrade step because the sidecar is a
+// short-lived store under $TMPDIR — there is no migration moment to hook, only the next read.
+// No compatibility mirror is kept: nothing writes Reply any more, and omitempty drops it.
+func migrateFeedback(fb Feedback) Feedback {
+	if fb.Comments == nil {
+		fb.Comments = []Comment{}
+	}
+	for i := range fb.Comments {
+		c := &fb.Comments[i]
+		if c.Reply == "" || len(c.Messages) > 0 {
+			continue
+		}
+		c.Messages = []Message{{
+			Author:    AuthorAgent,
+			Text:      c.Reply,
+			Timestamp: c.ReplyTimestamp,
+		}}
+		c.Reply, c.ReplyTimestamp = "", ""
+	}
+	return fb
 }
 
 // pruneResolved drops comments the human has marked resolved, keeping the ordering of the rest.

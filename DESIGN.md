@@ -387,8 +387,13 @@ It is stored as a `Feedback` object:
       "context": "Context snippet representing the targeted block element",
       "author": "human",
       "status": "open",
-      "reply": "The agent's reply describing how the comment was addressed",
-      "replyTimestamp": "2026-06-01T20:50:00.000Z"
+      "messages": [
+        {
+          "author": "agent",
+          "text": "The agent's reply describing how the comment was addressed",
+          "timestamp": "2026-06-01T20:50:00.000Z"
+        }
+      ]
     },
     {
       "id": "9f2c07d51e84",
@@ -420,8 +425,44 @@ It is stored as a `Feedback` object:
 * `author`: `human` or `agent`. Top-level comments are human-authored.
 * `status`: `open` or `resolved`. Only the **human** sets `resolved` (via a page control); resolved
   comments are pruned on the next submit. The agent must not self-resolve.
-* `reply` / `replyTimestamp`: the agent's response threaded under the human comment.
+* `messages`: the rest of the thread, in chronological order (`omitempty`, so a comment nobody has
+  answered carries none). See "A comment is a thread" below.
 * `summary`: the agent's change summary for the latest round, rendered at the top of the panel.
+
+### A comment is a thread
+
+A comment is not one remark and one reply: it is a thread of N messages. The **head** — `text`,
+`timestamp`, `author` — is the first message, and `messages` holds everything said after it.
+
+Keeping the head on the comment itself, rather than moving it into `messages[0]`, is what leaves
+`anchor`, `anchorLines`, `outdated` and `context` attached to the thread as a whole: re-anchoring
+needs no knowledge of threading at all. It also reads identically whether the thread was opened by
+the human or by the agent.
+
+Each message carries:
+
+* `author`: `human` or `agent`.
+* `text` / `timestamp`.
+* `needsAnswer`: set on an **agent** message that is a question the human is expected to answer
+  (`omitempty`). It is opt-in — an ordinary "fixed it" report carries no flag — so an agent that
+  predates threading never leaves the page warning about an unanswered question.
+* `declined`: set when the human closed the thread without answering that question (`omitempty`).
+  This is what tells the agent its question did not come back, instead of leaving it to infer.
+
+`needsAnswer` and `declined` also exist on the comment itself, where they describe the head — the
+shape an agent-opened thread takes.
+
+A thread has a **pending question** when no `human` message follows its last `needsAnswer` message.
+That single rule covers both a question the agent left under a human comment and a thread the agent
+opened itself, and it is why answering needs no dedicated control: any human message in the thread
+answers.
+
+### Reading a sidecar written before threading
+
+An older reviewer wrote a single `reply` / `replyTimestamp` pair per comment. Those fields are
+still parsed, and folded into `messages` as one agent message the moment the sidecar is read; they
+are never written again. No compatibility mirror is kept — the sidecar is a short-lived store under
+`$TMPDIR`, and `messages` supersedes `reply` in the same release.
 
 ---
 

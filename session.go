@@ -253,10 +253,9 @@ func (s *ReviewSession) readFeedbackDoc() Feedback {
 		log.Warn().Err(err).Msg("feedback file is malformed; treating as empty")
 		return Feedback{Comments: []Comment{}}
 	}
-	if fb.Comments == nil {
-		fb.Comments = []Comment{}
-	}
-	return fb
+	// A sidecar written before comments were threaded still carries a single reply; fold it into
+	// the thread here, so nothing downstream — the page, review_wait, Reply — has to know.
+	return migrateFeedback(fb)
 }
 
 // feedbackForDisplay is what GET /api/feedback answers with: the stored comments, re-anchored
