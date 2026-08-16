@@ -312,10 +312,24 @@ type ReplyInput struct {
 	NeedsAnswer bool `json:"needsAnswer,omitempty" jsonschema:"true when this reply is a question you need the human to answer before you continue"`
 }
 
-// Reply appends the agent's responses to the human's threads and records the round's summary.
-// Status is deliberately untouched, because marking a comment resolved is the human's decision
-// alone (see DESIGN.md section 4).
-func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
+// AskInput opens a thread of the agent's own, against a passage of the document.
+type AskInput struct {
+	// Quote is the passage the question is about. It is matched against the document on every
+	// render rather than turned into an anchor once, so the thread follows the text as the
+	// document changes — the same way a diff comment follows its lines. An empty quote asks
+	// about the document as a whole.
+	Quote    string `json:"quote,omitempty" jsonschema:"the exact passage the question is about, copied from the document; leave empty to ask about the document as a whole"`
+	Question string `json:"question" jsonschema:"what you need the human to decide or clarify"`
+}
+
+// Reply appends the agent's responses to the human's threads, opens any threads of its own, and
+// records the round's summary. Status is deliberately untouched, because marking a comment
+// resolved is the human's decision alone (see DESIGN.md section 4).
+//
+// Replies, new threads and the summary land in one read-modify-write and one reload. Splitting
+// the questions into a tool of their own would make a round two POSTs and two reloads, and the
+// page would paint the state in between.
+func (s *ReviewSession) Reply(replies []ReplyInput, newThreads []AskInput, summary string) error {
 	// A read-modify-write: the lock spans the whole thing, or a submit landing in the middle
 	// is overwritten by the version this call read.
 	s.sidecarMu.Lock()
@@ -339,6 +353,21 @@ func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
 			Text:        r.Reply,
 			Timestamp:   now,
 			NeedsAnswer: r.NeedsAnswer,
+		})
+	}
+
+	for _, a := range newThreads {
+		// A quote that matches nothing is not an error: validating it here would mean teaching Go
+		// the browser's spec-element numbering, the duplication AGENTS.md section 4 exists to
+		// prevent. An unresolvable quote surfaces as an outdated, document-level thread instead.
+		fb.Comments = append(fb.Comments, Comment{
+			ID:          newCommentID(),
+			Text:        a.Question,
+			Timestamp:   now,
+			Author:      AuthorAgent,
+			Status:      StatusOpen,
+			NeedsAnswer: true,
+			AnchorQuote: a.Quote,
 		})
 	}
 	fb.Summary = summary

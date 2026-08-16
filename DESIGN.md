@@ -422,7 +422,12 @@ It is stored as a `Feedback` object:
 * `outdated`: Set on a diff comment whose lines are no longer in the diff (`omitempty`). It keeps
   its anchor so it can come back if they reappear.
 * `context`: Truncated preview text of the target element (max 57 chars + `...`).
-* `author`: `human` or `agent`. Top-level comments are human-authored.
+* `author`: `human` or `agent`. A thread is usually the human's, but the agent opens one of its own
+  through `review_reply`'s `newThreads` when it needs to raise something nobody commented on.
+* `anchorQuote`: the passage an agent-opened thread was written against (`omitempty`). It is
+  re-resolved to an `anchor` on every render rather than trusted once, so the thread follows the
+  text as the document changes — the same principle as `anchorLines` on a diff comment. An empty
+  quote is a question about the document as a whole.
 * `status`: `open` or `resolved`. Only the **human** sets `resolved` (via a page control); the
   agent must not self-resolve. A resolved thread is pruned on the submit **after** the one that
   resolved it — see "A resolved thread survives one round" below.

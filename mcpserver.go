@@ -132,8 +132,9 @@ func (h *sessionHolder) wait(ctx context.Context, timeout time.Duration) (waitOu
 }
 
 type replyInputArgs struct {
-	Replies []ReplyInput `json:"replies" jsonschema:"one entry per comment being answered"`
-	Summary string       `json:"summary" jsonschema:"short description of this round's changes, shown at the top of the review panel"`
+	Replies    []ReplyInput `json:"replies" jsonschema:"one entry per comment being answered"`
+	NewThreads []AskInput   `json:"newThreads,omitempty" jsonschema:"questions of your own, each opening a new thread on the page"`
+	Summary    string       `json:"summary" jsonschema:"short description of this round's changes, shown at the top of the review panel"`
 }
 
 type okOutput struct {
@@ -147,7 +148,7 @@ func (h *sessionHolder) reply(in replyInputArgs) (okOutput, error) {
 	if s == nil {
 		return okOutput{}, fmt.Errorf("no review is open; call review_start first")
 	}
-	if err := s.Reply(in.Replies, in.Summary); err != nil {
+	if err := s.Reply(in.Replies, in.NewThreads, in.Summary); err != nil {
 		return okOutput{}, err
 	}
 	return okOutput{OK: true}, nil
@@ -213,6 +214,9 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 				"Comments are addressed by the id returned from review_wait. Each reply is appended to that comment's thread. " +
 				"Set needsAnswer on a reply that is a question you need the human to answer: the page then marks the thread and will not let them close it silently — " +
 				"if they close it anyway you get the message back with \"declined\": true. Leave it off for an ordinary report of what you changed. " +
+				"Use newThreads to raise something the human has not commented on: each entry opens a thread of your own, anchored to the passage you quote " +
+				"(copy it exactly from the document; leave the quote empty to ask about the document as a whole). A quote that matches nothing is not an error — " +
+				"the thread appears without a target rather than being rejected. " +
 				"Resolving a comment is the human's decision and is not possible here.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in replyInputArgs) (*mcp.CallToolResult, okOutput, error) {

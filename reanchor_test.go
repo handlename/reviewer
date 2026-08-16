@@ -421,7 +421,7 @@ func TestReplyReachesAnOutdatedComment(t *testing.T) {
 	readJSONFile(t, FeedbackPath(diffPath), &stored)
 	id := stored.Comments[0].ID
 
-	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "removed that code entirely"}}, "cleaned up"); err != nil {
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "removed that code entirely"}}, nil, "cleaned up"); err != nil {
 		t.Fatalf("Reply to an outdated comment failed: %v", err)
 	}
 
