@@ -451,3 +451,108 @@ func getFeedback(t *testing.T, url string) Feedback {
 	}
 	return fb
 }
+
+// A thread the agent opened carries its target as a quotation. Resolving it is the same content
+// search a diff comment already uses, so the thread finds its lines each round.
+func TestResolveQuoteOnADiff(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(round1Diff))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a quote matching one line anchors to it", func(t *testing.T) {
+		anchor, lines, ok := ResolveQuote("\treplacement()", files)
+		if !ok {
+			t.Fatal("a quote present in the diff did not resolve")
+		}
+		if anchor != FormatDiffAnchor("main.go", 4, 4) {
+			t.Errorf("anchor = %q, want %q", anchor, FormatDiffAnchor("main.go", 4, 4))
+		}
+		if len(lines) != 1 || lines[0] != "\treplacement()" {
+			t.Errorf("anchorLines = %#v", lines)
+		}
+	})
+
+	t.Run("a multi-line quote spans the range", func(t *testing.T) {
+		anchor, _, ok := ResolveQuote("\told()\n\treplacement()", files)
+		if !ok {
+			t.Fatal("a two-line quote did not resolve")
+		}
+		if anchor != FormatDiffAnchor("main.go", 3, 4) {
+			t.Errorf("anchor = %q, want %q", anchor, FormatDiffAnchor("main.go", 3, 4))
+		}
+	})
+
+	t.Run("blank lines around a quote are ignored", func(t *testing.T) {
+		if _, _, ok := ResolveQuote("\n\treplacement()\n", files); !ok {
+			t.Error("a quote wrapped in blank lines did not resolve")
+		}
+	})
+
+	t.Run("a quote matching nothing does not resolve", func(t *testing.T) {
+		if _, _, ok := ResolveQuote("\tnowhere()", files); ok {
+			t.Error("a quote absent from the diff resolved anyway")
+		}
+	})
+
+	t.Run("an empty quote does not resolve", func(t *testing.T) {
+		if _, _, ok := ResolveQuote("", files); ok {
+			t.Error("an empty quote is a document-level thread, not an anchor")
+		}
+	})
+}
+
+// Several matches take the first: exactly one element may carry data-anchor, and pointing at the
+// first occurrence is more useful than pointing at nothing.
+func TestResolveQuoteTakesTheFirstOfSeveralMatches(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(`diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -1,4 +1,4 @@
+ 	}
+ 	foo()
+ 	}
+ 	bar()
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	anchor, _, ok := ResolveQuote("\t}", files)
+	if !ok {
+		t.Fatal("a duplicated quote did not resolve")
+	}
+	if anchor != FormatDiffAnchor("main.go", 1, 1) {
+		t.Errorf("anchor = %q, want the first occurrence %q", anchor, FormatDiffAnchor("main.go", 1, 1))
+	}
+}
+
+// The quote, not the anchor derived from it last round, is what an agent thread is placed by.
+func TestReAnchorCommentsResolvesAgentThreadQuotes(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(round1Diff))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := reAnchorComments([]Comment{
+		{Text: "why?", Author: AuthorAgent, NeedsAnswer: true, AnchorQuote: "\treplacement()", Outdated: true},
+		{Text: "gone", Author: AuthorAgent, AnchorQuote: "\tvanished()", Anchor: FormatDiffAnchor("main.go", 2, 2)},
+		{Text: "about the change as a whole", Author: AuthorAgent},
+	}, files)
+
+	if got[0].Outdated || got[0].Anchor != FormatDiffAnchor("main.go", 4, 4) {
+		t.Errorf("a resolvable quote = %#v", got[0])
+	}
+	if len(got[0].AnchorLines) != 1 || got[0].AnchorLines[0] != "\treplacement()" {
+		t.Errorf("anchorLines = %#v", got[0].AnchorLines)
+	}
+	if !got[1].Outdated {
+		t.Error("a quote that matches nothing should be outdated")
+	}
+	if got[1].AnchorQuote != "\tvanished()" || got[1].Anchor != FormatDiffAnchor("main.go", 2, 2) {
+		t.Errorf("an outdated thread lost what it needs to come back: %#v", got[1])
+	}
+	if got[2].Outdated || got[2].Anchor != "" {
+		t.Errorf("a document-level thread = %#v, want no target and not outdated", got[2])
+	}
+}

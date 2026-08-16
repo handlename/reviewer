@@ -1,5 +1,7 @@
 package reviewer
 
+import "strings"
+
 // Re-anchoring is how a comment survives the agent regenerating the diff.
 //
 // It is computed for DISPLAY ONLY, when the page asks for the comments, and is never written
@@ -94,6 +96,51 @@ func matchesAt(lines []Line, i int, want []string) bool {
 	return true
 }
 
+// QuoteLines splits a quoted passage into the lines a diff is matched against. Blank lines at
+// either end are dropped, because a quote copied out of a document usually carries one.
+func QuoteLines(quote string) []string {
+	lines := strings.Split(strings.ReplaceAll(quote, "\r\n", "\n"), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// ResolveQuote locates a quoted passage among the diff's rendered lines and reports the anchor a
+// thread quoting it should take.
+//
+// It is the same mechanism a diff comment already uses to find its lines again by content
+// (ReAnchor), with one deliberate difference: **several matches resolve to the first**, rather
+// than giving up. A quote is written by the agent as a pointer to a place, not recovered from a
+// previous round, so pointing at the first occurrence is more useful than pointing at nothing —
+// and exactly one element may carry data-anchor (AGENTS.md section 4).
+//
+// Matching is exact, and never crosses a hunk boundary: lines on either side of a @@ header are
+// far apart in the real file.
+func ResolveQuote(quote string, files []File) (anchor string, lines []string, ok bool) {
+	want := QuoteLines(quote)
+	if len(want) == 0 {
+		return "", nil, false
+	}
+
+	for _, f := range files {
+		base := 0
+		for _, h := range f.Hunks {
+			for i := 0; i+len(want) <= len(h.Lines); i++ {
+				if matchesAt(h.Lines, i, want) {
+					start := base + i + 1 // file-wide, 1-based
+					return FormatDiffAnchor(f.DisplayPath(), start, start+len(want)-1), want, true
+				}
+			}
+			base += len(h.Lines)
+		}
+	}
+	return "", nil, false
+}
+
 // reAnchorComments returns the comments as they should be displayed against the current diff.
 //
 // Comments whose anchor is not a diff anchor — every Markdown comment — are passed through
@@ -104,6 +151,22 @@ func reAnchorComments(comments []Comment, files []File) []Comment {
 	copy(out, comments)
 
 	for i := range out {
+		// A thread the agent opened knows its target as a quotation, so the quote — not the
+		// anchor derived from it last round — is what it is resolved from, every round.
+		if quote := out[i].AnchorQuote; quote != "" {
+			anchor, lines, found := ResolveQuote(quote, files)
+			if !found {
+				// The anchor is left as it was, so the thread comes back to the same place if the
+				// passage reappears; the page just stops drawing it in the body meanwhile.
+				out[i].Outdated = true
+				continue
+			}
+			out[i].Anchor = anchor
+			out[i].AnchorLines = lines
+			out[i].Outdated = false
+			continue
+		}
+
 		// A whole-file comment has no lines to match, so it follows the file itself: it stays
 		// live for as long as the file is in the diff, however much its contents change.
 		if path, ok := ParseDiffFileAnchor(out[i].Anchor); ok {

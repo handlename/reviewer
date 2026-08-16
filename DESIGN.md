@@ -537,3 +537,29 @@ persisted, so inheriting last round's value would leave it stuck on.
 
 **A formatting-only change (whitespace, import reordering) sends every affected comment outdated.**
 That follows necessarily from matching exactly.
+
+### A quoted passage is resolved the same way
+
+A thread the agent opened knows its target as an `anchorQuote` — the passage it copied — rather
+than as an anchor. On a diff, that quote is matched against the rendered lines by exactly the
+mechanism above, every round, and the resulting anchor and `anchorLines` are filled in for display.
+It is an extension of re-anchoring, not a second scheme.
+
+Two rules differ, and both follow from the quote being written rather than recovered:
+
+* **Several matches resolve to the first**, instead of giving up. A quote is the agent pointing at
+  a place; the first occurrence is more useful than nothing, and exactly one element may carry
+  `data-anchor` ([`AGENTS.md` §4](AGENTS.md)).
+* **No match leaves the previous anchor alone** and sets `outdated`. The quote is kept, so the
+  thread re-attaches if the passage comes back.
+
+Where the resolution happens depends on where the numbering lives:
+
+| Document | Anchor form | Resolved by | Why there |
+|---|---|---|---|
+| Markdown | `spec-element-N` | the **browser**, at render | the numbering exists only in the page's DOM walk; Go has no notion of it |
+| diff | `<path>#<start>-<end>` | the **server** | it is derived deterministically from the diff file |
+
+Reproducing the `spec-element-N` numbering in Go to resolve Markdown quotes server-side is exactly
+the duplication `AGENTS.md` §4 exists to prevent, which is why a quote is never validated at the
+tool boundary either — an unresolvable quote is a thread without a target, not an error.
