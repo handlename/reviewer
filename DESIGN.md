@@ -232,9 +232,19 @@ most one live `ReviewSession` per process.
   `outcome` is `submitted`, `timeout`, or `session_ended`. Waiting on a review that already ended
   reports `session_ended` rather than failing, because the human can click **End Review** while the
   agent is editing.
-* **`review_reply(replies, summary)`**:
-  Each reply names a comment by `commentId`. Only `reply` and `replyTimestamp` are written, so the
-  human's fields cannot be damaged and the agent cannot resolve a comment.
+* **`review_reply(replies, newThreads, summary)`**:
+  Each reply names a comment by `commentId` and is **appended** to that comment's thread as an
+  agent message, so the human's own fields cannot be damaged and the agent cannot resolve a
+  comment. A reply may carry `needsAnswer`, which marks it as a question the human is expected to
+  answer. `newThreads` opens threads of the agent's own, each anchored to a quoted passage.
+
+  Questions ride this tool rather than a `review_ask` of their own so that a round is **one
+  read-modify-write and one SSE reload**: two tools would mean two POSTs, two reloads, and a page
+  painting the state in between. The tool count stays at four.
+
+  A quote is never validated: rejecting one the server cannot resolve would require Go to
+  reproduce the browser's `spec-element-N` numbering. An unresolvable quote becomes a thread
+  without a target (§3).
 * **`review_progress(state, message)`**:
   Stores the status and pushes an SSE `status` event, so the page's activity panel updates in
   place without a reload.

@@ -80,23 +80,39 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Feedback
 * **Description**: The shared review state — a `{ comments, summary }` document read and written by both the browser and the session. It is reviewer's internal store; the agent reaches it only through the MCP tools.
-* **Behavior**: Human comments can be edited inline or deleted before submitting. Clicking "Submit Review" POSTs the data to the server, which prunes resolved comments, assigns ids, and writes the **Sidecar** while **staying alive**. The submit releases any `/api/wait` long-poll waiter and any `review_wait` call. Nothing is written to stdout: that is the MCP transport.
+* **Behavior**: Human comments can be edited inline or deleted before submitting. Clicking "Submit Review" POSTs the data to the server, which prunes the threads already delivered as resolved, assigns ids, and writes the **Sidecar** while **staying alive**. The submit releases any `/api/wait` long-poll waiter and any `review_wait` call. Nothing is written to stdout: that is the MCP transport.
 
 ### Sidecar
 * **Description**: The files holding one document's review state: `$TMPDIR/reviewer/<stem>-<hash>-feedback.json` and its `-status.json` sibling.
 * **Behavior**: Named for the document's stem plus the first four bytes of the SHA-256 of its absolute path, because basenames collide across directories. Written `0600` in a `0700` directory. They live under the temp directory rather than beside the document, so reviewing a file inside a repository leaves no untracked files behind — and are therefore subject to that directory's cleanup: the state survives a reload and a restart, not indefinitely.
 * **Concurrency**: All access is serialised by `sidecarMu` on the session. The lock is taken at handler and method entry, never inside the shared read helper, which `Reply` calls while already holding it.
 
+### Thread
+* **Description**: A comment and everything said in it. The comment's own `text` is the head; `messages` holds the turns after it, each with an `author` of `human` or `agent`.
+* **Behavior**: A thread is usually opened by the human, and by the agent through `review_reply`'s `newThreads` when it needs to raise something nobody commented on. The head keeps the thread's `anchor`, `anchorLines`, `outdated` and `context`, so re-anchoring is unaffected by threading.
+
 ### Agent Reply
-* **Description**: The agent's response threaded beneath a human comment (`reply` / `replyTimestamp` fields), describing how the comment was addressed.
-* **Behavior**: Written by the agent into the feedback file; rendered under the human comment on the next reload. The agent never marks a comment resolved.
+* **Description**: The agent's response, appended to a comment's thread as a message.
+* **Behavior**: Written by the agent into the feedback file through `review_reply`; rendered in the thread on the next reload. Replies accumulate rather than replacing one another. The agent never marks a comment resolved. A sidecar written before threading carries a single `reply` / `replyTimestamp` pair, which is folded into the thread when it is read.
+
+### Question (`needsAnswer`)
+* **Description**: An agent message the human is expected to answer.
+* **Behavior**: Opt-in per reply, so an ordinary report of what changed is not one. A thread has a **pending question** while no human message follows its last flagged one — any reply answers, which is why answering needs no control of its own. The page marks such threads, counts them above the composer, and asks before they are resolved or submitted past.
+
+### Declined
+* **Description**: The record that the human closed a thread without answering its question.
+* **Behavior**: Set from the page when the human chooses to close anyway, and delivered to the agent on that thread's one remaining round. It exists because the agent cannot otherwise tell being refused from being ignored.
+
+### Anchor Quote
+* **Description**: The passage a thread the agent opened was written against (`anchorQuote`).
+* **Behavior**: Re-resolved to an **Anchor** on every render rather than trusted once — by the server on a diff, by the browser on Markdown, where the `spec-element-N` numbering lives. Several matches take the first; no match leaves the thread without a target, shown under **About this document** in the panel rather than dropped. An empty quote is a question about the document as a whole.
 
 ### Change Summary
 * **Description**: The agent's page-level `summary` of the latest round's document changes, rendered at the top of the feedback panel.
 
 ### Resolve
 * **Description**: A human-only action that marks an addressed comment `resolved` on the page after reviewing the agent's reply.
-* **Behavior**: Resolved comments recede for the current cycle and are pruned on the next submit; only open comments carry forward.
+* **Behavior**: A resolved thread recedes for the current cycle, is delivered to the agent once with `status: "resolved"`, and is pruned on the submit after that; only open threads carry forward. Resolving a thread that still holds a **Question** asks first, and closing it anyway records **Declined**.
 
 ### Live Reload
 * **Description**: Automatic browser refresh driven by Server-Sent Events (`/api/events`).

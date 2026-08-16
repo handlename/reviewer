@@ -59,7 +59,7 @@ it, opens the browser, and exposes four tools.
 | --- | --- |
 | `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
 | `review_wait` | Block until the human submits. Returns their comments. |
-| `review_reply` | Write a reply under each comment, plus a summary of the round. |
+| `review_reply` | Reply in each comment's thread — asking a question if you need one — open threads of your own, and summarise the round. |
 | `review_progress` | Report the agent's current activity, live, on the review page. |
 
 An agent can have its **own change** reviewed the same way: write `git diff` to a temporary file
@@ -74,7 +74,14 @@ The loop is: `review_start`, then `review_wait`, edit the document, `review_repl
 `session_ended` (the human clicked **End Review**). A timeout is an ordinary result, not a
 failure, so `--wait-timeout` can be tuned freely.
 
-Marking a comment resolved is the human's decision alone; no tool can do it.
+A comment is a **thread**: its text is the first message and `messages` holds the turns after it.
+The exchange runs both ways. An agent that is unsure can set `needsAnswer` on a reply, or open a
+thread of its own with `newThreads` against a passage it quotes; the page marks such a thread,
+counts it, and asks the human before it is closed. If they close it anyway the message comes back
+marked `declined` — being refused is reported, not left to be inferred from silence.
+
+Marking a comment resolved is the human's decision alone; no tool can do it. A resolved thread is
+delivered once, with `status: "resolved"`, and is gone from the round after that.
 
 This repository also ships the `review-doc` agent skill, which is simply the workflow written
 down. The workflow itself is compiled into the `reviewer` binary and printed by
