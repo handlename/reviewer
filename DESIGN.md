@@ -250,44 +250,44 @@ most one live `ReviewSession` per process.
 ### F. UI Template (`references/template.html`)
 Embedded into the Go binary at compile-time using the standard `//go:embed` directive.
 
+This section describes **how the template is structured and initialized**. Why the screen looks
+and behaves the way it does — the design system, the layout policy and the interaction model —
+is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisions.
+
 * **Responsive 3-Column Layout**:
   * **Sidebar (Left)**: Renders the title, version and date (a diff shows its file count and
     +/− totals instead), and navigation — headings for a spec, the file list for a diff, where
-    each entry carries a status mark. It folds away, because a diff is read across and the file
-    list is the first thing worth trading for width.
-  * **Main Content (Middle)**: Renders the compiled body. For a diff the layout gives up its
-    1600px cap — a diff has no reading measure to respect — and the column is floored at
-    `--main-min-width`.
-  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider restores the default.
-* **Width lives in custom properties, never in inline styles**:
-  `--feedback-panel-width` and `--main-min-width` are read by both the stylesheet and the resize
-  handle, so the two cannot disagree, and the narrow-viewport media query can still override the
-  panel — which an inline `el.style.width` would outrank, bringing back horizontal scrolling on a
-  small screen. The same reasoning applies to state classes on `<body>` (`is-served`,
-  `sidebar-collapsed`, `diff-review`) rather than inline `display`.
+    each entry carries a status mark. It folds away, and the collapsed state is remembered.
+  * **Main Content (Middle)**: Renders the compiled body. For a diff the layout drops its
+    1600px cap and the column is floored at `--main-min-width`.
+  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider drops the stored value and removes the custom property.
+* **Width and state live in custom properties and `<body>` classes, never in inline styles**:
+  `--feedback-panel-width` and `--main-min-width` are read by the stylesheet, the resize handle
+  and the narrow-viewport media queries alike; mode and layout state ride classes on `<body>`
+  (`is-served`, `sidebar-collapsed`, `diff-review`). See UI_DESIGN.md §3.3 for why this is a
+  hard rule rather than a preference.
 * **Comment Display Order**:
   The feedback panel renders comments in the **appearance order of their target block** in the
-  document, so the panel reads top-down alongside the spec. `commentsInAppearanceOrder()` builds an
-  `anchor → position` map from the live DOM (`.main-content [data-anchor]`) and stable-sorts a
-  `{comment, originalIndex}` view — so comments on the same block keep creation order, and the
-  `idx`-based handlers (`editingIdx`, `deleteComment`, `saveComment`) continue to address the
-  untouched `comments` array. Comments with no anchor, or whose anchored element disappeared after
-  an agent edit, sink to the end in creation order. Only the rendering is reordered: the `comments`
-  array and the feedback file written from it stay in creation order.
+  document. `commentsInAppearanceOrder()` builds an `anchor → position` map from the live DOM
+  (`.main-content [data-anchor]`) and stable-sorts a `{comment, originalIndex}` view — so comments
+  on the same block keep creation order, and the `idx`-based handlers (`editingIdx`,
+  `deleteComment`, `saveComment`) continue to address the untouched `comments` array. Comments
+  with no anchor, or whose anchored element disappeared after an agent edit, sink to the end in
+  creation order. **Only the rendering is reordered** — the `comments` array and the feedback file
+  written from it stay in creation order, so a later change must not "fix" the JSON order to match
+  the panel. UI_DESIGN.md §5.4 records why the scope is drawn there.
 * **Interactive DOM Initialization**:
   Upon load, the frontend JS runs `initializeCommentableElements()` for a spec — attaching
-  `data-anchor` attributes and a hover action `💬` to all root block elements (excluding headers,
-  code tags, or nested child blocks) — or `initializeDiffLines()` for a diff, which is selection
-  over line ranges and file headers instead. The template branches on `Mode`: calling the
-  Markdown initializer on a diff would tag every row as a block target and anchor comments that
-  cannot survive the next round.
+  `data-anchor` attributes to all root block elements (excluding headers, code tags, or nested
+  child blocks) — or `initializeDiffLines()` for a diff, which is selection over line ranges and
+  file headers instead. The template branches on `Mode`: calling the Markdown initializer on a
+  diff would tag every row as a block target and anchor comments that cannot survive the next
+  round.
 * **Syntax highlighting (diff)**:
   Prism is already loaded for Markdown code blocks, so the diff borrows it. The grammar is chosen
-  **per file** from the path (a diff carries no other signal, and one page routinely mixes Go,
-  Markdown and YAML), and highlighting runs **per line, as lines scroll into view** — the DOM is
-  one row per line because that is what line-range anchoring needs, and a thousand-line diff
-  should not pay for all of it before first paint. The cost is that a construct spanning lines is
-  tokenized without its context.
+  per file from an explicit extension → grammar map keyed on the path in `data-file`, and
+  highlighting runs per line, as lines scroll into view. See UI_DESIGN.md §6.3 for the reasoning
+  and the accepted cost.
 * **Inline Comment Editing State Management**:
   To support inline editing, the frontend JS tracks the active edit state using a global variable `editingIdx` (initialized to `-1` when no comment is being edited):
   * **Switching Mode**: Clicking the edit button (✎) or using keyboard shortcuts (`Enter` / `Space`) sets `editingIdx` to the corresponding comment index and triggers a re-render.

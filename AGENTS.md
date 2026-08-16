@@ -9,7 +9,7 @@
 ## 1. Documentation Language Constraint
 
 * **Rule**:
-  * **All documentation (including Markdown files like `README.md`, `GLOSSARY.md`, `DESIGN.md`, and this `AGENTS.md` file) MUST be written in English.**
+  * **All documentation (including Markdown files like `README.md`, `GLOSSARY.md`, `DESIGN.md`, `UI_DESIGN.md`, and this `AGENTS.md` file) MUST be written in English.**
   * If you generate or modify documentation, do not write in Japanese or any other language unless explicitly requested by the user.
 
 ---
@@ -182,3 +182,28 @@ The MCP SDK turns a Go `error` returned from a tool handler into a result flagge
     `timeout` and `session_ended` through its `outcome` field. Returning an error for an idle
     expiry would present a routine wait as a broken call and would likely stop the agent's loop.
   * When adding an outcome, extend the `WaitOutcome` constants rather than reaching for an error.
+
+---
+
+## 9. The Review Screen Follows UI_DESIGN.md
+
+`references/template.html` is governed by a written design system. [UI_DESIGN.md](UI_DESIGN.md) is
+**normative**: it records each principle together with the reasoning and the alternatives that were
+rejected. A change that contradicts a principle there is a change to that document first, and the
+reasoning under the principle is what has to be answered.
+
+* **Rule**:
+  * **Read UI_DESIGN.md before changing how the review screen looks or behaves.** Do not infer the
+    design system from the stylesheet — several rules exist to prevent regressions that the CSS
+    alone does not explain.
+  * **Never introduce a second hue.** Hierarchy comes from opacity, weight and whitespace, and
+    there is exactly one accent. The diff's add/delete tints are the single sanctioned exception
+    (UI_DESIGN.md §2.1–2.2). The four comment states are told apart by position, stroke style and
+    depth for this reason, and **no comment state may touch `padding` or `border`** (§4).
+  * **Never write a width or a layout state into an inline style.** Widths live in
+    `--feedback-panel-width` / `--main-min-width`, and mode state rides `<body>` classes
+    (`is-served`, `sidebar-collapsed`, `diff-review`). An inline style outranks the
+    narrow-viewport media queries (§3.3).
+  * **There is no browser test harness.** `go test ./...` cannot see this class of regression.
+    Verify by eye in a real browser, in **both** light and dark, against `examples/sample.md` and
+    `examples/sample.diff` (§9).
