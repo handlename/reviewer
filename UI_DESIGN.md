@@ -155,7 +155,11 @@ A single SVG overlay draws one line between a selected comment card and its targ
 
 ### 5.4 The panel reads top-down alongside the document
 
-Comments render in the appearance order of their target block, derived from the live DOM rather than by parsing anchor strings, so an anchor that no longer resolves is handled naturally instead of resolving to a stale position. Comments with no target, or whose target disappeared after an agent edit, sink to the end in creation order.
+Comments render in the appearance order of their target block, derived from the live DOM rather than by parsing anchor strings, so an anchor that no longer resolves is handled naturally instead of resolving to a stale position. A comment whose target disappeared after an agent edit sinks to the end in creation order.
+
+**A comment with no target at all is about the document as a whole**, so it goes first, under an **About this document** heading, with the rest following under **On the text**. That covers a question the agent asked about the document rather than a passage, and one whose quoted passage is no longer there — the latter says so on the card. Neither is ever dropped: a thread that lost its target is exactly the thread someone still has to answer.
+
+**Why first rather than last:** a comment about everything has no position in document order to sink to, and the panel already opens with the round summary, which is about everything in the same way.
 
 **Ordering is applied to the rendering only.** The `comments` array and the feedback file written from it keep creation order, so nothing changes for the agent.
 

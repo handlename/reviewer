@@ -806,6 +806,19 @@
            text and the lines it was written against — with the diff gone, that quotation is the
            only remaining record of what it referred to. */
         .feedback-item.outdated { border-style: dashed; background: transparent; }
+        /* Heading over a group of comments in the panel. Weight and letter-spacing only — the
+           groups are told apart by the label, not by a rule or a box. */
+        .comment-section-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.62rem;
+            font-weight: 500;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-top: 0.4rem;
+        }
+        .comment-section-label:first-child { margin-top: 0; }
+
         /* A thread waiting on the human. The accent is the page's single attention channel, so
            it marks the card and the panel-level count alike. */
         .awaiting-tag {
@@ -2360,14 +2373,20 @@
         // file written from it) keeps creation order — only the rendering is reordered, and the
         // original array index travels with each entry so the idx-based handlers stay valid.
         const UNPLACED_RANK = Number.MAX_SAFE_INTEGER;
+        const DOCUMENT_RANK = -1;
         function commentsInAppearanceOrder() {
             const order = new Map();
             document.querySelectorAll('.main-content [data-anchor]').forEach((el, i) => {
                 order.set(el.getAttribute('data-anchor'), i);
             });
-            // No anchor, an anchor whose element is gone after an agent edit, or a comment whose
-            // lines left the diff: sink to the end.
-            const rank = c => (c.anchor && !c.outdated && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
+            // A comment with no target at all is about the document as a whole — it belongs above
+            // everything, like the round summary. An anchor whose element is gone after an agent
+            // edit, or a comment whose lines left the diff, still points somewhere: it sinks to
+            // the end, where it always has.
+            const rank = c => {
+                if (!c.anchor) return DOCUMENT_RANK;
+                return (!c.outdated && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
+            };
             // sort is stable, so comments sharing a rank (same block, or both unplaced) stay in creation order.
             return comments
                 .map((c, idx) => ({ c, idx }))
@@ -2443,6 +2462,34 @@
             if (tail) original.slice(original.length - tail).forEach(l => row("ctx", " ", l));
 
             return box;
+        }
+
+        // ---------- Placing a thread the agent opened ----------
+        // The agent quotes a passage rather than naming an anchor, because spec-element-N exists
+        // only in this page's DOM walk — reproducing that numbering in Go would be the very
+        // duplication the anchor rules forbid. So the quote is resolved here, on every render.
+        //
+        // A diff is different: its anchors are derived from the diff file, so the server has
+        // already resolved those quotes by the time the page sees them.
+        function normalizeQuote(text) {
+            return (text || "").replace(/\s+/g, " ").trim();
+        }
+
+        function resolveQuoteAnchors() {
+            if (document.body.classList.contains("diff-review")) return;
+            const targets = Array.from(document.querySelectorAll('.main-content [data-anchor]'));
+
+            comments.forEach(c => {
+                if (!c.anchorQuote) return;
+                const want = normalizeQuote(c.anchorQuote);
+                if (!want) return;
+                // The first match only: exactly one element may carry the anchor, and the first
+                // occurrence is a more useful guess than none. A quote that matches nothing keeps
+                // its text and loses its target — it is never dropped.
+                const hit = targets.find(el => normalizeQuote(el.textContent).includes(want));
+                c.anchor = hit ? hit.getAttribute("data-anchor") : "";
+                c.outdated = false;
+            });
         }
 
         // ---------- Questions the agent is waiting on ----------
@@ -2655,7 +2702,26 @@
         function renderComments() {
             const container = document.getElementById("commentsList");
             container.innerHTML = "";
-            commentsInAppearanceOrder().forEach(({ c, idx }) => {
+            resolveQuoteAnchors();
+
+            const ordered = commentsInAppearanceOrder();
+            // Threads with no target — a question about the document as a whole, or one whose
+            // quoted passage is no longer there — are gathered under a heading of their own rather
+            // than left looking like comments on whatever they happen to sit next to. The rest
+            // keep the panel's usual document order, under a heading only when the first group
+            // exists to be told apart from.
+            const sectionLabel = (text) => {
+                const heading = document.createElement("div");
+                heading.className = "comment-section-label";
+                heading.textContent = text;
+                container.appendChild(heading);
+            };
+            const documentLevel = ordered.length > 0 && !ordered[0].c.anchor;
+            const firstAnchored = ordered.findIndex(({ c }) => !!c.anchor);
+            if (documentLevel) sectionLabel("About this document");
+
+            ordered.forEach(({ c, idx }, pos) => {
+                if (documentLevel && pos === firstAnchored) sectionLabel("On the text");
                 const item = document.createElement("div");
                 item.className = "feedback-item";
                 // The panel renders in the document's order, not the array's, so the card carries
@@ -2735,6 +2801,16 @@
                     const authorTag = document.createElement("div");
                     authorTag.className = "comment-author";
                     authorTag.textContent = agentOpened ? "Agent" : "You";
+
+                    // A quote that no longer matches anything: the thread stays, and says why it
+                    // is not pointing at the text any more.
+                    if (c.anchorQuote && !c.anchor) {
+                        const lost = document.createElement("div");
+                        lost.className = "outdated-tag";
+                        lost.textContent = "Quoted passage not found";
+                        lost.title = c.anchorQuote;
+                        item.appendChild(lost);
+                    }
 
                     if (pendingQuestion(c)) {
                         item.classList.add("awaiting-answer");
