@@ -306,11 +306,15 @@ const (
 type ReplyInput struct {
 	CommentID string `json:"commentId" jsonschema:"the id of the comment being answered, from review_wait"`
 	Reply     string `json:"reply" jsonschema:"what you changed and why"`
+	// NeedsAnswer is opt-in, and deliberately not inverted into a "this closes the thread" flag:
+	// an agent written before threading sets neither, and every routine "fixed it" report would
+	// then sit in the page's awaiting-answer state, turning the warning into noise.
+	NeedsAnswer bool `json:"needsAnswer,omitempty" jsonschema:"true when this reply is a question you need the human to answer before you continue"`
 }
 
-// Reply threads the agent's responses under the human's comments and records the round's
-// summary. It writes only Reply and ReplyTimestamp: Status is deliberately untouched, because
-// marking a comment resolved is the human's decision alone (see DESIGN.md section 4).
+// Reply appends the agent's responses to the human's threads and records the round's summary.
+// Status is deliberately untouched, because marking a comment resolved is the human's decision
+// alone (see DESIGN.md section 4).
 func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
 	// A read-modify-write: the lock spans the whole thing, or a submit landing in the middle
 	// is overwritten by the version this call read.
@@ -330,8 +334,12 @@ func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
 		if !ok {
 			return fmt.Errorf("no comment with id %q; call review_wait to get the current comments", r.CommentID)
 		}
-		fb.Comments[i].Reply = r.Reply
-		fb.Comments[i].ReplyTimestamp = now
+		fb.Comments[i].Messages = append(fb.Comments[i].Messages, Message{
+			Author:      AuthorAgent,
+			Text:        r.Reply,
+			Timestamp:   now,
+			NeedsAnswer: r.NeedsAnswer,
+		})
 	}
 	fb.Summary = summary
 

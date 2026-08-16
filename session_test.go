@@ -258,6 +258,71 @@ func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
 	}
 }
 
+// Replies accumulate: a second round appends to the thread rather than overwriting the first.
+func TestSessionReply_AppendsToTheThread(t *testing.T) {
+	ctx := t.Context()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "first pass"}}, ""); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "which style do you want?", NeedsAnswer: true}}, ""); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+
+	c := s.readFeedbackDoc().Comments[0]
+	if len(c.Messages) != 2 {
+		t.Fatalf("got %d messages, want both replies: %#v", len(c.Messages), c.Messages)
+	}
+	if c.Messages[0].Text != "first pass" || c.Messages[0].NeedsAnswer {
+		t.Errorf("first message = %#v, want an ordinary report", c.Messages[0])
+	}
+	if c.Messages[1].Text != "which style do you want?" || !c.Messages[1].NeedsAnswer {
+		t.Errorf("second message = %#v, want the flagged question", c.Messages[1])
+	}
+	if !c.PendingQuestion() {
+		t.Error("the thread should be awaiting an answer")
+	}
+	if c.Text != "needs work" {
+		t.Errorf("the human's own text changed to %q", c.Text)
+	}
+}
+
+// A reply without needsAnswer must behave exactly as it did before questions existed: the flag is
+// absent from the sidecar, and the thread is not awaiting anything.
+func TestSessionReply_WithoutNeedsAnswerIsUnchanged(t *testing.T) {
+	ctx := t.Context()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "fixed"}}, ""); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+
+	if s.readFeedbackDoc().Comments[0].PendingQuestion() {
+		t.Error("an ordinary reply left the thread awaiting an answer")
+	}
+	raw, err := os.ReadFile(s.feedbackPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "needsAnswer") {
+		t.Errorf("needsAnswer leaked into the sidecar: %s", raw)
+	}
+}
+
 func TestSessionReply_CannotResolveComment(t *testing.T) {
 	ctx := t.Context()
 

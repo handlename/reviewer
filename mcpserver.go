@@ -184,7 +184,9 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 				"On a diff, a comment's anchor reads \"<path>#<start>-<end>\", where the numbers are 1-based positions among that file's " +
 				"rendered diff lines (added, removed and context lines all counted, @@ headers not) — they are NOT source line numbers. " +
 				"Use the comment's anchorLines, which hold the exact text of those lines, to locate the code. " +
-				"An anchor of \"<path>#file\" is a comment about the change to that file as a whole, not about any line in it; it carries no anchorLines.",
+				"An anchor of \"<path>#file\" is a comment about the change to that file as a whole, not about any line in it; it carries no anchorLines. " +
+				"A comment is a thread: its text is the first message and \"messages\" holds everything said after it, each with an author of \"human\" or \"agent\". " +
+				"A message with \"needsAnswer\": true is a question you asked and the human has not answered yet; \"declined\": true means the human closed the thread without answering it.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
 			// The request context is deliberately unused: the session outlives this call.
@@ -208,7 +210,10 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 		&mcp.Tool{
 			Name: "review_reply",
 			Description: "Write a reply under each comment you addressed, plus a summary of this round's changes. " +
-				"Comments are addressed by the id returned from review_wait. Resolving a comment is the human's decision and is not possible here.",
+				"Comments are addressed by the id returned from review_wait. Each reply is appended to that comment's thread. " +
+				"Set needsAnswer on a reply that is a question you need the human to answer: the page then marks the thread and will not let them close it silently — " +
+				"if they close it anyway you get the message back with \"declined\": true. Leave it off for an ordinary report of what you changed. " +
+				"Resolving a comment is the human's decision and is not possible here.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in replyInputArgs) (*mcp.CallToolResult, okOutput, error) {
 			out, err := holder.reply(in)

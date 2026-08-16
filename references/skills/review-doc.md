@@ -16,7 +16,7 @@ temporary file and open that.
 | --- | --- |
 | `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
 | `review_wait` | Block until the human submits. Returns their comments. |
-| `review_reply` | Write a reply under each comment, plus a summary of the round. |
+| `review_reply` | Write a reply under each comment — a question if you need one — plus a summary of the round. |
 | `review_progress` | Report what you are doing, live, on the review page. |
 
 If these tools are not available, the `reviewer` MCP server is not registered. Tell the user how
@@ -78,6 +78,16 @@ anchored lines. Apply it yourself — reviewer does not touch your source — an
 reply. Treat it as a proposal you understand, not a patch to paste blindly: if it is wrong or
 incomplete, say why in the reply instead of applying it.
 
+### 3.6. Reading a thread
+A comment is a **thread**, not a single remark. Its `text` is the first message; `messages` holds
+everything said after it, in order, each with an `author` of `human` or `agent`:
+
+- `needsAnswer: true` on one of your own messages — a question you asked that the human has not
+  answered yet. Any human message in the thread answers it.
+- `declined: true` — the human closed the thread without answering that question. Take it as a
+  refusal to answer, not an oversight: decide with what you have, and say in your next reply what
+  you assumed.
+
 ### 4. Address the comments
 Call `review_progress` with `state: "working"` and a short message as you go, so the user can
 watch without leaving the page. Then:
@@ -87,6 +97,12 @@ watch without leaving the page. Then:
 - Call `review_reply` with one entry per comment you addressed, using the `id` from
   `review_wait`, plus a `summary` of this round's changes.
 - Call `review_progress` with `state: "idle"` and an empty message once the round is done.
+
+When a comment is unclear or you have to choose between readings, **ask instead of guessing**: set
+`needsAnswer: true` on that reply and write the question. The page marks the thread and will not
+let the human close it silently. Keep it off for an ordinary report of what you changed — flagging
+everything makes the mark meaningless. Then go back to `review_wait`; the answer arrives as a human
+message in that thread, like any other comment.
 
 The page updates on its own: your edits, your per-comment replies, and the summary all appear
 without a reload.

@@ -426,8 +426,8 @@ func TestReplyReachesAnOutdatedComment(t *testing.T) {
 	}
 
 	readJSONFile(t, FeedbackPath(diffPath), &stored)
-	if stored.Comments[0].Reply != "removed that code entirely" {
-		t.Errorf("reply = %q", stored.Comments[0].Reply)
+	if msgs := stored.Comments[0].Messages; len(msgs) != 1 || msgs[0].Text != "removed that code entirely" {
+		t.Errorf("thread = %#v", stored.Comments[0].Messages)
 	}
 	if !stored.Comments[0].Outdated {
 		t.Error("Reply cleared the outdated flag")

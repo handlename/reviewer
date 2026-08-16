@@ -159,3 +159,38 @@ func TestReviewStart_RejectsSecondLiveSession(t *testing.T) {
 		t.Fatal("starting a second review while one is live should be an error")
 	}
 }
+
+// The question travels the whole agent-facing path: review_reply carries needsAnswer, and
+// review_wait hands the thread back with the flag on the agent's message.
+func TestReviewReply_CarriesAQuestionBackThroughWait(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	if _, err := h.start(startInput{Path: writeTempSpec(t)}, MCPOptions{NoOpen: true}); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	id := submitComment(t, h.current, "which retry policy?")
+
+	if _, err := h.reply(replyInputArgs{
+		Replies: []ReplyInput{{CommentID: id, Reply: "three or five?", NeedsAnswer: true}},
+		Summary: "asked one question",
+	}); err != nil {
+		t.Fatalf("reply failed: %v", err)
+	}
+
+	out, err := h.wait(ctx, time.Second)
+	if err != nil {
+		t.Fatalf("wait failed: %v", err)
+	}
+	if out.Outcome != string(WaitSubmitted) {
+		t.Fatalf("outcome = %q, want %q", out.Outcome, WaitSubmitted)
+	}
+	if len(out.Comments) != 1 || len(out.Comments[0].Messages) != 1 {
+		t.Fatalf("comments = %#v", out.Comments)
+	}
+	if msg := out.Comments[0].Messages[0]; !msg.NeedsAnswer || msg.Author != AuthorAgent {
+		t.Errorf("message = %#v, want the agent's flagged question", msg)
+	}
+}
