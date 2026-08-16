@@ -421,8 +421,9 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			s.sidecarMu.Lock()
 			defer s.sidecarMu.Unlock()
 
-			// Prune comments the user marked resolved in the previous cycle; only open ones carry forward.
-			fb.Comments = pruneResolved(fb.Comments)
+			// Which threads the agent has already been told about is only knowable from what is
+			// stored, so the prune decision reads the previous sidecar. The lock above spans both.
+			fb.Comments = pruneResolved(fb.Comments, resolvedIDs(s.readFeedbackDoc().Comments))
 			// Give every comment a stable identity so the agent can address it by ID.
 			fb.Comments = assignCommentIDs(fb.Comments)
 

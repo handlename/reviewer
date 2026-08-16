@@ -423,8 +423,9 @@ It is stored as a `Feedback` object:
   its anchor so it can come back if they reappear.
 * `context`: Truncated preview text of the target element (max 57 chars + `...`).
 * `author`: `human` or `agent`. Top-level comments are human-authored.
-* `status`: `open` or `resolved`. Only the **human** sets `resolved` (via a page control); resolved
-  comments are pruned on the next submit. The agent must not self-resolve.
+* `status`: `open` or `resolved`. Only the **human** sets `resolved` (via a page control); the
+  agent must not self-resolve. A resolved thread is pruned on the submit **after** the one that
+  resolved it — see "A resolved thread survives one round" below.
 * `messages`: the rest of the thread, in chronological order (`omitempty`, so a comment nobody has
   answered carries none). See "A comment is a thread" below.
 * `summary`: the agent's change summary for the latest round, rendered at the top of the panel.
@@ -456,6 +457,21 @@ A thread has a **pending question** when no `human` message follows its last `ne
 That single rule covers both a question the agent left under a human comment and a thread the agent
 opened itself, and it is why answering needs no dedicated control: any human message in the thread
 answers.
+
+### A resolved thread survives one round
+
+`pruneResolved` used to drop a thread on the very POST that carried `status: "resolved"`, so the
+agent never received that status at all: it could only infer resolution from the thread's
+disappearance — and a `declined` question would have vanished the same way, unreported.
+
+The rule is therefore a two-input decision: a thread is dropped only if it was **already stored**
+as resolved. A newly resolved thread is written through, the next `review_wait` delivers it once
+with `status: "resolved"`, and the following submit removes it. A thread the human reopens is kept,
+and a comment created and resolved in the same round is still delivered once, because it was never
+stored as resolved.
+
+That makes the prune decision depend on the previous sidecar, so `POST /api/feedback` reads it
+before pruning — under the `sidecarMu` it already holds for the read-modify-write.
 
 ### Reading a sidecar written before threading
 

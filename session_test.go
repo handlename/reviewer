@@ -323,6 +323,49 @@ func TestSessionReply_WithoutNeedsAnswerIsUnchanged(t *testing.T) {
 	}
 }
 
+// The agent has to learn that a thread was resolved, not infer it from the thread's absence:
+// a resolved thread reaches review_wait exactly once, then disappears.
+func TestSessionWait_DeliversResolvedOnceThenPrunes(t *testing.T) {
+	ctx := t.Context()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+
+	// The human marks it resolved and submits again.
+	postComments(t, s, `[{"id":"`+id+`","text":"needs work","timestamp":"2026-01-01T00:00:00Z","author":"human","status":"resolved"}]`)
+
+	got := s.Wait(ctx, time.Second)
+	if got.Outcome != WaitSubmitted {
+		t.Fatalf("outcome = %q, want %q", got.Outcome, WaitSubmitted)
+	}
+	if len(got.Comments) != 1 || got.Comments[0].Status != StatusResolved {
+		t.Fatalf("the resolved thread never reached the agent: %#v", got.Comments)
+	}
+
+	// The page posts back what it holds; the thread has been delivered, so now it goes.
+	postComments(t, s, `[{"id":"`+id+`","text":"needs work","timestamp":"2026-01-01T00:00:00Z","author":"human","status":"resolved"}]`)
+
+	if left := s.readFeedbackDoc().Comments; len(left) != 0 {
+		t.Fatalf("the resolved thread survived a second round: %#v", left)
+	}
+}
+
+// postComments submits a raw comments array, the way the page does.
+func postComments(t *testing.T, s *ReviewSession, comments string) {
+	t.Helper()
+	resp, err := http.Post(s.URL()+"/api/feedback", "application/json",
+		strings.NewReader(`{"comments":`+comments+`,"summary":""}`))
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+	resp.Body.Close()
+}
+
 func TestSessionReply_CannotResolveComment(t *testing.T) {
 	ctx := t.Context()
 

@@ -112,7 +112,12 @@ should not ask to.
 
 ### 5. Iterate
 Return to step 3. The human reviews your replies, marks comments resolved, may add new ones, and
-submits again. Resolved comments disappear on the next submit; unresolved ones carry forward.
+submits again.
+
+A comment the human resolved comes back to you once, with `status: "resolved"`, and is gone from
+the round after that; unresolved ones carry forward. Read that one delivery: it is where a
+`declined: true` on a question of yours arrives. There is nothing to reply to a resolved thread —
+it is closed.
 
 ## Review focus
 While reviewing a Markdown document, analyse it for:

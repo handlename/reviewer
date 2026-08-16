@@ -368,16 +368,35 @@ func migrateFeedback(fb Feedback) Feedback {
 	return fb
 }
 
-// pruneResolved drops comments the human has marked resolved, keeping the ordering of the rest.
-func pruneResolved(comments []Comment) []Comment {
+// pruneResolved drops the threads the human resolved in an earlier round, keeping the ordering of
+// the rest. alreadyResolved holds the ids that were stored as resolved before this submit.
+//
+// A thread the human has just resolved is kept: dropping it on the very submit that carries
+// status: "resolved" is what used to stop the agent from ever seeing the status — it could only
+// infer resolution from the thread's disappearance, and a declined question would vanish with it.
+// Keeping it for one round means the next review_wait delivers it, and the submit after that
+// removes it.
+func pruneResolved(comments []Comment, alreadyResolved map[string]bool) []Comment {
 	kept := make([]Comment, 0, len(comments))
 	for _, c := range comments {
-		if c.Status == StatusResolved {
+		if c.Status == StatusResolved && alreadyResolved[c.ID] {
 			continue
 		}
 		kept = append(kept, c)
 	}
 	return kept
+}
+
+// resolvedIDs is the set of threads already stored as resolved, which is what pruneResolved needs
+// to tell "the human resolved this just now" from "the agent has already been told".
+func resolvedIDs(comments []Comment) map[string]bool {
+	ids := make(map[string]bool, len(comments))
+	for _, c := range comments {
+		if c.ID != "" && c.Status == StatusResolved {
+			ids[c.ID] = true
+		}
+	}
+	return ids
 }
 
 // watchForReload debounces filesystem events on the reviewed document and broadcasts a
