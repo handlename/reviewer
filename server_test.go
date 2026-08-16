@@ -732,6 +732,10 @@ func TestCommentPendingQuestion(t *testing.T) {
 		{"one human message answers every question before it", Comment{
 			Author: AuthorHuman, Text: "a", Messages: []Message{asking("b"), asking("c"), human("d")},
 		}, false},
+		{"a declined question is settled", Comment{
+			Author: AuthorHuman, Text: "a",
+			Messages: []Message{{Author: AuthorAgent, Text: "b", NeedsAnswer: true, Declined: true}},
+		}, false},
 		{"an agent-opened thread asks from its head", Comment{
 			Author: AuthorAgent, Text: "a", NeedsAnswer: true,
 		}, true},

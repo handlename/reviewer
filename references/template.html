@@ -806,6 +806,38 @@
            text and the lines it was written against — with the diff gone, that quotation is the
            only remaining record of what it referred to. */
         .feedback-item.outdated { border-style: dashed; background: transparent; }
+        /* A thread waiting on the human. The accent is the page's single attention channel, so
+           it marks the card and the panel-level count alike. */
+        .awaiting-tag {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.6rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent-color);
+            margin-bottom: 0.3rem;
+        }
+        /* Panel-level count of unanswered questions: a button, because it takes you to the first
+           of them — and because a thing you can act on has to be reachable by keyboard. */
+        .pending-questions {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: hsl(var(--accent-hsl) / 0.05);
+            border: 1px solid var(--accent-color);
+            border-radius: var(--radius);
+            padding: 0.55rem 0.7rem;
+            margin-bottom: 0.5rem;
+            font-family: inherit;
+            font-size: 0.82rem;
+            color: var(--text-body);
+            cursor: pointer;
+            transition: background-color 0.18s;
+        }
+        .pending-questions:hover { background: hsl(var(--accent-hsl) / 0.09); }
+        /* Inset, so the mark costs no padding or border and the text under it never moves. */
+        .feedback-item.awaiting-answer { box-shadow: inset 2px 0 0 var(--accent-color); }
+
         .outdated-tag {
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.6rem;
@@ -1420,6 +1452,8 @@
                 <span class="change-summary-label">Agent changes</span>
                 <div id="changeSummaryBody"></div>
             </div>
+
+            <button type="button" class="pending-questions" id="pendingQuestions" style="display: none;"></button>
 
             <div id="commentContextContainer" style="display: none; font-size: 0.8rem; background: var(--bg-primary); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 0.5rem;">
                 <span style="font-weight: 600; color: var(--accent-color);">Target:</span>
@@ -2401,6 +2435,66 @@
             return box;
         }
 
+        // ---------- Questions the agent is waiting on ----------
+        // The same rule the server states in Go (Comment.PendingQuestion): a question stands
+        // until a human message follows it. Any reply answers — which is why answering needs no
+        // control of its own.
+        function threadOf(c) {
+            const head = {
+                author: c.author || "human",
+                text: c.text,
+                timestamp: c.timestamp,
+                needsAnswer: !!c.needsAnswer,
+            };
+            return [head].concat(c.messages || []);
+        }
+
+        function lastQuestionIndex(c) {
+            const msgs = threadOf(c);
+            for (let i = msgs.length - 1; i >= 0; i--) {
+                if (msgs[i].needsAnswer) return i;
+            }
+            return -1;
+        }
+
+        function pendingQuestion(c) {
+            const at = lastQuestionIndex(c);
+            if (at < 0) return false;
+            const msgs = threadOf(c);
+            // A declined question has been settled — refused, but settled. Leaving it pending
+            // would keep the count up on a thread the human has already closed.
+            if (at === 0 ? c.declined : (c.messages[at - 1] || {}).declined) return false;
+            return !msgs.slice(at + 1).some(m => m.author === "human");
+        }
+
+        // Closing a thread without answering is a decision, not an oversight, so it is recorded
+        // on the question itself and reported to the agent rather than left to be inferred.
+        function declinePendingQuestion(c) {
+            const at = lastQuestionIndex(c);
+            if (at < 0) return;
+            if (at === 0) {
+                c.declined = true;
+            } else {
+                c.messages[at - 1].declined = true;
+            }
+        }
+
+        // The panel-level count. It is shown above the composer because a question you have not
+        // noticed is the one thing on this page that blocks the agent.
+        function renderPendingQuestions() {
+            const box = document.getElementById("pendingQuestions");
+            if (!box) return;
+            const n = comments.filter(pendingQuestion).length;
+            if (!n) {
+                box.style.display = "none";
+                return;
+            }
+            box.textContent = n === 1
+                ? "1 question awaiting your answer"
+                : n + " questions awaiting your answer";
+            box.style.display = "block";
+        }
+
         // ---------- A comment is a thread ----------
         // The head is the comment itself; messages are the turns after it. Both sides speak here,
         // so each turn is attributed and timestamped — otherwise a long thread stops being
@@ -2554,6 +2648,9 @@
             commentsInAppearanceOrder().forEach(({ c, idx }) => {
                 const item = document.createElement("div");
                 item.className = "feedback-item";
+                // The panel renders in the document's order, not the array's, so the card carries
+                // its index back — that is what lets the pending-question count reach its thread.
+                item.setAttribute('data-comment-idx', idx);
                 if (c.anchor) {
                     item.setAttribute('data-anchor', c.anchor);
                 }
@@ -2628,6 +2725,14 @@
                     authorTag.className = "comment-author";
                     authorTag.textContent = (c.author === "agent") ? "Agent" : "You";
 
+                    if (pendingQuestion(c)) {
+                        item.classList.add("awaiting-answer");
+                        const asking = document.createElement("div");
+                        asking.className = "awaiting-tag";
+                        asking.textContent = "Awaiting your answer";
+                        item.appendChild(asking);
+                    }
+
                     // A comment whose lines are no longer in the diff stays in the panel, with
                     // the lines it was written against — that text is the only way left to tell
                     // what it was about.
@@ -2679,6 +2784,22 @@
                         const toggleText = document.createElement("span");
                         toggleText.textContent = checkbox.checked ? "Resolved" : "Mark resolved";
                         checkbox.addEventListener("change", () => {
+                            // Closing a thread that still holds a question is the one resolve the
+                            // page questions: the agent is blocked on it, and silently resolving
+                            // would look to the agent exactly like being ignored.
+                            if (checkbox.checked && pendingQuestion(comments[idx])) {
+                                const closeAnyway = confirm(
+                                    "The agent is waiting for an answer in this thread.\n\n" +
+                                    "OK — close it without answering. The agent is told the question was declined.\n" +
+                                    "Cancel — answer it first."
+                                );
+                                if (!closeAnyway) {
+                                    checkbox.checked = false;
+                                    startReply(idx);
+                                    return;
+                                }
+                                declinePendingQuestion(comments[idx]);
+                            }
                             comments[idx].status = checkbox.checked ? "resolved" : "open";
                             markDirty();
                             renderComments();
@@ -2707,8 +2828,19 @@
                     container.appendChild(item);
                 }
             });
+            renderPendingQuestions();
             reconcileConnection();
         }
+
+        // The count takes you to the first thread that is waiting, and opens its composer — the
+        // answer is a reply like any other.
+        document.getElementById("pendingQuestions").addEventListener("click", () => {
+            const idx = comments.findIndex(pendingQuestion);
+            if (idx < 0) return;
+            startReply(idx);
+            const card = document.querySelector(`.feedback-item[data-comment-idx="${idx}"]`);
+            if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
 
         window.startEdit = function(idx) {
             editingIdx = idx;
@@ -2811,6 +2943,16 @@
             if (comments.length === 0) {
                 alert("Please add at least one comment before submitting.");
                 return;
+            }
+
+            // Submitting is what hands the round back to the agent, so it is the last moment at
+            // which an unanswered question can still be answered cheaply.
+            const waiting = comments.filter(pendingQuestion).length;
+            if (waiting > 0) {
+                const message = waiting === 1
+                    ? "1 thread still has a question the agent is waiting on.\n\nSubmit without answering it?"
+                    : waiting + " threads still have questions the agent is waiting on.\n\nSubmit without answering them?";
+                if (!confirm(message)) return;
             }
 
             const btn = document.getElementById("submitFeedbackBtn");

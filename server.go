@@ -117,6 +117,11 @@ func (c Comment) PendingQuestion() bool {
 	if last < 0 {
 		return false
 	}
+	// A declined question is settled — refused, but settled. It is still reported to the agent
+	// once, carrying declined, and it never counts as something the human owes an answer to.
+	if msgs[last].Declined {
+		return false
+	}
 	for _, m := range msgs[last+1:] {
 		if m.Author == AuthorHuman {
 			return false

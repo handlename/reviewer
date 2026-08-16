@@ -189,6 +189,19 @@ A **Reply** control sits under a thread that has started. It is a text-weight bu
 
 **Rejected:** a dedicated "answer this question" control (a second posting path that buys nothing over the reply the human is already writing); per-message ids and reply-to targeting (a heavier schema and UI for the rare thread carrying two unanswered questions).
 
+### 5.8 An unanswered question cannot be closed silently
+
+A thread the agent is waiting on is marked twice: an **Awaiting your answer** tag on the card and an inset rule down its left edge — position and the single accent, no second hue and no `padding` or `border` (§4). Above the composer, a count of every such thread doubles as the way to reach the first one: pressing it scrolls to that card and opens its composer.
+
+Two moments then ask before the question is lost:
+
+* **Resolving** such a thread. Cancel answers it instead; OK closes it and records `declined` on that question, which is what the agent receives.
+* **Submitting** with any thread still waiting. The round is what hands control back to the agent, so it is the last cheap moment to answer.
+
+**Why the confirmation is not just a warning:** the agent cannot tell "ignored" from "refused". Recording `declined` turns silence into an answer of a kind, which is the whole reason the flag exists.
+
+**Why the count is a button:** it is the only affordance on the page that says *something is blocked on you*, and anything actionable has to be reachable by keyboard (§8).
+
 ---
 
 ## 6. Rendering a diff
