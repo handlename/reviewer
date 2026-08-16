@@ -175,6 +175,18 @@ In the panel a suggestion renders as a **diff against the lines it replaces**, u
 
 reviewer never edits source. Applying a suggestion is the agent's job. Marking a comment resolved is the human's alone, which is why that control exists only here, on the page.
 
+### 5.7 A comment is a thread, and both sides speak in it
+
+A comment card renders the whole exchange: the human's own remark as the head, then every message after it, attributed and timestamped, in the order it was said. The two authors are separated by **depth** — the agent's message is a filled block, the human's answer is unfilled — never by a second hue (§2.1).
+
+A **Reply** control sits under a thread that has started. It is a text-weight button until it is pressed, and only then a composer, so a thread at rest stays as quiet as it was before it could be replied to. Ctrl/Cmd+Enter sends and Escape cancels, matching the composer and inline editing (§8).
+
+**A thread nobody has answered yet renders exactly as it did before threading** — no Reply control, no resolve toggle. Both appear with the first message, which is also the point at which there is something to resolve.
+
+**A reply posts nothing by itself.** It is held with the rest of the comments and travels on the next Submit, keeping review's batch rhythm: one submit, one round.
+
+**Rejected:** a dedicated "answer this question" control (a second posting path that buys nothing over the reply the human is already writing); per-message ids and reply-to targeting (a heavier schema and UI for the rare thread carrying two unanswered questions).
+
 ---
 
 ## 6. Rendering a diff

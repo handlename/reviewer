@@ -643,11 +643,12 @@
             margin-bottom: 0.3rem;
         }
 
-        /* agent reply threaded beneath a human comment. Concentric: parent radius 3px, inner 2px. */
-        .agent-reply {
+        /* One message in a comment's thread, beneath the head. Concentric: parent radius 3px,
+           inner 2px. The two authors are told apart by depth — the agent's is a filled block,
+           the human's answer is unfilled — never by a second hue (UI_DESIGN.md 2.1). */
+        .thread-message {
             margin-top: 0.55rem;
             padding: 0.5rem 0.6rem;
-            background: var(--bg-tertiary);
             border-left: 2px solid var(--text-tertiary);
             border-radius: 2px;
             font-size: 0.86rem;
@@ -655,8 +656,15 @@
             color: var(--text-body);
             animation: reply-enter 0.3s cubic-bezier(0.2, 0, 0, 1);
         }
-        .agent-reply .agent-reply-label {
-            display: block;
+        .thread-message.from-agent { background: var(--bg-tertiary); }
+        .thread-message.from-human {
+            background: transparent;
+            border-left-color: var(--border-strong);
+        }
+        .thread-message .thread-message-meta {
+            display: flex;
+            align-items: baseline;
+            gap: 0.4rem;
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.6rem;
             font-weight: 500;
@@ -665,7 +673,29 @@
             color: var(--text-tertiary);
             margin-bottom: 0.25rem;
         }
-        .agent-reply p { margin: 0; }
+        .thread-message .thread-message-time {
+            letter-spacing: 0.04em;
+            text-transform: none;
+        }
+        .thread-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+        /* Reply to a thread. Quiet until wanted: a text-weight control, the composer only once
+           it is opened, so a thread at rest stays as calm as it was before it had one. */
+        .thread-reply-btn {
+            margin-top: 0.5rem;
+            padding: 0.2rem 0;
+            background: none;
+            border: none;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: color 0.18s;
+        }
+        .thread-reply-btn:hover { color: var(--text-secondary); }
+        .thread-reply { margin-top: 0.5rem; }
 
         @keyframes reply-enter {
             from { opacity: 0; transform: translateY(-3px); }
@@ -1411,6 +1441,9 @@
         let comments = [];
         let summary = "";
         let editingIdx = -1;
+        // Which thread has its reply composer open. Separate from editingIdx: editing rewrites
+        // the human's own head message, replying adds a turn to the thread.
+        let replyingIdx = -1;
         let activeAnchor = "";
         let activeContext = "";
         // Diff mode only: the exact content of the lines being commented on. It travels with the
@@ -2339,6 +2372,94 @@
             return box;
         }
 
+        // ---------- A comment is a thread ----------
+        // The head is the comment itself; messages are the turns after it. Both sides speak here,
+        // so each turn is attributed and timestamped — otherwise a long thread stops being
+        // readable as a conversation.
+        function threadMessage(m) {
+            const box = document.createElement("div");
+            box.className = "thread-message " + (m.author === "agent" ? "from-agent" : "from-human");
+
+            const meta = document.createElement("div");
+            meta.className = "thread-message-meta";
+            const who = document.createElement("span");
+            who.textContent = (m.author === "agent") ? "Agent" : "You";
+            meta.appendChild(who);
+            const when = messageTime(m.timestamp);
+            if (when) {
+                const time = document.createElement("span");
+                time.className = "thread-message-time";
+                time.textContent = when.short;
+                time.title = when.full;
+                meta.appendChild(time);
+            }
+            box.appendChild(meta);
+
+            const body = document.createElement("p");
+            body.textContent = m.text || "";
+            box.appendChild(body);
+            return box;
+        }
+
+        // A timestamp is only worth showing if it parses: the sidecar is written by two programs
+        // and read after arbitrary delays, so an unusable value is shown as nothing at all.
+        function messageTime(ts) {
+            if (!ts) return null;
+            const d = new Date(ts);
+            if (isNaN(d.getTime())) return null;
+            return {
+                short: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                full: d.toLocaleString(),
+            };
+        }
+
+        // The human's side of the thread. It posts nothing by itself: the reply is held with the
+        // rest of the comments and travels on the next Submit, keeping review's batch rhythm.
+        function appendReplyControl(item, idx) {
+            if (replyingIdx !== idx) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "thread-reply-btn";
+                btn.textContent = "Reply";
+                btn.onclick = () => startReply(idx);
+                item.appendChild(btn);
+                return;
+            }
+
+            const box = document.createElement("div");
+            box.className = "thread-reply";
+
+            const textarea = document.createElement("textarea");
+            textarea.className = "edit-textarea";
+            textarea.placeholder = "Reply to this thread…";
+            textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
+            textarea.addEventListener("keydown", (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    sendReply(idx, textarea.value.trim());
+                } else if (e.key === "Escape") {
+                    cancelReply();
+                }
+            });
+
+            const actions = document.createElement("div");
+            actions.className = "edit-actions";
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "btn-sm btn-cancel";
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.onclick = () => cancelReply();
+            const sendBtn = document.createElement("button");
+            sendBtn.className = "btn-sm btn-save";
+            sendBtn.textContent = "Reply";
+            sendBtn.onclick = () => sendReply(idx, textarea.value.trim());
+            actions.appendChild(cancelBtn);
+            actions.appendChild(sendBtn);
+
+            box.appendChild(textarea);
+            box.appendChild(actions);
+            item.appendChild(box);
+            setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
+        }
+
         function renderComments() {
             const container = document.getElementById("commentsList");
             container.innerHTML = "";
@@ -2451,18 +2572,15 @@
                         }
                     }
 
-                    // Agent's reply, threaded beneath the human comment.
-                    if (c.reply && c.reply.trim()) {
-                        const reply = document.createElement("div");
-                        reply.className = "agent-reply";
-                        const label = document.createElement("span");
-                        label.className = "agent-reply-label";
-                        label.textContent = "Agent reply";
-                        const rp = document.createElement("p");
-                        rp.textContent = c.reply;
-                        reply.appendChild(label);
-                        reply.appendChild(rp);
-                        item.appendChild(reply);
+                    // The rest of the thread, in the order it was said. The head is the comment
+                    // itself, already rendered above.
+                    const messages = c.messages || [];
+                    messages.forEach(m => item.appendChild(threadMessage(m)));
+
+                    // A thread nobody has answered yet is left exactly as it was before threading:
+                    // no reply control, no resolve toggle, nothing to resolve.
+                    if (messages.length) {
+                        appendReplyControl(item, idx);
 
                         // Resolve toggle — the human confirms the fix; the agent never self-resolves.
                         const toggleLabel = document.createElement("label");
@@ -2509,6 +2627,35 @@
             renderComments();
         };
 
+        window.startReply = function(idx) {
+            replyingIdx = idx;
+            renderComments();
+        };
+
+        window.cancelReply = function() {
+            replyingIdx = -1;
+            renderComments();
+        };
+
+        // A reply is a human turn appended to the thread. It answers any question the agent left
+        // there, which is the whole rule: there is no separate "answer" control, because a second
+        // posting path would buy nothing over the reply the human is already writing.
+        window.sendReply = function(idx, text) {
+            if (!text) {
+                cancelReply();
+                return;
+            }
+            const c = comments[idx];
+            c.messages = (c.messages || []).concat([{
+                author: "human",
+                text: text,
+                timestamp: new Date().toISOString(),
+            }]);
+            replyingIdx = -1;
+            markDirty();
+            renderComments();
+        };
+
         window.saveComment = function(idx, newText) {
             if (!newText) {
                 alert("Comment text cannot be empty.");
@@ -2533,6 +2680,11 @@
             } else if (editingIdx > idx) {
                 // Adjust editing index if we deleted an item before the editing one
                 editingIdx--;
+            }
+            if (replyingIdx === idx) {
+                replyingIdx = -1;
+            } else if (replyingIdx > idx) {
+                replyingIdx--;
             }
             renderComments();
             updateInlineIndicators();
@@ -2586,7 +2738,7 @@
         // Live reload over SSE: the server pushes "reload" when the agent edits the
         // document or writes replies. Defer the reload if the user has unsent edits.
         function hasUnsentEdits() {
-            return dirty || editingIdx !== -1 || document.getElementById("commentInput").value.trim() !== "";
+            return dirty || editingIdx !== -1 || replyingIdx !== -1 || document.getElementById("commentInput").value.trim() !== "";
         }
 
         function connectLiveReload() {
