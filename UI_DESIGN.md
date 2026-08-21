@@ -76,7 +76,7 @@ A contents rail on the left, the document in the middle, the feedback panel on t
 
 The document column is capped at a `--measure` of 40rem (~70 characters) and the layout at 1600px, because prose has an optimal measure and exceeding it costs comprehension.
 
-**In diff mode the cap is dropped entirely.** A diff is as wide as its longest line and has no measure to respect; on a large screen the cap was pure loss — horizontal scrolling inside hunks while the window still had room. The column instead takes whatever the two rails leave, floored at `--main-min-width`.
+**In diff mode the cap is dropped entirely.** A diff has no measure to respect, and its lines wrap rather than run off the side (§6.2); on a large screen the cap was pure loss — lines wrapping while the window still had room. The column instead takes whatever the two rails leave, floored at `--main-min-width`.
 
 ### 3.3 Widths live in custom properties, never in inline styles
 
@@ -216,11 +216,15 @@ A single column shows each line's number on its own side — the old file's for 
 
 **Why:** a deletion has no number on the new side, and leaving the cell blank hides which line a comment is about.
 
-### 6.2 The hunk is the horizontal scroll unit
+### 6.2 A line wraps rather than running off the side
 
-**Why:** scrolling per line lets rows slide independently and destroys the column alignment a diff is read by. Scrolling the whole file card would carry its sticky path header away with it.
+A line too long for the column wraps, the way GitHub's diff does with wrapping on: the number and marker columns keep their width, so the continuation hangs under the code and the number stays on the row's first line. A token with no spaces in it — base64, minified JS, a long URL — is broken mid-token rather than allowed to overflow, so no line can push the column sideways.
 
-The `💬` badge sits sticky at the right edge of the scrollport rather than hanging in the right gutter, because the hunk scrolls horizontally and would clip it.
+**Why:** a review is read at whatever width the two rails leave, and a column the reader has to scroll sideways hides half of every long line at once. Losing the exact character column of a long line costs less than losing the line's second half — and a diff of base64 or minified code was never read by column anyway.
+
+**The hunk stays the scroll unit** all the same: `overflow-x` lives on the hunk, unused in practice now but still the scrollport the `💬` badge sticks to. Scrolling per line would let rows slide independently and destroy the column alignment a diff is read by; scrolling the whole file card would carry its sticky path header away with it.
+
+The `💬` badge sits at the right edge of that scrollport rather than hanging in the right gutter. The code cell shrinks to make room for it, so the badge never lands on top of a wrapped line's text.
 
 ### 6.3 Syntax highlighting: per file, per line, on demand
 
