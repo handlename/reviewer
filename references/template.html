@@ -682,7 +682,13 @@
         /* Reply to a thread. Quiet until wanted: a text-weight control, the composer only once
            it is opened, so a thread at rest stays as calm as it was before it had one. */
         .thread-reply-btn {
-            margin-top: 0.5rem;
+            /* Sits on the same line as the resolve toggle, so it matches its height and keeps a
+               gap: the two read as one row of choices rather than as colliding words. */
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            margin-top: 0.55rem;
+            margin-right: 0.9rem;
             padding: 0.2rem 0;
             background: none;
             border: none;
