@@ -102,6 +102,20 @@ The drag geometry measures the panel's **own** right edge once at drag start. Co
 
 **Why:** a diff is read across rather than down, so the file list is the first thing worth trading for width.
 
+### 3.6 Each column owns its own scrollport
+
+All three columns are `100vh` and scroll themselves; the page does not scroll at all. The document column is therefore the element that scrolls the document, and its scrollbar sits at **its own right edge** — between the document and the comment panel — rather than at the window edge.
+
+**Why:** the two rails were already `100vh` and sticky, so leaving the document column unbounded made the *page* the thing that scrolled. That put the scrollbar for the middle column outside the right-hand rail, past the panel, attached to nothing it actually scrolled. A scrollbar is an edge indicator, and the edge it belongs to is the end of the content it moves.
+
+Because the document column is a scrollport and not an interactive control, it carries `tabindex="0"` and takes focus on load. Keys aimed at `<body>` would otherwise scroll a page that no longer moves, and Space, PageDown and the arrows would do nothing (§8).
+
+That load-time focus does **not** ring. Chrome turns `:focus-visible` on at the reader's first arrow key and never turns it off again — focus never leaves the column — so the accent outline would enclose the whole document for the rest of the session while announcing a focus the reader never chose. The suppression is scoped to a `focus-on-load` class that is dropped the first time focus does leave the column, after which every arrival here is deliberate and rings normally. This is the single sanctioned exception to §8.
+
+JavaScript never assumes which element scrolls: it asks, by reading the column's computed `overflow-y`. The narrow-viewport layout stacks the rails and hands scrolling back to the page (`height: auto; overflow-y: visible`), and reading the computed value keeps that breakpoint in the stylesheet instead of restating it in two places that can drift apart.
+
+**Rejected:** wrapping the column in a full-width scrolling container so the scrollbar always hugs the panel's border. It buys a flush edge only on windows wider than 1616px — below that the column already fills its slot — and costs a DOM element that every `.main-content` query would then have to be re-pointed around.
+
 ---
 
 ## 4. Comment states: four states, three non-colour axes
@@ -259,6 +273,8 @@ Because there is no toggle, anything that captures the page (a screenshot, a pri
 ## 8. Accessibility and motion
 
 Every control reachable by pointer is reachable by keyboard: the edit and delete affordances carry `tabindex` and handle Enter and Space, and the composer saves on Ctrl/Cmd+Enter and cancels on Escape. `:focus-visible` is styled with the accent rather than suppressed, and `prefers-reduced-motion` is honoured — including by the connector line.
+
+The document column is the one exception, and only for the focus the page takes itself on load (§3.6). Focus the reader moves there rings like everything else.
 
 User-supplied text is inserted with `textContent`, never `innerHTML`.
 
