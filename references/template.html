@@ -1210,9 +1210,9 @@
             font-size: 0.84rem;
             color: var(--text-tertiary);
         }
-        /* The hunk is the horizontal scroll unit. Scrolling per line would make the
-           rows slide independently and destroy the column alignment a diff is read by;
-           scrolling the whole file card would take the sticky path header with it. */
+        /* Lines wrap, so this rarely scrolls — but the hunk stays the scroll unit and the
+           scrollport the sticky badge sticks to. Scrolling per line would make the rows slide
+           independently; scrolling the whole file card would take the sticky path header. */
         .diff-hunk {
             overflow-x: auto;
             display: flex;
@@ -1225,9 +1225,8 @@
             color: var(--text-tertiary);
             padding: 0.3rem 0.85rem;
             background: hsl(var(--fg-hsl) / 0.035);
-            white-space: pre;
-            width: max-content;
-            min-width: 100%;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
         }
         .diff-line {
             display: flex;
@@ -1235,12 +1234,11 @@
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.84rem;
             line-height: 1.6;
-            white-space: pre;
+            /* pre-WRAP, not pre: a line too long for the hunk wraps rather than pushing the
+               row wider than the scrollport. Whitespace is still significant, so leading
+               indentation survives. */
+            white-space: pre-wrap;
             position: relative;
-            /* As wide as its code, but never narrower than the hunk, so the row's tint
-               still spans the full width of a short line. */
-            width: max-content;
-            min-width: 100%;
         }
         .diff-no {
             flex: 0 0 auto;
@@ -1261,7 +1259,17 @@
             color: var(--text-tertiary);
             user-select: none;
         }
-        .diff-code { flex: 0 0 auto; padding-right: 1rem; }
+        /* The only column that wraps: the number and marker columns keep their fixed width, so
+           a wrapped line's number stays on its first visual row. flex-shrink and min-width: 0
+           are what let the cell narrow below its content — a flex item refuses to otherwise.
+           `anywhere` breaks inside a token with no spaces in it (base64, minified JS, a long
+           URL), which is what keeps the row from overflowing no matter what it holds. */
+        .diff-code {
+            flex: 0 1 auto;
+            min-width: 0;
+            padding-right: 1rem;
+            overflow-wrap: anywhere;
+        }
         .diff-add { background: var(--diff-add-bg); }
         .diff-del { background: var(--diff-del-bg); }
         .diff-add .diff-marker { color: var(--diff-add-fg); font-weight: 600; }

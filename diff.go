@@ -395,7 +395,7 @@ func pluralFiles(n int) string {
 
 // renderDiffBody builds the document body: one section per file, one row per diff line.
 //
-// Each row is emitted on a single output line because .diff-line is white-space: pre — a
+// Each row is emitted on a single output line because .diff-line is white-space: pre-wrap — a
 // newline between its spans would render as a line break inside the row.
 func renderDiffBody(files []File) string {
 	var b strings.Builder
