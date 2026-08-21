@@ -258,6 +258,16 @@ Marks are glyphs, not an icon font or inline SVG: they inherit the monospace col
 
 `−` is U+2212 MINUS SIGN, not a hyphen, so it pairs with `+` at the same weight and width.
 
+### 6.5 Whitespace-only changes fold; they are never removed
+
+A reformatting commit buries its real edits under re-indented lines. **Hide whitespace** in the contents rail folds those away, leaving the shape `git diff -w` produces: one readable row per pair, the deletion out of sight and the addition dressed down to look like context.
+
+Folding is done in CSS over rows that are already there. Both halves of the pair keep their place in the DOM and their `data-line-index`, so a comment anchored to a folded line still resolves, and turning the toggle on cannot renumber anything under a reviewer mid-review. Nothing is re-fetched or re-rendered; the switch is a class on `body`.
+
+A line someone has commented on is exempt and stays visible, still tinted as a deletion. A connector is drawn from its anchor's bounding box, and `display: none` collapses that box to the origin — a folded anchor would fling its line to the corner of the page. Keeping the row also says why it survived: you are reading it because you wrote about it.
+
+The state persists like the rail's own, because a reviewer who folded whitespace away wants it folded for the whole round, not until the agent's next reload.
+
 ---
 
 ## 7. Theme
