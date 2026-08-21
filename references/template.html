@@ -212,8 +212,20 @@
             max-width: calc(var(--measure) + var(--u) * 12);
             margin: 0 auto;
             padding: clamp(2.5rem, 5vw, 4.5rem) clamp(1.5rem, 4vw, 3rem);
+            /* Its own scrollport rather than the page's. Why not let the page scroll: the two
+               rails are already 100vh and sticky, so a page-level scroll puts this column's
+               scrollbar at the window edge — outside the comment panel — instead of at the
+               column's own right edge, where the content it scrolls actually ends. */
+            height: 100vh;
             overflow-y: auto;
         }
+        /* Why not ring like everything else does: the focus this suppresses is not the reader's,
+           it is the one taken on load so the keyboard can scroll the column at all. Chrome turns
+           the ring on at their first arrow key and never turns it off — focus never leaves the
+           column — so a 2px accent frame would enclose the whole document for the rest of the
+           session while announcing nothing they chose. The class is dropped the first time focus
+           does leave, after which every arrival here is deliberate and rings normally. */
+        .main-content.focus-on-load:focus-visible { outline: none; }
 
         .feedback-panel {
             width: var(--feedback-panel-width);
@@ -1442,7 +1454,9 @@
             .feedback-panel { border-bottom: none; border-top: 1px solid var(--border-color); }
             /* The rails are stacked, so there is no horizontal edge left to drag. */
             body.is-served .panel-resize-handle { display: none; }
-            .main-content { max-width: 46rem; }
+            /* The rails are stacked and the page scrolls again, so the column must not keep
+               a second scrollport nested inside it. */
+            .main-content { max-width: 46rem; height: auto; overflow-y: visible; }
             .element-comment-indicator { right: 2px; }
         }
     </style>
@@ -1465,7 +1479,7 @@
             </nav>
         </aside>
 
-        <main class="main-content{{if eq .Mode "diff"}} diff-mode{{end}}">
+        <main class="main-content{{if eq .Mode "diff"}} diff-mode{{end}}" tabindex="0">
             {{.Body}}
         </main>
 
@@ -2265,18 +2279,33 @@
             document.querySelectorAll(".selected-target").forEach(n => n.classList.remove("selected-target"));
         }
 
-        // Scroll the body so the target element's vertical centre lines up with
-        // the comment card's centre, then draw the (animated) line.
+        /* Whatever currently scrolls the document column. .main-content owns its scrollport in
+           the three-column layout, but the narrow-viewport media query hands scrolling back to
+           the page. Reading the computed overflow keeps the breakpoint in the stylesheet instead
+           of restating it here, where the two could drift apart. */
+        function contentScroller() {
+            const main = document.querySelector(".main-content");
+            return main && getComputedStyle(main).overflowY === "auto" ? main : window;
+        }
+
+        // window and Element share scrollBy/scrollTo, but not the read side.
+        function scrollOffset(scroller) {
+            return scroller === window ? window.scrollY : scroller.scrollTop;
+        }
+
+        // Scroll the document column so the target element's vertical centre lines up
+        // with the comment card's centre, then draw the (animated) line.
         function alignAndDraw(el, card) {
             const er = el.getBoundingClientRect();
             const cr = card.getBoundingClientRect();
             const delta = (er.top + er.height / 2) - (cr.top + cr.height / 2);
             const finish = () => { if (connection) drawConnection(connection, true); };
+            const scroller = contentScroller();
             if (Math.abs(delta) < 2 || prefersReducedMotion) {
-                window.scrollBy(0, delta);
+                scroller.scrollBy(0, delta);
                 finish();
             } else {
-                window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
+                scroller.scrollTo({ top: scrollOffset(scroller) + delta, behavior: "smooth" });
                 setTimeout(finish, 320);
             }
         }
@@ -3142,7 +3171,7 @@
                 programmaticScrollTimeout = null;
             }
             if (activeScrollEndHandler) {
-                window.removeEventListener("scrollend", activeScrollEndHandler);
+                window.removeEventListener("scrollend", activeScrollEndHandler, true);
                 activeScrollEndHandler = null;
             }
             isProgrammaticScroll = false;
@@ -3245,7 +3274,7 @@
                     setActiveTOCItem(link);
 
                     activeScrollEndHandler = () => clearProgrammaticScrollState();
-                    window.addEventListener("scrollend", activeScrollEndHandler);
+                    window.addEventListener("scrollend", activeScrollEndHandler, true);
                     programmaticScrollTimeout = setTimeout(clearProgrammaticScrollState, 1000);
                 });
 
@@ -3287,20 +3316,27 @@
             const firstLink = tocContainer.querySelector(".sidebar-toc-item");
             const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
 
-            // Fallback for highlighting the first item near top of the page, or the last item at the bottom
+            // Fallback for highlighting the first item near the top of the column, or the last
+            // item at the bottom. Capture phase: scroll does not bubble, so a listener bound to
+            // window would never see .main-content scrolling.
             window.addEventListener("scroll", () => {
                 if (isProgrammaticScroll) return;
 
-                if (window.scrollY < 50) {
+                const scroller = contentScroller();
+                const offset = scrollOffset(scroller);
+                const viewport = scroller === window ? window.innerHeight : scroller.clientHeight;
+                const total = scroller === window ? document.documentElement.scrollHeight : scroller.scrollHeight;
+
+                if (offset < 50) {
                     if (firstLink) {
                         setActiveTOCItem(firstLink);
                     }
-                } else if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 10) {
+                } else if (viewport + offset >= total - 10) {
                     if (lastLink) {
                         setActiveTOCItem(lastLink);
                     }
                 }
-            });
+            }, true);
         }
 
         // ---------- Resizable comment panel ----------
@@ -3448,6 +3484,17 @@
         connectLiveReload();
         // Restore any in-progress agent status (e.g. after a mid-round reload)
         loadAgentStatus();
+
+        // The column, not the page, is the scrollport now, so arrow/Space/PageDown keys aimed at
+        // the body would scroll something that no longer moves. preventScroll so taking focus
+        // cannot undo the #hash jump below.
+        const initialScroller = document.querySelector(".main-content");
+        if (initialScroller) {
+            initialScroller.classList.add("focus-on-load");
+            initialScroller.focus({ preventScroll: true });
+            initialScroller.addEventListener("blur",
+                () => initialScroller.classList.remove("focus-on-load"), { once: true });
+        }
 
         // Handle initial URL hash scroll if present
         if (window.location.hash) {
