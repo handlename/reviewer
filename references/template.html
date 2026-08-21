@@ -835,6 +835,13 @@
             transition: background-color 0.18s;
         }
         .pending-questions:hover { background: hsl(var(--accent-hsl) / 0.09); }
+        /* It shares the composer's width and shape, so without a mark it reads as a field to type
+           in rather than something to press. The arrow says it takes you somewhere. */
+        .pending-questions::after {
+            content: "\2192";
+            float: right;
+            color: var(--accent-color);
+        }
         /* Inset, so the mark costs no padding or border and the text under it never moves. */
         .feedback-item.awaiting-answer { box-shadow: inset 2px 0 0 var(--accent-color); }
 
