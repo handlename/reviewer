@@ -596,6 +596,145 @@ func TestCommentJSONRoundTrip(t *testing.T) {
 			t.Errorf("legacy comment = %#v", fb.Comments)
 		}
 	})
+
+	t.Run("a comment with no agent activity serialises as it did before threading", func(t *testing.T) {
+		encoded, err := json.Marshal(Comment{
+			ID: "abc", Text: "tighten this", Timestamp: "2026-08-15T00:00:00Z",
+			Anchor: "spec-element-3", Context: "The system MUST…", Author: AuthorHuman, Status: StatusOpen,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `{"id":"abc","text":"tighten this","timestamp":"2026-08-15T00:00:00Z","anchor":"spec-element-3","context":"The system MUST…","author":"human","status":"open"}`
+		if string(encoded) != want {
+			t.Errorf("serialisation changed\n got: %s\nwant: %s", encoded, want)
+		}
+	})
+
+	t.Run("a message drops its flags when they are false", func(t *testing.T) {
+		encoded, err := json.Marshal(Message{Author: AuthorAgent, Text: "fixed", Timestamp: "t"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `{"author":"agent","text":"fixed","timestamp":"t"}`
+		if string(encoded) != want {
+			t.Errorf("message serialisation = %s, want %s", encoded, want)
+		}
+
+		var got Message
+		if err := json.Unmarshal([]byte(`{"author":"agent","text":"which one?","timestamp":"t","needsAnswer":true,"declined":true}`), &got); err != nil {
+			t.Fatal(err)
+		}
+		if !got.NeedsAnswer || !got.Declined {
+			t.Errorf("message round trip = %#v", got)
+		}
+	})
+}
+
+// An older reviewer wrote one reply per comment. Reading such a sidecar has to yield the same
+// exchange in threaded form, because the reply is the only record of what the agent said.
+func TestMigrateFeedback_FoldsTheOldReplyIntoTheThread(t *testing.T) {
+	var fb Feedback
+	raw := `{"comments":[
+		{"id":"one","text":"tighten this","timestamp":"t1","reply":"Rewrote the paragraph.","replyTimestamp":"t2"},
+		{"id":"two","text":"no reply yet","timestamp":"t3"}
+	]}`
+	if err := json.Unmarshal([]byte(raw), &fb); err != nil {
+		t.Fatal(err)
+	}
+
+	got := migrateFeedback(fb)
+
+	first := got.Comments[0]
+	if len(first.Messages) != 1 {
+		t.Fatalf("expected the reply to become one message, got %#v", first.Messages)
+	}
+	if first.Messages[0].Author != AuthorAgent || first.Messages[0].Text != "Rewrote the paragraph." || first.Messages[0].Timestamp != "t2" {
+		t.Errorf("migrated message = %#v", first.Messages[0])
+	}
+	if first.Reply != "" || first.ReplyTimestamp != "" {
+		t.Errorf("the deprecated fields survived migration: %#v", first)
+	}
+	if len(got.Comments[1].Messages) != 0 {
+		t.Errorf("a comment with no reply gained messages: %#v", got.Comments[1])
+	}
+
+	encoded, err := json.Marshal(got.Comments[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"reply"`) {
+		t.Errorf("a migrated comment still writes reply: %s", encoded)
+	}
+}
+
+// PendingQuestion is the rule the page and the agent both read: it decides whether the human is
+// still being asked something. The table is the specification.
+func TestCommentPendingQuestion(t *testing.T) {
+	human := func(text string) Message { return Message{Author: AuthorHuman, Text: text} }
+	agent := func(text string) Message { return Message{Author: AuthorAgent, Text: text} }
+	asking := func(text string) Message {
+		return Message{Author: AuthorAgent, Text: text, NeedsAnswer: true}
+	}
+
+	tests := []struct {
+		name    string
+		comment Comment
+		want    bool
+	}{
+		{"an empty thread asks nothing", Comment{}, false},
+		{"a human comment alone", Comment{Author: AuthorHuman, Text: "a"}, false},
+		{"an ordinary agent report is not a question", Comment{
+			Author: AuthorHuman, Text: "a", Messages: []Message{agent("b")},
+		}, false},
+		{"a flagged agent question", Comment{
+			Author: AuthorHuman, Text: "a", Messages: []Message{asking("b")},
+		}, true},
+		{"the human answered", Comment{
+			Author: AuthorHuman, Text: "a", Messages: []Message{asking("b"), human("c")},
+		}, false},
+		{"a second question after the answer", Comment{
+			Author: AuthorHuman, Text: "a", Messages: []Message{asking("b"), human("c"), asking("d")},
+		}, true},
+		{"one human message answers every question before it", Comment{
+			Author: AuthorHuman, Text: "a", Messages: []Message{asking("b"), asking("c"), human("d")},
+		}, false},
+		{"an agent-opened thread asks from its head", Comment{
+			Author: AuthorAgent, Text: "a", NeedsAnswer: true,
+		}, true},
+		{"an agent-opened thread the human answered", Comment{
+			Author: AuthorAgent, Text: "a", NeedsAnswer: true, Messages: []Message{human("b")},
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.comment.PendingQuestion(); got != tt.want {
+				t.Errorf("PendingQuestion() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// thread() is what lets every rule be written against a flat sequence: the head first, then the
+// messages, with the head's author defaulted so a comment written before authors existed reads
+// as the human's.
+func TestCommentThread_PutsTheHeadFirst(t *testing.T) {
+	c := Comment{Text: "head", Timestamp: "t1", Messages: []Message{
+		{Author: AuthorAgent, Text: "reply", Timestamp: "t2"},
+	}}
+
+	got := c.thread()
+
+	if len(got) != 2 {
+		t.Fatalf("thread() = %#v, want head + 1 message", got)
+	}
+	if got[0].Author != AuthorHuman || got[0].Text != "head" || got[0].Timestamp != "t1" {
+		t.Errorf("head = %#v", got[0])
+	}
+	if got[1].Text != "reply" {
+		t.Errorf("tail = %#v", got[1])
+	}
 }
 
 func readJSONFile(t *testing.T, path string, v any) {

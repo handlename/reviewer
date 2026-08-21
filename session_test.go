@@ -239,11 +239,15 @@ func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
 	}
 
 	fb := s.readFeedbackDoc()
-	if fb.Comments[0].Reply != "fixed in section 2" {
-		t.Fatalf("got reply %q, want %q", fb.Comments[0].Reply, "fixed in section 2")
+	msgs := fb.Comments[0].Messages
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages, want the reply threaded as one: %#v", len(msgs), msgs)
 	}
-	if fb.Comments[0].ReplyTimestamp == "" {
-		t.Fatal("ReplyTimestamp should have been set")
+	if msgs[0].Author != AuthorAgent || msgs[0].Text != "fixed in section 2" {
+		t.Fatalf("got message %#v, want the agent's reply", msgs[0])
+	}
+	if msgs[0].Timestamp == "" {
+		t.Fatal("the reply should have been timestamped")
 	}
 	if fb.Summary != "round 1 changes" {
 		t.Fatalf("got summary %q, want %q", fb.Summary, "round 1 changes")
