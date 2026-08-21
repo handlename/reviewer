@@ -678,6 +678,19 @@
             text-transform: none;
         }
         .thread-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+        /* Sits at the end of the message's own meta line, so it needs no gutter of its own and
+           cannot collide with the card's edit and delete affordances. */
+        .thread-message-edit {
+            margin-left: auto;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            font-size: 0.8rem;
+            line-height: 1;
+            user-select: none;
+            transition: color 0.18s;
+        }
+        .thread-message-edit:hover { color: var(--accent-color); }
+        .thread-message .edit-textarea { margin-bottom: 0.25rem; }
 
         /* Reply to a thread. Quiet until wanted: a text-weight control, the composer only once
            it is opened, so a thread at rest stays as calm as it was before it had one. */
@@ -1450,6 +1463,9 @@
         // Which thread has its reply composer open. Separate from editingIdx: editing rewrites
         // the human's own head message, replying adds a turn to the thread.
         let replyingIdx = -1;
+        // Which turn of which thread is being edited, as {idx, mi} — a message needs both
+        // coordinates, so it cannot ride the single index the head comment uses.
+        let editingMsg = null;
         let activeAnchor = "";
         let activeContext = "";
         // Diff mode only: the exact content of the lines being commented on. It travels with the
@@ -2382,14 +2398,15 @@
         // The head is the comment itself; messages are the turns after it. Both sides speak here,
         // so each turn is attributed and timestamped — otherwise a long thread stops being
         // readable as a conversation.
-        function threadMessage(m) {
+        function threadMessage(m, idx, mi) {
             const box = document.createElement("div");
-            box.className = "thread-message " + (m.author === "agent" ? "from-agent" : "from-human");
+            const own = (m.author !== "agent");
+            box.className = "thread-message " + (own ? "from-human" : "from-agent");
 
             const meta = document.createElement("div");
             meta.className = "thread-message-meta";
             const who = document.createElement("span");
-            who.textContent = (m.author === "agent") ? "Agent" : "You";
+            who.textContent = own ? "You" : "Agent";
             meta.appendChild(who);
             const when = messageTime(m.timestamp);
             if (when) {
@@ -2399,12 +2416,70 @@
                 time.title = when.full;
                 meta.appendChild(time);
             }
+            // Only the human's own turns are editable, for the same reason the head comment is:
+            // it is their remark to correct. The agent's messages are a record of what it said.
+            if (own) {
+                const editBtn = document.createElement("span");
+                editBtn.className = "thread-message-edit";
+                editBtn.innerHTML = "✎";
+                editBtn.title = "Edit this reply";
+                editBtn.tabIndex = 0;
+                editBtn.onclick = (e) => { e.stopPropagation(); startEditMessage(idx, mi); };
+                editBtn.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        startEditMessage(idx, mi);
+                    }
+                });
+                meta.appendChild(editBtn);
+            }
             box.appendChild(meta);
+
+            if (own && editingMsg && editingMsg.idx === idx && editingMsg.mi === mi) {
+                box.appendChild(messageEditor(idx, mi, m));
+                return box;
+            }
 
             const body = document.createElement("p");
             body.textContent = m.text || "";
             box.appendChild(body);
             return box;
+        }
+
+        // Editing one turn of a thread, with the same keys as the composer and inline editing:
+        // Ctrl/Cmd+Enter saves, Escape cancels.
+        function messageEditor(idx, mi, m) {
+            const wrap = document.createElement("div");
+
+            const textarea = document.createElement("textarea");
+            textarea.className = "edit-textarea";
+            textarea.value = m.text || "";
+            textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
+            textarea.addEventListener("keydown", (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                    saveMessage(idx, mi, textarea.value.trim());
+                } else if (e.key === "Escape") {
+                    cancelEditMessage();
+                }
+            });
+
+            const actions = document.createElement("div");
+            actions.className = "edit-actions";
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "btn-sm btn-cancel";
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.onclick = () => cancelEditMessage();
+            const saveBtn = document.createElement("button");
+            saveBtn.className = "btn-sm btn-save";
+            saveBtn.textContent = "Save";
+            saveBtn.onclick = () => saveMessage(idx, mi, textarea.value.trim());
+            actions.appendChild(cancelBtn);
+            actions.appendChild(saveBtn);
+
+            wrap.appendChild(textarea);
+            wrap.appendChild(actions);
+            setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
+            return wrap;
         }
 
         // A timestamp is only worth showing if it parses: the sidecar is written by two programs
@@ -2581,7 +2656,7 @@
                     // The rest of the thread, in the order it was said. The head is the comment
                     // itself, already rendered above.
                     const messages = c.messages || [];
-                    messages.forEach(m => item.appendChild(threadMessage(m)));
+                    messages.forEach((m, mi) => item.appendChild(threadMessage(m, idx, mi)));
 
                     // A thread nobody has answered yet is left exactly as it was before threading:
                     // no reply control, no resolve toggle, nothing to resolve.
@@ -2630,6 +2705,31 @@
 
         window.startEdit = function(idx) {
             editingIdx = idx;
+            renderComments();
+        };
+
+        window.startEditMessage = function(idx, mi) {
+            editingMsg = { idx, mi };
+            renderComments();
+        };
+
+        window.cancelEditMessage = function() {
+            editingMsg = null;
+            renderComments();
+        };
+
+        window.saveMessage = function(idx, mi, newText) {
+            if (!newText) {
+                alert("A reply cannot be empty.");
+                return;
+            }
+            const m = (comments[idx].messages || [])[mi];
+            if (!m) return;
+            m.text = newText;
+            // Restamped like the head comment on edit: the turn now says this, as of now.
+            m.timestamp = new Date().toISOString();
+            editingMsg = null;
+            markDirty();
             renderComments();
         };
 
@@ -2692,6 +2792,10 @@
             } else if (replyingIdx > idx) {
                 replyingIdx--;
             }
+            if (editingMsg) {
+                if (editingMsg.idx === idx) editingMsg = null;
+                else if (editingMsg.idx > idx) editingMsg.idx--;
+            }
             renderComments();
             updateInlineIndicators();
         };
@@ -2744,7 +2848,7 @@
         // Live reload over SSE: the server pushes "reload" when the agent edits the
         // document or writes replies. Defer the reload if the user has unsent edits.
         function hasUnsentEdits() {
-            return dirty || editingIdx !== -1 || replyingIdx !== -1 || document.getElementById("commentInput").value.trim() !== "";
+            return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || document.getElementById("commentInput").value.trim() !== "";
         }
 
         function connectLiveReload() {

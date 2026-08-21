@@ -185,6 +185,8 @@ A **Reply** control sits under a thread that has started. It is a text-weight bu
 
 **A reply posts nothing by itself.** It is held with the rest of the comments and travels on the next Submit, keeping review's batch rhythm: one submit, one round.
 
+**The human's own turns are editable, the agent's are not.** Each of the human's messages carries the same `✎` affordance as the head comment, at the end of its own meta line so it needs no gutter and cannot collide with the card's affordances; editing restamps the turn, exactly as editing the head does. The agent's messages are a record of what it said, and rewriting them would leave the human answering something the agent never asked.
+
 **Rejected:** a dedicated "answer this question" control (a second posting path that buys nothing over the reply the human is already writing); per-message ids and reply-to targeting (a heavier schema and UI for the rare thread carrying two unanswered questions).
 
 ---
