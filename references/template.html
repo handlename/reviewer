@@ -844,6 +844,9 @@
         }
         /* Inset, so the mark costs no padding or border and the text under it never moves. */
         .feedback-item.awaiting-answer { box-shadow: inset 2px 0 0 var(--accent-color); }
+        /* A thread the agent opened carries no edit or delete affordance, so it does not need the
+           gutter the card reserves for them. */
+        .feedback-item.agent-thread { padding-right: 0.8rem; }
 
         .outdated-tag {
             font-family: 'IBM Plex Mono', monospace;
@@ -2728,9 +2731,10 @@
                         }
                     });
 
+                    const agentOpened = (c.author === "agent");
                     const authorTag = document.createElement("div");
                     authorTag.className = "comment-author";
-                    authorTag.textContent = (c.author === "agent") ? "Agent" : "You";
+                    authorTag.textContent = agentOpened ? "Agent" : "You";
 
                     if (pendingQuestion(c)) {
                         item.classList.add("awaiting-answer");
@@ -2752,8 +2756,16 @@
                         item.appendChild(tag);
                     }
 
-                    item.appendChild(deleteBtn);
-                    item.appendChild(editBtn);
+                    // Editing and deleting are for the human's own remark. A thread the agent
+                    // opened is not the human's text to rewrite, and deleting it would be the
+                    // silent close the whole question mechanism exists to prevent — resolving it
+                    // is the way to close it, and that path records declined.
+                    if (!agentOpened) {
+                        item.appendChild(deleteBtn);
+                        item.appendChild(editBtn);
+                    } else {
+                        item.classList.add("agent-thread");
+                    }
                     item.appendChild(authorTag);
                     renderCommentBody(item, c);
 
@@ -2777,9 +2789,11 @@
                     const messages = c.messages || [];
                     messages.forEach((m, mi) => item.appendChild(threadMessage(m, idx, mi)));
 
-                    // A thread nobody has answered yet is left exactly as it was before threading:
-                    // no reply control, no resolve toggle, nothing to resolve.
-                    if (messages.length) {
+                    // A thread the human started and nobody has answered is left exactly as it
+                    // was before threading: no reply control, no resolve toggle, nothing to
+                    // resolve. A thread the agent opened is answerable from the start — its head
+                    // IS the question, so waiting for a message would leave it unanswerable.
+                    if (messages.length || agentOpened) {
                         appendReplyControl(item, idx);
 
                         // Resolve toggle — the human confirms the fix; the agent never self-resolves.
