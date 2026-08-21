@@ -155,7 +155,11 @@ A single SVG overlay draws one line between a selected comment card and its targ
 
 ### 5.4 The panel reads top-down alongside the document
 
-Comments render in the appearance order of their target block, derived from the live DOM rather than by parsing anchor strings, so an anchor that no longer resolves is handled naturally instead of resolving to a stale position. Comments with no target, or whose target disappeared after an agent edit, sink to the end in creation order.
+Comments render in the appearance order of their target block, derived from the live DOM rather than by parsing anchor strings, so an anchor that no longer resolves is handled naturally instead of resolving to a stale position. A comment whose target disappeared after an agent edit sinks to the end in creation order.
+
+**A comment with no target at all is about the document as a whole**, so it goes first, under an **About this document** heading, with the rest following under **On the text**. That covers a question the agent asked about the document rather than a passage, and one whose quoted passage is no longer there — the latter says so on the card. Neither is ever dropped: a thread that lost its target is exactly the thread someone still has to answer.
+
+**Why first rather than last:** a comment about everything has no position in document order to sink to, and the panel already opens with the round summary, which is about everything in the same way.
 
 **Ordering is applied to the rendering only.** The `comments` array and the feedback file written from it keep creation order, so nothing changes for the agent.
 
@@ -174,6 +178,33 @@ The ` ```suggestion ` fence is inserted only when the button is pressed, never a
 In the panel a suggestion renders as a **diff against the lines it replaces**, using the same tints as the diff body, with shared lines at either end kept as context — so editing one line inside a six-line quote shows as one change rather than six removals and six additions. It wraps long lines instead of scrolling them, because the panel is narrow and a suggestion is short.
 
 reviewer never edits source. Applying a suggestion is the agent's job. Marking a comment resolved is the human's alone, which is why that control exists only here, on the page.
+
+### 5.7 A comment is a thread, and both sides speak in it
+
+A comment card renders the whole exchange: the human's own remark as the head, then every message after it, attributed and timestamped, in the order it was said. The two authors are separated by **depth** — the agent's message is a filled block, the human's answer is unfilled — never by a second hue (§2.1).
+
+A **Reply** control sits under a thread that has started. It is a text-weight button until it is pressed, and only then a composer, so a thread at rest stays as quiet as it was before it could be replied to. Ctrl/Cmd+Enter sends and Escape cancels, matching the composer and inline editing (§8).
+
+**A thread nobody has answered yet renders exactly as it did before threading** — no Reply control, no resolve toggle. Both appear with the first message, which is also the point at which there is something to resolve.
+
+**A reply posts nothing by itself.** It is held with the rest of the comments and travels on the next Submit, keeping review's batch rhythm: one submit, one round.
+
+**The human's own turns are editable, the agent's are not.** Each of the human's messages carries the same `✎` affordance as the head comment, at the end of its own meta line so it needs no gutter and cannot collide with the card's affordances; editing restamps the turn, exactly as editing the head does. The agent's messages are a record of what it said, and rewriting them would leave the human answering something the agent never asked.
+
+**Rejected:** a dedicated "answer this question" control (a second posting path that buys nothing over the reply the human is already writing); per-message ids and reply-to targeting (a heavier schema and UI for the rare thread carrying two unanswered questions).
+
+### 5.8 An unanswered question cannot be closed silently
+
+A thread the agent is waiting on is marked twice: an **Awaiting your answer** tag on the card and an inset rule down its left edge — position and the single accent, no second hue and no `padding` or `border` (§4). Above the composer, a count of every such thread doubles as the way to reach the first one: pressing it scrolls to that card and opens its composer.
+
+Two moments then ask before the question is lost:
+
+* **Resolving** such a thread. Cancel answers it instead; OK closes it and records `declined` on that question, which is what the agent receives.
+* **Submitting** with any thread still waiting. The round is what hands control back to the agent, so it is the last cheap moment to answer.
+
+**Why the confirmation is not just a warning:** the agent cannot tell "ignored" from "refused". Recording `declined` turns silence into an answer of a kind, which is the whole reason the flag exists.
+
+**Why the count is a button:** it is the only affordance on the page that says *something is blocked on you*, and anything actionable has to be reachable by keyboard (§8).
 
 ---
 

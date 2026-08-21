@@ -306,12 +306,30 @@ const (
 type ReplyInput struct {
 	CommentID string `json:"commentId" jsonschema:"the id of the comment being answered, from review_wait"`
 	Reply     string `json:"reply" jsonschema:"what you changed and why"`
+	// NeedsAnswer is opt-in, and deliberately not inverted into a "this closes the thread" flag:
+	// an agent written before threading sets neither, and every routine "fixed it" report would
+	// then sit in the page's awaiting-answer state, turning the warning into noise.
+	NeedsAnswer bool `json:"needsAnswer,omitempty" jsonschema:"true when this reply is a question you need the human to answer before you continue"`
 }
 
-// Reply threads the agent's responses under the human's comments and records the round's
-// summary. It writes only Reply and ReplyTimestamp: Status is deliberately untouched, because
-// marking a comment resolved is the human's decision alone (see DESIGN.md section 4).
-func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
+// AskInput opens a thread of the agent's own, against a passage of the document.
+type AskInput struct {
+	// Quote is the passage the question is about. It is matched against the document on every
+	// render rather than turned into an anchor once, so the thread follows the text as the
+	// document changes — the same way a diff comment follows its lines. An empty quote asks
+	// about the document as a whole.
+	Quote    string `json:"quote,omitempty" jsonschema:"the exact passage the question is about, copied from the document; leave empty to ask about the document as a whole"`
+	Question string `json:"question" jsonschema:"what you need the human to decide or clarify"`
+}
+
+// Reply appends the agent's responses to the human's threads, opens any threads of its own, and
+// records the round's summary. Status is deliberately untouched, because marking a comment
+// resolved is the human's decision alone (see DESIGN.md section 4).
+//
+// Replies, new threads and the summary land in one read-modify-write and one reload. Splitting
+// the questions into a tool of their own would make a round two POSTs and two reloads, and the
+// page would paint the state in between.
+func (s *ReviewSession) Reply(replies []ReplyInput, newThreads []AskInput, summary string) error {
 	// A read-modify-write: the lock spans the whole thing, or a submit landing in the middle
 	// is overwritten by the version this call read.
 	s.sidecarMu.Lock()
@@ -330,8 +348,27 @@ func (s *ReviewSession) Reply(replies []ReplyInput, summary string) error {
 		if !ok {
 			return fmt.Errorf("no comment with id %q; call review_wait to get the current comments", r.CommentID)
 		}
-		fb.Comments[i].Reply = r.Reply
-		fb.Comments[i].ReplyTimestamp = now
+		fb.Comments[i].Messages = append(fb.Comments[i].Messages, Message{
+			Author:      AuthorAgent,
+			Text:        r.Reply,
+			Timestamp:   now,
+			NeedsAnswer: r.NeedsAnswer,
+		})
+	}
+
+	for _, a := range newThreads {
+		// A quote that matches nothing is not an error: validating it here would mean teaching Go
+		// the browser's spec-element numbering, the duplication AGENTS.md section 4 exists to
+		// prevent. An unresolvable quote surfaces as an outdated, document-level thread instead.
+		fb.Comments = append(fb.Comments, Comment{
+			ID:          newCommentID(),
+			Text:        a.Question,
+			Timestamp:   now,
+			Author:      AuthorAgent,
+			Status:      StatusOpen,
+			NeedsAnswer: true,
+			AnchorQuote: a.Quote,
+		})
 	}
 	fb.Summary = summary
 
@@ -413,8 +450,9 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			s.sidecarMu.Lock()
 			defer s.sidecarMu.Unlock()
 
-			// Prune comments the user marked resolved in the previous cycle; only open ones carry forward.
-			fb.Comments = pruneResolved(fb.Comments)
+			// Which threads the agent has already been told about is only knowable from what is
+			// stored, so the prune decision reads the previous sidecar. The lock above spans both.
+			fb.Comments = pruneResolved(fb.Comments, resolvedIDs(s.readFeedbackDoc().Comments))
 			// Give every comment a stable identity so the agent can address it by ID.
 			fb.Comments = assignCommentIDs(fb.Comments)
 

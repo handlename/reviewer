@@ -16,7 +16,7 @@ temporary file and open that.
 | --- | --- |
 | `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
 | `review_wait` | Block until the human submits. Returns their comments. |
-| `review_reply` | Write a reply under each comment, plus a summary of the round. |
+| `review_reply` | Reply in each comment's thread, ask a question, open a thread of your own, and summarise the round. |
 | `review_progress` | Report what you are doing, live, on the review page. |
 
 If these tools are not available, the `reviewer` MCP server is not registered. Tell the user how
@@ -78,6 +78,19 @@ anchored lines. Apply it yourself — reviewer does not touch your source — an
 reply. Treat it as a proposal you understand, not a patch to paste blindly: if it is wrong or
 incomplete, say why in the reply instead of applying it.
 
+### 3.6. Reading a thread
+A comment is a **thread**, not a single remark. Its `text` is the first message; `messages` holds
+everything said after it, in order, each with an `author` of `human` or `agent`:
+
+- `needsAnswer: true` on one of your own messages — a question you asked that the human has not
+  answered yet. Any human message in the thread answers it.
+- `declined: true` — the human closed the thread without answering that question. Take it as a
+  refusal to answer, not an oversight: decide with what you have, and say in your next reply what
+  you assumed.
+
+A thread whose `author` is `agent` is one you opened yourself (see step 4.5); the human's answer
+arrives in it as a `human` message, and you reply in it by its `id` like any other.
+
 ### 4. Address the comments
 Call `review_progress` with `state: "working"` and a short message as you go, so the user can
 watch without leaving the page. Then:
@@ -88,15 +101,51 @@ watch without leaving the page. Then:
   `review_wait`, plus a `summary` of this round's changes.
 - Call `review_progress` with `state: "idle"` and an empty message once the round is done.
 
-The page updates on its own: your edits, your per-comment replies, and the summary all appear
-without a reload.
+When a comment is unclear or you have to choose between readings, **ask instead of guessing**: set
+`needsAnswer: true` on that reply and write the question. The page marks the thread and will not
+let the human close it silently. Keep it off for an ordinary report of what you changed — flagging
+everything makes the mark meaningless. Then go back to `review_wait`; the answer arrives as a human
+message in that thread, like any other comment.
+
+### 4.5. Raise something nobody commented on
+A question does not have to hang off a comment. Pass `newThreads` in the same `review_reply` call
+to open threads of your own — one per thing you need decided:
+
+```json
+{
+  "replies": [{ "commentId": "b3d41493aabc", "reply": "Rewrote that paragraph." }],
+  "newThreads": [
+    { "quote": "Retry at most three times", "question": "Three retries here, five in the API section. Which is right?" },
+    { "question": "Should this document cover the CLI as well?" }
+  ],
+  "summary": "Reworked section 2 and raised two questions."
+}
+```
+
+- `quote` is the passage the question is about, copied **exactly** from the document (or from the
+  diff line, indentation included). It is matched against the document each round, so the thread
+  follows the passage as you edit.
+- Leave `quote` out to ask about the document as a whole.
+- A quote that matches nothing is **not** an error: the thread appears at the top of the panel
+  without a target rather than being rejected.
+
+Use it for what the human should decide — a contradiction between two sections, a decision the
+document never makes — not to report what you did; that is what `summary` and your replies are for.
+
+The page updates on its own: your edits, your replies, your questions, and the summary all appear
+without a reload, in one update.
 
 Resolving a comment is the human's decision, made on the page. You cannot mark one resolved, and
 should not ask to.
 
 ### 5. Iterate
-Return to step 3. The human reviews your replies, marks comments resolved, may add new ones, and
-submits again. Resolved comments disappear on the next submit; unresolved ones carry forward.
+Return to step 3. The human reviews your replies, answers your questions, marks comments resolved,
+may add new ones, and submits again.
+
+A comment the human resolved comes back to you once, with `status: "resolved"`, and is gone from
+the round after that; unresolved ones carry forward. Read that one delivery: it is where a
+`declined: true` on a question of yours arrives. There is nothing to reply to a resolved thread —
+it is closed.
 
 ## Review focus
 While reviewing a Markdown document, analyse it for:

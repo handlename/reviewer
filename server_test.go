@@ -129,8 +129,9 @@ func TestStartReviewServer_SubmitKeepsServerAlive(t *testing.T) {
 	}
 }
 
-// Comments the user marked resolved are pruned on the next submit; open ones carry forward.
-func TestStartReviewServer_PrunesResolvedOnSubmit(t *testing.T) {
+// A thread the human resolves survives one round — the agent has to be told — and the submit
+// after that drops it.
+func TestStartReviewServer_PrunesResolvedOneRoundLater(t *testing.T) {
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "spec.md")
 	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
@@ -139,23 +140,55 @@ func TestStartReviewServer_PrunesResolvedOnSubmit(t *testing.T) {
 	defer stop()
 
 	now := time.Now().Format(time.RFC3339)
-	fb := Feedback{
+	postFeedback(t, url, Feedback{
 		Summary: "Addressed one item.",
 		Comments: []Comment{
 			{Text: "still open", Timestamp: now, Status: StatusOpen},
-			{Text: "done, resolved", Timestamp: now, Status: StatusResolved, Reply: "Fixed", Author: AuthorHuman},
+			{Text: "done, resolved", Timestamp: now, Status: StatusResolved, Author: AuthorHuman},
 		},
-	}
-	postFeedback(t, url, fb)
+	})
 
 	feedbackPath := FeedbackPath(inputPath)
 	var written Feedback
 	readJSONFile(t, feedbackPath, &written)
+	if len(written.Comments) != 2 {
+		t.Fatalf("a newly resolved thread must survive one round, got %+v", written.Comments)
+	}
+
+	// The page posts back what it holds, resolved thread included; now it goes.
+	postFeedback(t, url, written)
+
+	readJSONFile(t, feedbackPath, &written)
 	if len(written.Comments) != 1 {
-		t.Fatalf("expected resolved comment pruned, got %d comments: %+v", len(written.Comments), written.Comments)
+		t.Fatalf("expected the resolved thread pruned, got %+v", written.Comments)
 	}
 	if written.Comments[0].Text != "still open" {
 		t.Errorf("expected the open comment to remain, got %q", written.Comments[0].Text)
+	}
+}
+
+// The prune rule is a two-input decision — what is stored, and what the page just posted.
+func TestPruneResolved(t *testing.T) {
+	tests := []struct {
+		name     string
+		stored   []Comment
+		incoming []Comment
+		want     int
+	}{
+		{"open stays open", []Comment{{ID: "a", Status: StatusOpen}}, []Comment{{ID: "a", Status: StatusOpen}}, 1},
+		{"a new comment is kept", nil, []Comment{{ID: "", Status: StatusOpen}}, 1},
+		{"resolved just now survives", []Comment{{ID: "a", Status: StatusOpen}}, []Comment{{ID: "a", Status: StatusResolved}}, 1},
+		{"resolved already delivered is dropped", []Comment{{ID: "a", Status: StatusResolved}}, []Comment{{ID: "a", Status: StatusResolved}}, 0},
+		{"reopened is kept", []Comment{{ID: "a", Status: StatusResolved}}, []Comment{{ID: "a", Status: StatusOpen}}, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pruneResolved(tt.incoming, resolvedIDs(tt.stored))
+			if len(got) != tt.want {
+				t.Errorf("kept %d comments, want %d: %#v", len(got), tt.want, got)
+			}
+		})
 	}
 }
 
@@ -698,6 +731,10 @@ func TestCommentPendingQuestion(t *testing.T) {
 		}, true},
 		{"one human message answers every question before it", Comment{
 			Author: AuthorHuman, Text: "a", Messages: []Message{asking("b"), asking("c"), human("d")},
+		}, false},
+		{"a declined question is settled", Comment{
+			Author: AuthorHuman, Text: "a",
+			Messages: []Message{{Author: AuthorAgent, Text: "b", NeedsAnswer: true, Declined: true}},
 		}, false},
 		{"an agent-opened thread asks from its head", Comment{
 			Author: AuthorAgent, Text: "a", NeedsAnswer: true,

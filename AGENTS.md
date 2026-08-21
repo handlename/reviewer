@@ -117,6 +117,16 @@ type Comment struct {
 }
 ```
 
+* **Rule (a comment is a thread)**:
+  * `Comment` carries the **head** of the thread; `Messages` carries the turns after it. Anything
+    that has to hold for every turn — the pending-question rule, rendering, counting — is written
+    against `Comment.thread()`, the flat projection of the two, never against `Messages` alone.
+    Special-casing the head is how the two authors' rules drift apart.
+  * The same rule exists twice on purpose: in Go (`Comment.PendingQuestion`) and in
+    `references/template.html` (`pendingQuestion`). The page cannot call Go, and the server cannot
+    see the DOM. **Change one and you must change the other** — the Go table in `server_test.go` is
+    the specification for both.
+
 * **Rule (fields added for diff review)**:
   * New fields **MUST** be `omitempty`. The sidecar round-trips `Comment` through
     `encoding/json`, and a Markdown comment must serialise exactly as it did before — old sidecars
