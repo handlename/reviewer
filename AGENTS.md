@@ -215,5 +215,72 @@ reasoning under the principle is what has to be answered.
     (`is-served`, `sidebar-collapsed`, `diff-review`). An inline style outranks the
     narrow-viewport media queries (§3.3).
   * **There is no browser test harness.** `go test ./...` cannot see this class of regression.
-    Verify by eye in a real browser, in **both** light and dark, against `examples/sample.md` and
-    `examples/sample.diff` (§9).
+    Verify in a real browser, in **both** light and dark, against `examples/sample.md` and
+    `examples/sample.diff` (§9). How that verification is done — and that **you** do it — is
+    section 10.
+
+---
+
+## 10. Verifying a Review-Screen Change in a Browser
+
+The review screen is the one part of this repository the test suite cannot see. Every defect found
+in `references/template.html` so far was of a kind `go test ./...` passes over without a word: a
+control that never rendered at all, two controls colliding, four pixels of vertical misalignment.
+Each was obvious within seconds of opening the page.
+
+* **Rule**:
+  * **Whoever changed the page verifies the page.** Do not finish a change to
+    `references/template.html` by writing that the check by eye is left to review — that hands a
+    human the one check the change actually needed. Report what you observed, not what you expect
+    to be true.
+  * **Verify every state the change can render in, not just the one you were working on.** A thread
+    with no messages and a thread with several; a comment with a target and one without; a fresh
+    comment and a resolved one; light **and** dark. A control that is gated on a condition is
+    exactly the control that is missing in the state nobody opened.
+  * **Measure anything positional; do not eyeball it.** Read `getBoundingClientRect()` and compare
+    the numbers before and after. "Looks aligned" is how a four-pixel offset survives, and a
+    measurement is also what makes the fix reviewable.
+  * **Operate the real controls rather than inspecting the DOM only.** Click the button, send the
+    keystroke, and check what changed. A `confirm()` can be exercised in both directions by
+    replacing `window.confirm` in the page for the duration of the check, which is the only way to
+    verify a two-branch dialog without a human at the keyboard.
+  * **Never navigate or reload a page a human is using without asking.** Their unsent comments and
+    open editors live only in that tab; a reload discards them. `hasUnsentEdits()` exists to stop
+    the server doing this — do not do by hand what the code refuses to do.
+
+### A recipe that works (macOS)
+
+Drive a headless Chrome over the DevTools Protocol. Keep the browser running between steps so page
+state survives, and talk to it from Node, whose `WebSocket` is built in — no dependency to install.
+
+```console
+$ (nohup "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
+    --remote-debugging-port=9222 --user-data-dir="$TMPDIR/cdp-profile" about:blank & )
+$ curl -s http://127.0.0.1:9222/json   # the page target's webSocketDebuggerUrl
+```
+
+`Runtime.evaluate` runs assertions and clicks inside the page; `Page.captureScreenshot` takes the
+picture. Four traps, each of which cost a round of confusion:
+
+* **`--screenshot` on its own hangs.** The page holds an SSE stream open on `/api/events`, so a
+  capture that waits for the load to settle waits forever. Capture over CDP instead.
+* **`setsid` does not exist on macOS.** Background with `(nohup … & )`.
+* **`Emulation.setEmulatedMedia` is scoped to the CDP connection**, so a light/dark override
+  disappears when that connection closes. Set the scheme and take the shot in the **same**
+  connection, or the picture comes back in the default scheme.
+* **A `clip` rect is in page coordinates**, while `getBoundingClientRect()` is viewport-relative. A
+  full-viewport capture with the element scrolled into view is less trouble than getting a closeup
+  right.
+
+To exercise the MCP tools against your own build across several steps, feed `reviewer mcp` from a
+FIFO that a second process holds open, and read its answers from the log it writes:
+
+```console
+$ mkfifo in
+$ (nohup ./reviewer mcp --no-open < in > out.log 2> err.log & )
+$ (nohup tail -f /dev/null > in & )        # keeps the FIFO open across steps
+$ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize", ...}' > in
+```
+
+That drives the real tool surface — `review_start`, `review_wait`, `review_reply` — rather than a
+stand-in, so the page under test is the page an agent would actually get.
