@@ -10,6 +10,7 @@ reviewer is a spec-to-readable HTML compiler and review server.
 
 - Compiling Markdown to styled HTML documents
 - Reviewing unified diffs, detected from the file's content — no flag, no separate subcommand
+- Folding away whitespace-only changes in a diff, toggled from the contents rail
 - Interactive local review server
 - Gutter commenting on specific block elements, and on line ranges or whole files of a diff
 - Comments that follow their lines into the next round, by content rather than by line number

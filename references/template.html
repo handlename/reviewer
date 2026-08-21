@@ -737,8 +737,11 @@
             to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* resolve toggle — a real checkbox, 40px+ hit area via the label */
-        .resolve-toggle {
+        /* resolve toggle — a real checkbox, 40px+ hit area via the label.
+           .ws-toggle rides the same rules: both are a bare checkbox with a micro-label, and
+           having them drift apart visually would read as two different kinds of control. */
+        .resolve-toggle,
+        .ws-toggle {
             display: inline-flex;
             align-items: center;
             /* Paired with the same rule on .thread-reply-btn: both boxes are aligned by their
@@ -756,8 +759,10 @@
             user-select: none;
             transition: color 0.18s;
         }
-        .resolve-toggle:hover { color: var(--text-secondary); }
-        .resolve-toggle input {
+        .resolve-toggle:hover,
+        .ws-toggle:hover { color: var(--text-secondary); }
+        .resolve-toggle input,
+        .ws-toggle input {
             width: 15px;
             height: 15px;
             accent-color: var(--accent-color);
@@ -1294,6 +1299,27 @@
            stay readable while it is selected or commented. */
         .diff-line { cursor: pointer; }
         .diff-line:hover { background-image: linear-gradient(var(--hl-wash), var(--hl-wash)); }
+
+        /* ---------- Hide whitespace changes ----------
+           Both halves of a whitespace-only pair carry data-ws-only from the renderer. Folding
+           is done here and nowhere else: the rows stay in the DOM, so every data-line-index is
+           unchanged and a comment anchored to a folded line still resolves.
+
+           The deletion is hidden and the addition is dressed down to look like context, which
+           leaves one readable row per pair — the shape `git diff -w` produces.
+
+           An anchored line is exempt. A connector is drawn from the anchor's bounding box
+           (alignAndDraw), and display:none collapses that box to the origin, so hiding a line
+           someone has commented on would fling its connector to the corner of the page. Keeping
+           it visible — still tinted as a deletion — also says why it survived the fold. */
+        body.hide-ws .diff-line[data-ws-only].diff-del:not([data-anchor]):not([data-anchor-member]) {
+            display: none;
+        }
+        body.hide-ws .diff-line[data-ws-only].diff-add { background: transparent; }
+        body.hide-ws .diff-line[data-ws-only].diff-add .diff-marker {
+            color: var(--text-tertiary);
+            font-weight: 400;
+        }
         .diff-line.range-selected,
         .diff-line.anchored-range {
             background-image: linear-gradient(var(--hl-wash), var(--hl-wash));
@@ -1470,6 +1496,10 @@
             </div>
             {{if eq .Mode "diff"}}
             <p style="font-size: 0.9rem;">{{.Stats}}</p>
+            <label class="ws-toggle" title="Fold away changes that only add or remove whitespace">
+                <input type="checkbox" id="hideWhitespaceToggle">
+                <span>Hide whitespace</span>
+            </label>
             {{else}}
             <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
             <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
@@ -3465,6 +3495,30 @@
 
             hideBtn.addEventListener("click", () => setCollapsed(true));
             showBtn.addEventListener("click", () => setCollapsed(false));
+        })();
+
+        // ---------- Hide whitespace changes ----------
+        // The renderer decided which lines are whitespace-only; this only flips a body class,
+        // so switching is instant and costs no round trip. The preference outlives the reloads
+        // the review loop performs, like the contents rail above.
+        (function initHideWhitespace() {
+            const HIDE_WS_KEY = "reviewer.hideWhitespace";
+            const toggle = document.getElementById("hideWhitespaceToggle");
+            if (!toggle) return;
+
+            function apply(hidden) {
+                document.body.classList.toggle("hide-ws", hidden);
+                // Rows vanishing moves everything below them, so any drawn connector is stale.
+                scheduleConnectorRefresh();
+            }
+
+            toggle.checked = localStorage.getItem(HIDE_WS_KEY) === "1";
+            apply(toggle.checked);
+
+            toggle.addEventListener("change", () => {
+                localStorage.setItem(HIDE_WS_KEY, toggle.checked ? "1" : "0");
+                apply(toggle.checked);
+            });
         })();
 
         // Initialize elements and load existing comments on page start

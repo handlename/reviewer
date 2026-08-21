@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Kind is what a review target turns out to be once its content is read.
@@ -417,9 +418,10 @@ func renderDiffBody(files []File) string {
 		for _, h := range f.Hunks {
 			b.WriteString(`<div class="diff-hunk">` + "\n")
 			b.WriteString(`<div class="diff-hunk-header">` + html.EscapeString(h.Header) + "</div>\n")
-			for _, l := range h.Lines {
+			wsOnly := whitespaceOnlyMask(h.Lines)
+			for i, l := range h.Lines {
 				index++
-				b.WriteString(renderDiffLine(path, index, l) + "\n")
+				b.WriteString(renderDiffLine(path, index, l, wsOnly[i]) + "\n")
 			}
 			b.WriteString("</div>\n")
 		}
@@ -466,7 +468,7 @@ var lineKindMarker = map[LineKind]string{
 // The single line-number column shows each line's number on its own side — the old file's for a
 // deletion, the new file's otherwise — because a deletion has no number on the new side and a
 // blank there would hide which line the comment is about.
-func renderDiffLine(path string, index int, l Line) string {
+func renderDiffLine(path string, index int, l Line, wsOnly bool) string {
 	no := ""
 	noClass := "diff-no"
 	switch {
@@ -477,14 +479,82 @@ func renderDiffLine(path string, index int, l Line) string {
 		no = strconv.Itoa(l.NewNo)
 	}
 
+	// data-ws-only is emitted on both halves of a whitespace-only pair. The toggle then hides
+	// the deletion and restyles the addition purely in CSS, so every line keeps its
+	// data-line-index and comments anchored to it survive the switch.
+	ws := ""
+	if wsOnly {
+		ws = " data-ws-only"
+	}
+
 	return fmt.Sprintf(
-		`<div class="diff-line %s" data-file="%s" data-line-index="%d"><span class="%s">%s</span><span class="diff-marker">%s</span><span class="diff-code">%s</span></div>`,
+		`<div class="diff-line %s" data-file="%s" data-line-index="%d"%s><span class="%s">%s</span><span class="diff-marker">%s</span><span class="diff-code">%s</span></div>`,
 		lineKindClass[l.Kind],
 		html.EscapeString(path),
 		index,
+		ws,
 		noClass,
 		no,
 		lineKindMarker[l.Kind],
 		html.EscapeString(l.Content),
 	)
+}
+
+// whitespaceOnlyMask marks, for each line of one hunk, whether its change is whitespace-only —
+// the pairs the "Hide whitespace changes" toggle folds away.
+//
+// reviewer never runs git, so `git diff -w` cannot be re-run against the sources: the judgement
+// has to come out of the already-parsed hunk. The approximation is deliberately conservative —
+// a run of deletions is paired 1:1 with the run of additions that follows it, and the pair only
+// counts when both runs are the same length and every row matches once whitespace is stripped.
+// A block whose lengths disagree folds nothing, because the 1:1 pairing that a longer or
+// shorter counterpart implies would be guesswork, and a wrong fold hides a real edit.
+func whitespaceOnlyMask(lines []Line) []bool {
+	if len(lines) == 0 {
+		return nil
+	}
+	mask := make([]bool, len(lines))
+	for i := 0; i < len(lines); {
+		if lines[i].Kind != LineDelete {
+			i++
+			continue
+		}
+		delStart := i
+		for i < len(lines) && lines[i].Kind == LineDelete {
+			i++
+		}
+		addStart := i
+		for i < len(lines) && lines[i].Kind == LineAdd {
+			i++
+		}
+		if addStart-delStart != i-addStart {
+			continue
+		}
+		if pairsDifferOnlyInWhitespace(lines[delStart:addStart], lines[addStart:i]) {
+			for j := delStart; j < i; j++ {
+				mask[j] = true
+			}
+		}
+	}
+	return mask
+}
+
+// pairsDifferOnlyInWhitespace reports whether two equal-length runs match row for row once all
+// whitespace is removed, which is `git diff -w` (ignore-all-space) applied to a fixed pairing.
+func pairsDifferOnlyInWhitespace(deleted, added []Line) bool {
+	for i := range deleted {
+		if stripWhitespace(deleted[i].Content) != stripWhitespace(added[i].Content) {
+			return false
+		}
+	}
+	return true
+}
+
+func stripWhitespace(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
 }

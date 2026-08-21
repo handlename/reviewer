@@ -518,3 +518,179 @@ func assertLines(t *testing.T, got, want []Line) {
 		}
 	}
 }
+
+func TestWhitespaceOnlyMask(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []Line
+		want  []bool
+	}{
+		{
+			name: "indent-only change folds both sides",
+			lines: []Line{
+				{Kind: LineDelete, Content: "\t\tfoo(bar)"},
+				{Kind: LineAdd, Content: "        foo(bar)"},
+			},
+			want: []bool{true, true},
+		},
+		{
+			name: "inner spacing change folds both sides",
+			lines: []Line{
+				{Kind: LineDelete, Content: "foo( a , b )"},
+				{Kind: LineAdd, Content: "foo(a, b)"},
+			},
+			want: []bool{true, true},
+		},
+		{
+			name: "trailing whitespace removal folds both sides",
+			lines: []Line{
+				{Kind: LineDelete, Content: "foo()   "},
+				{Kind: LineAdd, Content: "foo()"},
+			},
+			want: []bool{true, true},
+		},
+		{
+			name: "a real edit is never folded",
+			lines: []Line{
+				{Kind: LineDelete, Content: "foo()"},
+				{Kind: LineAdd, Content: "bar()"},
+			},
+			want: []bool{false, false},
+		},
+		{
+			// The safe-side approximation: unequal block lengths mean the 1:1 pairing is not
+			// trustworthy, so nothing in the block folds even though two rows would match.
+			name: "unequal block lengths fold nothing",
+			lines: []Line{
+				{Kind: LineDelete, Content: "\tfoo()"},
+				{Kind: LineDelete, Content: "\tbar()"},
+				{Kind: LineAdd, Content: "    foo()"},
+				{Kind: LineAdd, Content: "    bar()"},
+				{Kind: LineAdd, Content: "    baz()"},
+			},
+			want: []bool{false, false, false, false, false},
+		},
+		{
+			name: "an addition with no deletion to pair with never folds",
+			lines: []Line{
+				{Kind: LineContext, Content: "func foo() {"},
+				{Kind: LineAdd, Content: ""},
+				{Kind: LineContext, Content: "\treturn"},
+			},
+			want: []bool{false, false, false},
+		},
+		{
+			name: "a deletion with no addition to pair with never folds",
+			lines: []Line{
+				{Kind: LineDelete, Content: "\tfoo()"},
+				{Kind: LineContext, Content: "\tbar()"},
+			},
+			want: []bool{false, false},
+		},
+		{
+			name: "a mixed block folds only when every pair is whitespace-only",
+			lines: []Line{
+				{Kind: LineDelete, Content: "\tfoo()"},
+				{Kind: LineDelete, Content: "\tbar()"},
+				{Kind: LineAdd, Content: "    foo()"},
+				{Kind: LineAdd, Content: "    baz()"},
+			},
+			want: []bool{false, false, false, false},
+		},
+		{
+			name: "two separate blocks are judged independently",
+			lines: []Line{
+				{Kind: LineDelete, Content: "\tfoo()"},
+				{Kind: LineAdd, Content: "    foo()"},
+				{Kind: LineContext, Content: "\tsep()"},
+				{Kind: LineDelete, Content: "old()"},
+				{Kind: LineAdd, Content: "new()"},
+			},
+			want: []bool{true, true, false, false, false},
+		},
+		{
+			// "\ No newline at end of file" carries meaning about the line it follows, so it
+			// breaks the run rather than being paired over.
+			name: "a meta line breaks the block",
+			lines: []Line{
+				{Kind: LineDelete, Content: "\tfoo()"},
+				{Kind: LineMeta, Content: `\ No newline at end of file`},
+				{Kind: LineAdd, Content: "    foo()"},
+			},
+			want: []bool{false, false, false},
+		},
+		{
+			name:  "no lines",
+			lines: nil,
+			want:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := whitespaceOnlyMask(tt.lines)
+			if len(got) != len(tt.want) {
+				t.Fatalf("whitespaceOnlyMask() length = %d, want %d", len(got), len(tt.want))
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("whitespaceOnlyMask()[%d] = %v, want %v (content %q)", i, got[i], tt.want[i], tt.lines[i].Content)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderDiffBodyMarksWhitespaceOnlyLines(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(`diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -1,4 +1,4 @@
+ package main
+-	foo(bar)
+-	old()
++        foo(bar)
++        new()
+`))
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff() error = %v", err)
+	}
+
+	body := renderDiffBody(files)
+
+	// Nothing folds: the block pairs 1:1 but old()/new() is a real edit, so the whole block
+	// stays visible.
+	if strings.Contains(body, "data-ws-only") {
+		t.Errorf("renderDiffBody() marked a block containing a real edit as whitespace-only:\n%s", body)
+	}
+}
+
+func TestRenderDiffBodyKeepsLineIndicesStableWhenFolding(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(`diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -1,3 +1,3 @@
+ package main
+-	foo(bar)
++        foo(bar)
+`))
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff() error = %v", err)
+	}
+
+	body := renderDiffBody(files)
+
+	for _, want := range []string{
+		`data-line-index="1"`,
+		`data-line-index="2"`,
+		`data-line-index="3"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("renderDiffBody() dropped %s; folding must not renumber lines:\n%s", want, body)
+		}
+	}
+	if strings.Count(body, "data-ws-only") != 2 {
+		t.Errorf("renderDiffBody() marked %d lines whitespace-only, want 2 (the -/+ pair):\n%s",
+			strings.Count(body, "data-ws-only"), body)
+	}
+}

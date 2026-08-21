@@ -106,6 +106,15 @@ which branches on `SpecMetadata.Mode`.
   **every** diff-derived string itself: line content, hunk headers, and paths, which also land in
   attribute values. Hunk headers matter as much as content — a diff touching
   `func (s *ReviewSession) Done() <-chan struct{}` puts `<-chan` straight into one.
+* **Whitespace-only pairs are marked, not removed**:
+  `whitespaceOnlyMask` tags both halves of a whitespace-only change with `data-ws-only`, and the
+  page folds them in CSS. Removing them here instead would renumber every line after the fold and
+  orphan the comments anchored to them, so the renderer decides *which* lines are foldable and the
+  toggle decides *whether* they are shown. Since reviewer never runs git, `git diff -w` cannot be
+  re-run against the sources: a run of deletions is paired 1:1 with the run of additions that
+  follows it, and only when both runs are the same length and every row matches with whitespace
+  stripped. Unequal runs fold nothing — the pairing they imply is guesswork, and a wrong fold hides
+  a real edit.
 * **Own parser, kept swappable**:
   The display-oriented shape a review page needs (line kind, both-side numbers, file boundaries,
   a stable per-file line index) ends up hand-written whichever library is used. It is plain
