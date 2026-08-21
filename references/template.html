@@ -696,9 +696,13 @@
            it is opened, so a thread at rest stays as calm as it was before it had one. */
         .thread-reply-btn {
             /* Sits on the same line as the resolve toggle, so it matches its height and keeps a
-               gap: the two read as one row of choices rather than as colliding words. */
+               gap: the two read as one row of choices rather than as colliding words.
+               vertical-align is what actually lines them up — as atomic inline boxes they would
+               otherwise align on their baselines, and the toggle's baseline is dragged four
+               pixels by the checkbox inside it. */
             display: inline-flex;
             align-items: center;
+            vertical-align: middle;
             min-height: 24px;
             margin-top: 0.55rem;
             margin-right: 0.9rem;
@@ -725,6 +729,9 @@
         .resolve-toggle {
             display: inline-flex;
             align-items: center;
+            /* Paired with the same rule on .thread-reply-btn: both boxes are aligned by their
+               middles, so the checkbox cannot pull this label off the Reply button's line. */
+            vertical-align: middle;
             gap: 0.4rem;
             margin-top: 0.55rem;
             min-height: 24px;
