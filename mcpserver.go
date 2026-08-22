@@ -132,7 +132,7 @@ func (h *sessionHolder) wait(ctx context.Context, timeout time.Duration) (waitOu
 }
 
 type replyInputArgs struct {
-	Replies    []ReplyInput `json:"replies" jsonschema:"one entry per comment being answered"`
+	Replies    []ReplyInput `json:"replies" jsonschema:"one entry per thread you are writing into, whether or not the human just posted in it"`
 	NewThreads []AskInput   `json:"newThreads,omitempty" jsonschema:"questions of your own, each opening a new thread on the page"`
 	Summary    string       `json:"summary" jsonschema:"short description of this round's changes, shown at the top of the review panel"`
 }
@@ -212,6 +212,8 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 			Name: "review_reply",
 			Description: "Write a reply under each comment you addressed, plus a summary of this round's changes. " +
 				"Comments are addressed by the id returned from review_wait. Each reply is appended to that comment's thread. " +
+				"A thread is not an alternation of turns: you may write into any thread by id — one you already answered, one whose last message is your own, " +
+				"one the human has not touched this round — as often as you have something to say. " +
 				"Set needsAnswer on a reply that is a question you need the human to answer: the page then marks the thread and will not let them close it silently — " +
 				"if they close it anyway you get the message back with \"declined\": true. Leave it off for an ordinary report of what you changed. " +
 				"Use newThreads to raise something the human has not commented on: each entry opens a thread of your own, anchored to the passage you quote " +

@@ -2932,13 +2932,17 @@
                     const messages = c.messages || [];
                     messages.forEach((m, mi) => item.appendChild(threadMessage(m, idx, mi)));
 
-                    // A thread the human started and nobody has answered is left exactly as it
-                    // was before threading: no reply control, no resolve toggle, nothing to
-                    // resolve. A thread the agent opened is answerable from the start — its head
-                    // IS the question, so waiting for a message would leave it unanswerable.
-                    if (messages.length || agentOpened) {
-                        appendReplyControl(item, idx);
+                    // Every thread can be written into, whoever spoke last — a thread is not an
+                    // alternation of turns. Withholding the control until someone answered made a
+                    // remark of the human's own the one thing they could not add to, while the
+                    // agent has always been free to append twice through review_reply.
+                    appendReplyControl(item, idx);
 
+                    // Resolving is withheld until the thread has an answer: an unanswered remark of
+                    // the human's own is closed by deleting it, so a resolve there would say the
+                    // same thing twice. A thread the agent opened is resolvable from the start —
+                    // its head IS the question, so waiting for a message would strand it.
+                    if (messages.length || agentOpened) {
                         // Resolve toggle — the human confirms the fix; the agent never self-resolves.
                         const toggleLabel = document.createElement("label");
                         toggleLabel.className = "resolve-toggle";
