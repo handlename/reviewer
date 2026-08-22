@@ -186,10 +186,25 @@ goes through MCP.
     Markdown session is passed through untouched: without that guard every block anchor would
     fail the file lookup, turn `outdated`, and the Markdown review would silently lose its
     indicators and connector lines.
-  * `POST`: Unmarshals the incoming `Feedback`, **prunes comments the user marked `resolved`**,
-    **assigns an `id` to any comment lacking one**, writes the file, **records the submit and
-    releases any waiter** (both `ReviewSession.Wait` and `GET /api/wait`), and **keeps the server
-    running** so the agent can pick up the comments.
+  * `POST`: Unmarshals the incoming `Feedback`, **merges it over the stored sidecar**, **prunes
+    comments the user marked `resolved`**, **assigns an `id` to any comment lacking one**, writes
+    the file, **records the submit and releases any waiter** (both `ReviewSession.Wait` and `GET
+    /api/wait`), and **keeps the server running** so the agent can pick up the comments.
+
+    The merge (`mergeFeedback`) is there because the page holds its reload while the human has
+    unsent edits, so the array it posts back can be older than the sidecar. Writing that array
+    straight through dropped every reply and every thread the agent had appended in between. The
+    stored sidecar is authoritative for agent-authored content; the payload is authoritative for
+    human-authored content, deletions included, so a thread the human removed stays removed along
+    with the agent replies inside it.
+
+    No record of which revision the page read is needed to tell those two cases apart. The page has
+    no control that edits or deletes an agent message, and none that deletes an agent-opened thread
+    (§F), so agent-authored content missing from the payload is always content the page had not
+    loaded yet — never something the human took out. The single exception is `declined`, which the
+    human stamps onto the agent's own message when closing a question unanswered: the agent messages
+    the page did see are therefore taken from the payload, and only the ones past that point come
+    from the sidecar.
 
   This handler no longer writes `FEEDBACK_RECEIVED` to stdout. Stdout is the JSON-RPC transport in
   `reviewer mcp`, so any write there corrupts the protocol stream (see `AGENTS.md` §7).
