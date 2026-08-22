@@ -564,3 +564,188 @@ func TestSessionProgress_RejectsUnknownState(t *testing.T) {
 		t.Fatal("Progress should reject a state outside working|idle")
 	}
 }
+
+// summariseThreads renders merged comments as "author:text[msg,msg]" lines, so a mismatch reads as
+// the thread it is rather than a diff of two structs.
+func summariseThreads(comments []Comment) []string {
+	out := make([]string, 0, len(comments))
+	for _, c := range comments {
+		author := c.Author
+		if author == "" {
+			author = AuthorHuman
+		}
+		line := author + ":" + c.Text
+		if c.Status != "" && c.Status != StatusOpen {
+			line += "(" + c.Status + ")"
+		}
+		msgs := make([]string, 0, len(c.Messages))
+		for _, m := range c.Messages {
+			line := m.Author + ":" + m.Text
+			if m.Declined {
+				line += "!declined"
+			}
+			msgs = append(msgs, line)
+		}
+		out = append(out, line+"["+strings.Join(msgs, ",")+"]")
+	}
+	return out
+}
+
+func humanThread(id, text string, msgs ...Message) Comment {
+	return Comment{ID: id, Text: text, Author: AuthorHuman, Status: StatusOpen, Messages: msgs}
+}
+
+func agentThread(id, text string, msgs ...Message) Comment {
+	return Comment{ID: id, Text: text, Author: AuthorAgent, Status: StatusOpen, NeedsAnswer: true, Messages: msgs}
+}
+
+func humanMsg(text string) Message { return Message{Author: AuthorHuman, Text: text} }
+func agentMsg(text string) Message { return Message{Author: AuthorAgent, Text: text} }
+
+// mergeFeedback is what stops a submit from overwriting what the agent wrote while the human was
+// still typing. The browser can only ever change its own content — it has no control that edits or
+// deletes an agent message, and none that deletes an agent-opened thread — so anything of the
+// agent's that is missing from the payload is missing because the page had not reloaded, never
+// because the human removed it.
+func TestMergeFeedback(t *testing.T) {
+	tests := []struct {
+		name     string
+		stored   []Comment
+		incoming []Comment
+		want     []string
+	}{
+		{
+			name:     "an agent reply the browser never saw survives the submit",
+			stored:   []Comment{humanThread("a", "needs work", agentMsg("fixed it"))},
+			incoming: []Comment{humanThread("a", "needs work")},
+			want:     []string{"human:needs work[agent:fixed it]"},
+		},
+		{
+			name:     "an agent-opened thread the browser never saw survives the submit",
+			stored:   []Comment{humanThread("a", "needs work"), agentThread("b", "which style?")},
+			incoming: []Comment{humanThread("a", "needs work")},
+			want:     []string{"human:needs work[]", "agent:which style?[]"},
+		},
+		{
+			name:     "deleting the human's own thread drops it along with its agent replies",
+			stored:   []Comment{humanThread("a", "needs work", agentMsg("fixed it")), humanThread("b", "and this")},
+			incoming: []Comment{humanThread("b", "and this")},
+			want:     []string{"human:and this[]"},
+		},
+		{
+			name:     "the human's edit of their own words wins, the agent's reply stays",
+			stored:   []Comment{humanThread("a", "old head", humanMsg("old note"), agentMsg("fixed it"))},
+			incoming: []Comment{humanThread("a", "new head", humanMsg("new note"), agentMsg("fixed it"))},
+			want:     []string{"human:new head[human:new note,agent:fixed it]"},
+		},
+		{
+			name:     "a brand new comment carries no id yet and is kept",
+			stored:   []Comment{},
+			incoming: []Comment{{Text: "fresh remark", Author: AuthorHuman, Status: StatusOpen}},
+			want:     []string{"human:fresh remark[]"},
+		},
+		{
+			name:     "missed agent messages land at the tail in the order the agent wrote them",
+			stored:   []Comment{humanThread("a", "needs work", agentMsg("r1"), agentMsg("r2"), agentMsg("r3"))},
+			incoming: []Comment{humanThread("a", "needs work", agentMsg("r1"), humanMsg("answer"))},
+			want:     []string{"human:needs work[agent:r1,human:answer,agent:r2,agent:r3]"},
+		},
+		{
+			name:     "resolving a thread is the human's word and is carried through",
+			stored:   []Comment{humanThread("a", "needs work", agentMsg("fixed it"))},
+			incoming: []Comment{{ID: "a", Text: "needs work", Author: AuthorHuman, Status: StatusResolved}},
+			want:     []string{"human:needs work(resolved)[agent:fixed it]"},
+		},
+		{
+			// declined is the one agent-authored field the human writes: closing a question without
+			// answering it stamps the agent's own message. Sourcing agent messages from the sidecar
+			// wholesale would throw that stamp away and leave the question pending forever.
+			name:   "the human declining a question sticks to the agent's message",
+			stored: []Comment{humanThread("a", "needs work", agentMsg("which style?"))},
+			incoming: []Comment{humanThread("a", "needs work",
+				Message{Author: AuthorAgent, Text: "which style?", NeedsAnswer: true, Declined: true})},
+			want: []string{"human:needs work[agent:which style?!declined]"},
+		},
+		{
+			name:     "a submit carrying nothing still cannot erase the agent's own threads",
+			stored:   []Comment{humanThread("a", "needs work"), agentThread("b", "which style?")},
+			incoming: []Comment{},
+			want:     []string{"agent:which style?[]"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := summariseThreads(mergeFeedback(Feedback{Comments: tt.stored}, Feedback{Comments: tt.incoming}).Comments)
+			if strings.Join(got, " | ") != strings.Join(tt.want, " | ") {
+				t.Errorf("merged threads\n got: %v\nwant: %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// The end-to-end shape of the bug: the human keeps the composer open, so the page defers its
+// reload, and the agent answers in the meantime. Submitting used to post the stale array back and
+// take the agent's reply with it.
+func TestFeedbackPost_KeepsWhatTheAgentWroteWhileTheHumanWasTyping(t *testing.T) {
+	ctx := t.Context()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+
+	// The page is showing this round; the human has not reloaded since.
+	stale := s.readFeedbackDoc().Comments
+
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "fixed in section 2"}}, []AskInput{{Question: "which style do you want?"}}, "round 1"); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+
+	// The human submits the array the page still holds.
+	body, err := json.Marshal(Feedback{Comments: stale, Summary: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(s.URL()+"/api/feedback", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+	resp.Body.Close()
+
+	got := summariseThreads(s.readFeedbackDoc().Comments)
+	want := []string{"human:needs work[agent:fixed in section 2]", "agent:which style do you want?[]"}
+	if strings.Join(got, " | ") != strings.Join(want, " | ") {
+		t.Errorf("after the stale submit\n got: %v\nwant: %v", got, want)
+	}
+}
+
+// Deleting a thread stays the human's call, even when the agent has answered in it since the page
+// last loaded: the alternative is a thread that reappears after it was removed.
+func TestFeedbackPost_HonoursDeletingAThreadTheAgentHasSinceAnswered(t *testing.T) {
+	ctx := t.Context()
+
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	if err != nil {
+		t.Fatalf("StartSession failed: %v", err)
+	}
+	defer s.Close()
+
+	id := submitComment(t, s, "needs work")
+	if err := s.Reply([]ReplyInput{{CommentID: id, Reply: "fixed in section 2"}}, nil, ""); err != nil {
+		t.Fatalf("Reply failed: %v", err)
+	}
+
+	resp, err := http.Post(s.URL()+"/api/feedback", "application/json", strings.NewReader(`{"comments":[],"summary":""}`))
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if got := summariseThreads(s.readFeedbackDoc().Comments); len(got) != 0 {
+		t.Errorf("the deleted thread came back: %v", got)
+	}
+}
