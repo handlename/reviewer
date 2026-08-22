@@ -1,7 +1,7 @@
 {
   "name": "reviewer",
   "displayName": "reviewer",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The review-doc skill for reviewer, a spec-to-readable HTML compiler and review server. Renders a Markdown specification as structured HTML and drives a live, in-page human-agent review loop.",
   "author": {
     "name": "NAGATA Hiroaki"
