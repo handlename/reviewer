@@ -385,6 +385,78 @@ func (s *ReviewSession) Reply(replies []ReplyInput, newThreads []AskInput, summa
 	return nil
 }
 
+// mergeFeedback keeps what the agent wrote while the human was still typing.
+//
+// A submit posts the whole comment array back, and the page holds its reload while the human has
+// unsent edits (hasUnsentEdits in references/template.html), so that array can be older than the
+// sidecar. Taking it at face value drops every reply and thread the agent added in between.
+//
+// Why not carry a revision the browser read back with the submit: there is nothing for it to
+// disambiguate. The page has no control that edits or deletes an agent message, and none that
+// deletes an agent-opened thread — that deletion is the silent close the question mechanism exists
+// to prevent. So agent-authored content missing from the payload is missing because the page had
+// not reloaded, never because the human removed it.
+//
+// Human-authored content stays the payload's to decide, deletions included: a thread that came back
+// after the human removed it would be its own kind of surprise.
+func mergeFeedback(stored, incoming Feedback) Feedback {
+	prev := make(map[string]Comment, len(stored.Comments))
+	for _, c := range stored.Comments {
+		if c.ID != "" {
+			prev[c.ID] = c
+		}
+	}
+
+	merged := make([]Comment, 0, len(incoming.Comments)+len(stored.Comments))
+	seen := make(map[string]bool, len(incoming.Comments))
+	for _, c := range incoming.Comments {
+		if p, ok := prev[c.ID]; ok {
+			c.Messages = mergeMessages(p.Messages, c.Messages)
+			seen[c.ID] = true
+		}
+		merged = append(merged, c)
+	}
+
+	// Threads the agent opened since the page last loaded. They go at the tail, which is where the
+	// agent wrote them.
+	for _, c := range stored.Comments {
+		if c.Author == AuthorAgent && !seen[c.ID] {
+			merged = append(merged, c)
+		}
+	}
+
+	incoming.Comments = merged
+	return incoming
+}
+
+// mergeMessages restores the agent messages the payload was written without.
+//
+// Reply only ever appends, and the page can neither remove nor reorder what the agent said, so the
+// payload's agent messages are always a prefix of the stored ones — whatever is stored past that
+// prefix is what the human had not seen. It is appended at the tail rather than spliced back at its
+// stored index, so the human's own turns keep the order they were written in.
+func mergeMessages(stored, incoming []Message) []Message {
+	shown := 0
+	for _, m := range incoming {
+		if m.Author == AuthorAgent {
+			shown++
+		}
+	}
+
+	merged := make([]Message, len(incoming), len(incoming)+len(stored))
+	copy(merged, incoming)
+	n := 0
+	for _, m := range stored {
+		if m.Author != AuthorAgent {
+			continue
+		}
+		if n++; n > shown {
+			merged = append(merged, m)
+		}
+	}
+	return merged
+}
+
 // Progress reports the agent's current activity to the open page. The server's file watcher
 // picks the write up and pushes a status event over SSE, so the panel updates without a reload.
 func (s *ReviewSession) Progress(state, message string) error {
@@ -451,8 +523,11 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			defer s.sidecarMu.Unlock()
 
 			// Which threads the agent has already been told about is only knowable from what is
-			// stored, so the prune decision reads the previous sidecar. The lock above spans both.
-			fb.Comments = pruneResolved(fb.Comments, resolvedIDs(s.readFeedbackDoc().Comments))
+			// stored, so both the merge and the prune decision read the previous sidecar. The lock
+			// above spans all of it.
+			stored := s.readFeedbackDoc()
+			fb = mergeFeedback(stored, fb)
+			fb.Comments = pruneResolved(fb.Comments, resolvedIDs(stored.Comments))
 			// Give every comment a stable identity so the agent can address it by ID.
 			fb.Comments = assignCommentIDs(fb.Comments)
 
