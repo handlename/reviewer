@@ -1,5 +1,25 @@
 # Changelog
 
+## [v0.5.0](https://github.com/handlename/reviewer/compare/v0.4.0...v0.5.0) - 2026-08-22
+- docs: record the review screen design principles by @handlename in https://github.com/handlename/reviewer/pull/38
+- feat: make a comment a thread of messages by @handlename in https://github.com/handlename/reviewer/pull/41
+- feat: let the agent flag a reply as a question by @handlename in https://github.com/handlename/reviewer/pull/42
+- feat: deliver a resolved thread to the agent before dropping it by @handlename in https://github.com/handlename/reviewer/pull/43
+- feat: render a comment as a thread with a reply control by @handlename in https://github.com/handlename/reviewer/pull/44
+- feat: stop an unanswered question being closed in silence by @handlename in https://github.com/handlename/reviewer/pull/45
+- feat: let the agent open a thread of its own by @handlename in https://github.com/handlename/reviewer/pull/46
+- feat: place an agent thread on a diff by the passage it quotes by @handlename in https://github.com/handlename/reviewer/pull/47
+- feat: place an agent thread on Markdown by the passage it quotes by @handlename in https://github.com/handlename/reviewer/pull/48
+- docs: describe the threaded review loop by @handlename in https://github.com/handlename/reviewer/pull/49
+- docs: require verifying review-screen changes in a browser by @handlename in https://github.com/handlename/reviewer/pull/51
+- chore: build with go 1.27 by @handlename in https://github.com/handlename/reviewer/pull/52
+- feat: wrap long diff lines instead of scrolling by @handlename in https://github.com/handlename/reviewer/pull/53
+- fix: scroll the document column, not the page by @handlename in https://github.com/handlename/reviewer/pull/54
+- feat: fold whitespace-only changes in a diff by @handlename in https://github.com/handlename/reviewer/pull/55
+- feat: let either side add consecutive messages to a thread by @handlename in https://github.com/handlename/reviewer/pull/57
+- fix: keep agent messages when the human submits by @handlename in https://github.com/handlename/reviewer/pull/58
+- docs: retake the README review screenshots by @handlename in https://github.com/handlename/reviewer/pull/56
+
 ## [v0.4.0](https://github.com/handlename/reviewer/compare/v0.3.0...v0.4.0) - 2026-08-15
 - feat: make the comment panel resizable by @handlename in https://github.com/handlename/reviewer/pull/24
 - feat: render unified diffs as a review target by @handlename in https://github.com/handlename/reviewer/pull/25
