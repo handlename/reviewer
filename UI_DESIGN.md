@@ -44,7 +44,7 @@ A diff's added and removed lines are distinguished by **colour** — a desaturat
 
 **Why:** `+` and `-` are not a level in a hierarchy, they are a difference in meaning, and colour is the fastest channel for that distinction. This is the only place where a hue carries meaning, and it is deliberately the *only* one.
 
-Everything downstream must agree with these four tokens rather than restating them — the file-list status marks and the suggestion diff in the comment panel both take their colour from here, so that green and red mean one thing across the whole page.
+Everything downstream must agree with these four tokens rather than restating them — the file-list status marks and the suggestion diff in the feedback panel both take their colour from here, so that green and red mean one thing across the whole page.
 
 ### 2.3 Typography
 
@@ -86,7 +86,7 @@ The document column is capped at a `--measure` of 40rem (~70 characters) and the
 
 The same reasoning governs **state**: `is-served`, `sidebar-collapsed` and `diff-review` are classes on `<body>`, not inline `display` values, so the narrow-viewport rules can still override them.
 
-### 3.4 The comment panel is the reviewer's to size
+### 3.4 The feedback panel is the reviewer's to size
 
 The panel's width is draggable, defaults to 520px, and is remembered in `localStorage`. Double-clicking the divider restores the default by **removing** the custom property rather than writing 520px back, so the default keeps living in the stylesheet and only has to change in one place.
 
@@ -100,11 +100,11 @@ The drag geometry measures the panel's **own** right edge once at drag start. Co
 
 `‹` collapses it, `›` restores it, and the state survives a reload.
 
-**Why:** a diff is read across rather than down, so the file list is the first thing worth trading for width.
+**Why:** a diff is read across rather than down, so the contents rail is the first thing worth trading for width.
 
 ### 3.6 Each column owns its own scrollport
 
-All three columns are `100vh` and scroll themselves; the page does not scroll at all. The document column is therefore the element that scrolls the document, and its scrollbar sits at **its own right edge** — between the document and the comment panel — rather than at the window edge.
+All three columns are `100vh` and scroll themselves; the page does not scroll at all. The document column is therefore the element that scrolls the document, and its scrollbar sits at **its own right edge** — between the document and the feedback panel — rather than at the window edge.
 
 **Why:** the two rails were already `100vh` and sticky, so leaving the document column unbounded made the *page* the thing that scrolled. That put the scrollbar for the middle column outside the right-hand rail, past the panel, attached to nothing it actually scrolled. A scrollbar is an edge indicator, and the edge it belongs to is the end of the content it moves.
 
@@ -252,7 +252,7 @@ The extension → grammar map is explicit rather than "pass the extension to Pri
 
 ### 6.4 File status is a mark, not a word
 
-In the file list the status is a fixed-width glyph in front of the name — `+` added, `−` deleted, `⇄` renamed, `·` modified — so the names line up in one column and the list can be scanned rather than read. The words are not thrown away: they stay in full on the file header in the document, and follow the mark as its `title`.
+In the contents rail the status is a fixed-width glyph in front of the name — `+` added, `−` deleted, `⇄` renamed, `·` modified — so the names line up in one column and the list can be scanned rather than read. The words are not thrown away: they stay in full on the file header in the document, and follow the mark as its `title`.
 
 Marks are glyphs, not an icon font or inline SVG: they inherit the monospace column and the text colour, and the page loads nothing new for them.
 

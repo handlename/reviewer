@@ -289,7 +289,7 @@ and behaves the way it does — the design system, the layout policy and the int
 is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisions.
 
 * **Responsive 3-Column Layout**:
-  * **Sidebar (Left)**: Renders the title, version and date (a diff shows its file count and
+  * **Contents Rail (Left)**: Renders the title, version and date (a diff shows its file count and
     +/− totals instead), and navigation — headings for a spec, the file list for a diff, where
     each entry carries a status mark. It folds away, and the collapsed state is remembered.
   * **Main Content (Middle)**: Renders the compiled body. For a diff the layout drops its

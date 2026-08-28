@@ -15,7 +15,7 @@ reviewer is a spec-to-readable HTML compiler and review server.
 - Gutter commenting on specific block elements, and on line ranges or whole files of a diff
 - Comments that follow their lines into the next round, by content rather than by line number
 - ` ```suggestion ` blocks, shown in the panel as a diff against the lines they replace
-- A resizable comment panel and a foldable contents rail
+- A resizable feedback panel and a foldable contents rail
 - Inline comment editing (with keyboard accessibility) and deletion before submission
 - A built-in MCP server, so AI agents drive the review loop through standard tool calls
 
