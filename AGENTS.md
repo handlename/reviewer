@@ -2,7 +2,7 @@
 
 > [!IMPORTANT]
 > **To All AI Agents:**
-> Before initiating any code changes, feature additions, or debugging tasks in this repository, you **MUST** read and prioritize these guidelines as your highest-priority context. This repository contains strict implicit rules and invariants designed to prevent critical bugs and performance regressions. Neglecting these rules will break core features or result in rejected changes.
+> Before initiating any code changes, feature additions, or debugging tasks in this repository, you **MUST** read and prioritize these guidelines as your highest-priority context. Naming is one of them: §11 requires every new name to come from `GLOSSARY.md`. This repository contains strict implicit rules and invariants designed to prevent critical bugs and performance regressions. Neglecting these rules will break core features or result in rejected changes.
 
 ---
 
@@ -284,3 +284,40 @@ $ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize", ...}' > in
 
 That drives the real tool surface — `review_start`, `review_wait`, `review_reply` — rather than a
 stand-in, so the page under test is the page an agent would actually get.
+
+---
+
+## 11. Names Come from GLOSSARY.md
+
+`GLOSSARY.md` is this codebase's vocabulary, and its §5 (Screen Anatomy) is the vocabulary of the
+review page. It is not a summary written after the fact — it is where a name is decided.
+
+* **Rule**:
+  * **Before naming anything — a function, a variable, a CSS class, an element id, a `data-`
+    attribute, a `<body>` class, a localStorage key, a comment, a commit message — look the thing
+    up in `GLOSSARY.md` and use the term you find there.** If a term exists, its spelling is not
+    yours to vary: no synonym, no abbreviation, no second word for the same thing.
+  * **One term, one identifier stem.** The **Implementation** line of each entry lists the
+    identifiers that term owns. `Connector Line` is `connector`, never `connection`; `Comment Card`
+    is `comment-card`, never `feedback-item`; `Contents Rail` is `contentsRail` / `.contents-rail`,
+    and its parts take the shorter `rail-` prefix (`.rail-toc-item`, `#hideRailBtn`).
+  * **A thing with no term yet needs a term first.** Add the entry to `GLOSSARY.md` in the same
+    change — Description, and Implementation naming the identifiers — and then write the code. Do
+    not leave the code naming something the glossary cannot name.
+  * **Renaming a term renames its identifiers.** If a canonical name changes, the identifiers under
+    its Implementation line change with it in the same change, and the old name moves to Aliases so
+    that a search for it still lands on the term.
+
+* **The one exception — wire formats.** A name that has already left the process keeps the spelling
+  it was published with: the **Sidecar**'s JSON keys, the **Anchor** string forms
+  (`spec-element-N`, `<path>#<start>-<end>`, `<path>#file`), the MCP tool names, the `/api/…` paths,
+  and the `-feedback.json` / `-status.json` filenames. A rename there breaks a sidecar written
+  yesterday, or an agent built against those names. Where such a name differs from its term, the
+  term's entry records the difference; the code does not "fix" it.
+
+* **Why**: the review page is worked on by people and by agents, in prose and in code, across a
+  document, a stylesheet and 3,500 lines of template. When one thing carries four names — the left
+  column was a `sidebar`, a `contents rail`, a `file list` and a TOC at once — every reader has to
+  re-derive which is which, and names drift away from what they name: `scrollToSidebarComment`
+  scrolled the feedback panel, not the rail. Naming from one list is what keeps a search for a term
+  finding everything about it.

@@ -1,6 +1,6 @@
 # reviewer Glossary (GLOSSARY)
 
-This document defines the core domain terms used within the `reviewer` codebase and documentation. It serves as a unified reference to ensure human developers and AI agents share a common understanding of the system's terminology. Sections 1-4 cover the domain and its features; section 5 names the parts of the review page. These names are canonical for code as well as prose.
+This document defines the core domain terms used within the `reviewer` codebase and documentation. It serves as a unified reference to ensure human developers and AI agents share a common understanding of the system's terminology. Sections 1-4 cover the domain and its features; section 5 names the parts of the review page. These names are canonical for code as well as prose: `AGENTS.md` §11 requires every new identifier to come from a term here.
 
 ---
 
