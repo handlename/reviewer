@@ -28,7 +28,7 @@ type SpecMetadata struct {
 	// branches on it because the two have different comment targets — a document block for
 	// Markdown, a line range for a diff — and the wrong initializer silently comments nothing.
 	Mode string
-	// Stats replaces Version/Date in the diff sidebar. A diff has no front matter, so those two
+	// Stats replaces Version/Date in the diff contents rail. A diff has no front matter, so those two
 	// would otherwise show a made-up version and an unknown date.
 	Stats string
 }

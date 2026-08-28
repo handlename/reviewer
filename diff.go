@@ -406,7 +406,7 @@ func renderDiffBody(files []File) string {
 		b.WriteString(`<section class="diff-file">` + "\n")
 		// data-file makes the header a comment target in its own right: a comment about the
 		// file as a whole anchors here rather than to a line that happens to be in it.
-		// data-status carries what happened to the file, so the sidebar can show it as a mark
+		// data-status carries what happened to the file, so the contents rail can show it as a mark
 		// beside the name instead of repeating the words after it.
 		b.WriteString(`<h2 class="diff-file-header" data-file="` + html.EscapeString(path) +
 			`" data-status="` + string(f.Status()) + `">` +

@@ -93,7 +93,7 @@
                override it — an inline el.style.width would beat the media query. */
             --feedback-panel-width: 520px;
             /* The narrowest the document column may become. Read by the resize handle too. */
-            --main-min-width: 480px;
+            --document-min-width: 480px;
 
             scrollbar-color: hsl(var(--fg-hsl) / 0.22) transparent;
         }
@@ -170,7 +170,7 @@
         }
 
         /* Supporting rails recede: same canvas as the page, separated only by a hairline. */
-        .sidebar {
+        .contents-rail {
             width: 280px;
             flex-shrink: 0;
             height: 100vh;
@@ -184,9 +184,9 @@
             flex-direction: column;
             gap: calc(var(--u) * 2);
         }
-        /* Descendant, not child: the title sits inside .sidebar-header alongside the collapse
+        /* Descendant, not child: the title sits inside .contents-rail-header alongside the collapse
            button, and a child selector would drop it back to document-heading styling. */
-        .sidebar h2 {
+        .contents-rail h2 {
             font-size: 1.05rem;
             font-weight: 600;
             line-height: 1.3;
@@ -197,7 +197,7 @@
             padding: 0;
             text-wrap: balance;
         }
-        .sidebar > p {
+        .contents-rail > p {
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.72rem;
             letter-spacing: 0.03em;
@@ -206,7 +206,7 @@
         }
 
         /* The main column is the hero: a comfortable reading measure, centred. */
-        .main-content {
+        .document-column {
             flex: 1;
             min-width: 0;
             max-width: calc(var(--measure) + var(--u) * 12);
@@ -225,7 +225,7 @@
            column — so a 2px accent frame would enclose the whole document for the rest of the
            session while announcing nothing they chose. The class is dropped the first time focus
            does leave, after which every arrival here is deliberate and rings normally. */
-        .main-content.focus-on-load:focus-visible { outline: none; }
+        .document-column.focus-on-load:focus-visible { outline: none; }
 
         .feedback-panel {
             width: var(--feedback-panel-width);
@@ -470,7 +470,7 @@
             border-bottom: 1px solid var(--border-color);
             padding-bottom: 0.6rem;
         }
-        .comment-box {
+        .composer {
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: var(--radius);
@@ -478,8 +478,8 @@
             margin-bottom: 0.85rem;
             transition: border-color 0.18s;
         }
-        .comment-box:focus-within { border-color: var(--accent-color); }
-        .comment-box textarea {
+        .composer:focus-within { border-color: var(--accent-color); }
+        .composer textarea {
             width: 100%;
             background: transparent;
             border: none;
@@ -495,7 +495,7 @@
             max-height: 50vh;
             overflow-y: auto;
         }
-        .comment-box textarea::placeholder { color: var(--text-tertiary); }
+        .composer textarea::placeholder { color: var(--text-tertiary); }
         .btn {
             display: inline-block;
             width: 100%;
@@ -519,7 +519,7 @@
             border-color: var(--accent-color);
         }
         #submitFeedbackBtn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-        .feedback-item {
+        .comment-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             padding: 0.7rem 0.8rem;
@@ -532,8 +532,8 @@
         }
         /* A comment may carry a ```suggestion fence, which is only readable if its line breaks
            and indentation survive. This also keeps a Markdown comment's own paragraphs intact. */
-        .feedback-item > p { white-space: pre-wrap; overflow-wrap: anywhere; }
-        .feedback-item .delete-btn {
+        .comment-card > p { white-space: pre-wrap; overflow-wrap: anywhere; }
+        .comment-card .delete-btn {
             position: absolute;
             top: 8px;
             right: 9px;
@@ -542,7 +542,7 @@
             font-weight: bold;
             line-height: 1;
         }
-        .feedback-item .edit-btn {
+        .comment-card .edit-btn {
             position: absolute;
             top: 8px;
             right: 28px;
@@ -553,8 +553,8 @@
             user-select: none;
             transition: color 0.18s;
         }
-        .feedback-item .edit-btn:hover { color: var(--accent-color); }
-        .feedback-item.editing-mode {
+        .comment-card .edit-btn:hover { color: var(--accent-color); }
+        .comment-card.editing-mode {
             border-color: var(--accent-color);
             background: hsl(var(--accent-hsl) / 0.05);
         }
@@ -822,10 +822,10 @@
         /* Outdated: the comment's lines are no longer in the diff. It recedes, but keeps its
            text and the lines it was written against — with the diff gone, that quotation is the
            only remaining record of what it referred to. */
-        .feedback-item.outdated { border-style: dashed; background: transparent; }
+        .comment-card.outdated { border-style: dashed; background: transparent; }
         /* Heading over a group of comments in the panel. Weight and letter-spacing only — the
            groups are told apart by the label, not by a rule or a box. */
-        .comment-section-label {
+        .panel-section-label {
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.62rem;
             font-weight: 500;
@@ -834,7 +834,7 @@
             color: var(--text-tertiary);
             margin-top: 0.4rem;
         }
-        .comment-section-label:first-child { margin-top: 0; }
+        .panel-section-label:first-child { margin-top: 0; }
 
         /* A thread waiting on the human. The accent is the page's single attention channel, so
            it marks the card and the panel-level count alike. */
@@ -873,10 +873,10 @@
             color: var(--accent-color);
         }
         /* Inset, so the mark costs no padding or border and the text under it never moves. */
-        .feedback-item.awaiting-answer { box-shadow: inset 2px 0 0 var(--accent-color); }
+        .comment-card.awaiting-answer { box-shadow: inset 2px 0 0 var(--accent-color); }
         /* A thread the agent opened carries no edit or delete affordance, so it does not need the
            gutter the card reserves for them. */
-        .feedback-item.agent-thread { padding-right: 0.8rem; }
+        .comment-card.agent-thread { padding-right: 0.8rem; }
 
         .outdated-tag {
             font-family: 'IBM Plex Mono', monospace;
@@ -908,11 +908,11 @@
         }
 
         /* a comment the user marked resolved recedes but stays visible for the cycle */
-        .feedback-item.resolved {
+        .comment-card.resolved {
             opacity: 0.6;
         }
-        .feedback-item.resolved > p { text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
-        .feedback-item.resolved .resolve-toggle { color: var(--badge-could); }
+        .comment-card.resolved > p { text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
+        .comment-card.resolved .resolve-toggle { color: var(--badge-could); }
 
         /* End Review — quiet secondary action, distinct from Submit */
         #endReviewBtn {
@@ -1087,7 +1087,7 @@
             border-radius: 1px;
             background: var(--hl-mark);
         }
-        .element-comment-indicator {
+        .comment-indicator {
             position: absolute;
             right: -30px;
             top: 50%;
@@ -1108,15 +1108,15 @@
             transition: transform 0.2s, background-color 0.2s;
             z-index: 11;
         }
-        .element-comment-indicator:hover {
+        .comment-indicator:hover {
             transform: translateY(-50%) scale(1.08);
             background-color: var(--accent-hover);
         }
-        pre.commentable-element .element-comment-indicator {
+        pre.commentable-element .comment-indicator {
             top: 1rem;
             transform: none;
         }
-        pre.commentable-element .element-comment-indicator:hover { transform: scale(1.08); }
+        pre.commentable-element .comment-indicator:hover { transform: scale(1.08); }
         /* ---------- Connector line (comment ⇄ target element) ----------
            A viewport-fixed SVG overlay draws a line between a selected comment
            and its target element. Selecting always scrolls the element into
@@ -1149,7 +1149,7 @@
         }
 
         /* selected comment card + its target element share the accent lift */
-        .feedback-item.selected { border-color: var(--accent-color); background: hsl(var(--accent-hsl) / 0.06); }
+        .comment-card.selected { border-color: var(--accent-color); background: hsl(var(--accent-hsl) / 0.06); }
         /* Strongest state: solid ring plus a halo, so it outranks the dashed
            compose ring without needing a second hue. */
         .commentable-element.selected-target {
@@ -1183,12 +1183,12 @@
 
         /* A diff has no reading measure to respect — it is as wide as its longest line — so
            the layout gives up its 1600px cap and the document column takes whatever the
-           window has. --main-min-width is the floor it is never squeezed below; the panel
+           window has. --document-min-width is the floor it is never squeezed below; the panel
            drag reads the same value, so the two cannot disagree. */
         body.diff-review .layout { max-width: none; }
-        .main-content.diff-mode {
+        .document-column.diff-mode {
             max-width: none;
-            min-width: var(--main-min-width);
+            min-width: var(--document-min-width);
             margin: 0;
             padding: calc(var(--u) * 4) calc(var(--u) * 3);
         }
@@ -1199,7 +1199,7 @@
             overflow: hidden;
             background: var(--bg-primary);
         }
-        .main-content.diff-mode h2.diff-file-header {
+        .document-column.diff-mode h2.diff-file-header {
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.78rem;
             font-weight: 500;
@@ -1336,7 +1336,7 @@
         /* The 💬 badge cannot hang in the right gutter here: the hunk scrolls horizontally
            and would clip it. Sticking it to the scrollport's right edge keeps it in view at
            any scroll position. */
-        .diff-line .element-comment-indicator {
+        .diff-line .comment-indicator {
             position: sticky;
             right: 4px;
             top: auto;
@@ -1344,12 +1344,12 @@
             margin-left: auto;
             align-self: center;
         }
-        .diff-line .element-comment-indicator:hover { transform: scale(1.08); }
+        .diff-line .comment-indicator:hover { transform: scale(1.08); }
 
         /* The file header is a comment target too — for what is true of the change to the file
            rather than of any line in it. Same states as a line, drawn on the header's own bar. */
-        .main-content.diff-mode h2.diff-file-header { cursor: pointer; }
-        .main-content.diff-mode h2.diff-file-header:hover { background: var(--bg-tertiary); }
+        .document-column.diff-mode h2.diff-file-header { cursor: pointer; }
+        .document-column.diff-mode h2.diff-file-header:hover { background: var(--bg-tertiary); }
         .diff-file-header.anchored-range { box-shadow: inset 2px 0 0 var(--hl-mark); }
         .diff-file-header.active-comment-target { box-shadow: inset 2px 0 0 var(--hl-ring); }
         .diff-file-header.selected-target {
@@ -1357,25 +1357,25 @@
             box-shadow: inset 3px 0 0 var(--hl-ring);
         }
         /* Inside the header rather than out in the gutter: .diff-file clips its overflow. */
-        .diff-file-header .element-comment-indicator {
+        .diff-file-header .comment-indicator {
             right: 8px;
             top: 50%;
             transform: translateY(-50%);
         }
 
         #suggestionActions { margin-top: -0.4rem; }
-        #quoteSuggestionBtn { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; }
+        #quoteLinesBtn { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; }
 
         /* ---------- Collapsing the contents rail ----------
            A diff is read across, so the contents rail is the first thing worth
            trading for width. Collapsed state rides a class on <body>, never an
            inline style, so the narrow-viewport rules can still override it. */
-        .sidebar-header {
+        .contents-rail-header {
             display: flex;
             align-items: flex-start;
             gap: calc(var(--u) * 1.5);
         }
-        .sidebar-header > h2 { flex: 1 1 auto; min-width: 0; }
+        .contents-rail-header > h2 { flex: 1 1 auto; min-width: 0; }
         .rail-toggle {
             flex: 0 0 auto;
             width: 24px;
@@ -1395,7 +1395,7 @@
         }
         .rail-toggle:hover { color: var(--text-primary); border-color: var(--border-color); background: var(--bg-secondary); }
         /* The restore handle only exists while the rail is gone. */
-        #showSidebarBtn {
+        #showRailBtn {
             display: none;
             position: fixed;
             top: calc(var(--u) * 2);
@@ -1404,18 +1404,18 @@
             background: var(--bg-secondary);
             border-color: var(--border-color);
         }
-        body.sidebar-collapsed .sidebar { display: none; }
-        body.sidebar-collapsed #showSidebarBtn { display: inline-flex; }
+        body.rail-collapsed .contents-rail { display: none; }
+        body.rail-collapsed #showRailBtn { display: inline-flex; }
 
-        /* ---------- Sidebar TOC ---------- */
-        .sidebar-toc {
+        /* ---------- Contents rail TOC ---------- */
+        .rail-toc {
             display: flex;
             flex-direction: column;
             gap: 0.15rem;
             margin-top: 0.5rem;
             font-size: 0.85rem;
         }
-        .sidebar-toc-item {
+        .rail-toc-item {
             display: block;
             color: var(--text-tertiary);
             text-decoration: none;
@@ -1425,20 +1425,20 @@
             cursor: pointer;
             line-height: 1.4;
         }
-        .sidebar-toc-item:hover {
+        .rail-toc-item:hover {
             color: var(--text-secondary);
             text-decoration: none;
             border-left-color: var(--border-strong);
         }
-        .sidebar-toc-item.active {
+        .rail-toc-item.active {
             color: var(--text-primary);
             font-weight: 500;
             border-left-color: var(--accent-color);
         }
         /* File list: a fixed-width mark column so the names line up and the list can be
            scanned down rather than read across. */
-        .sidebar-toc-file { display: flex; align-items: baseline; gap: 0.45rem; }
-        .toc-file-status {
+        .rail-toc-file { display: flex; align-items: baseline; gap: 0.45rem; }
+        .file-status {
             flex: 0 0 auto;
             width: 0.9em;
             text-align: center;
@@ -1446,19 +1446,19 @@
             font-size: 0.85rem;
             line-height: 1;
         }
-        .toc-file-status-added    { color: var(--diff-add-fg); }
-        .toc-file-status-deleted  { color: var(--diff-del-fg); }
-        .toc-file-status-renamed  { color: var(--text-secondary); }
-        .toc-file-status-modified { color: var(--text-tertiary); }
-        .toc-file-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+        .file-status-added    { color: var(--diff-add-fg); }
+        .file-status-deleted  { color: var(--diff-del-fg); }
+        .file-status-renamed  { color: var(--text-secondary); }
+        .file-status-modified { color: var(--text-tertiary); }
+        .rail-toc-file-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 
-        .sidebar-toc-h1 { padding-left: 0.6rem; }
-        .sidebar-toc-h2 { padding-left: 1.35rem; font-size: 0.8rem; }
-        .sidebar-toc-h3 { padding-left: 2.1rem; font-size: 0.78rem; }
+        .rail-toc-h1 { padding-left: 0.6rem; }
+        .rail-toc-h2 { padding-left: 1.35rem; font-size: 0.8rem; }
+        .rail-toc-h3 { padding-left: 2.1rem; font-size: 0.78rem; }
 
         /* ---------- Reading comfort in dark mode (compensate light-on-dark) ---------- */
         @media (prefers-color-scheme: dark) {
-            .main-content p, .main-content li { line-height: 1.72; letter-spacing: 0.006em; }
+            .document-column p, .document-column li { line-height: 1.72; letter-spacing: 0.006em; }
         }
 
         /* ---------- Respect reduced motion ---------- */
@@ -1470,7 +1470,7 @@
         @media (max-width: 1080px) {
             body { display: block; }
             .layout { flex-direction: column; max-width: 100%; }
-            .sidebar, .feedback-panel {
+            .contents-rail, .feedback-panel {
                 position: static;
                 width: 100%;
                 height: auto;
@@ -1482,17 +1482,17 @@
             body.is-served .panel-resize-handle { display: none; }
             /* The rails are stacked and the page scrolls again, so the column must not keep
                a second scrollport nested inside it. */
-            .main-content { max-width: 46rem; height: auto; overflow-y: visible; }
-            .element-comment-indicator { right: 2px; }
+            .document-column { max-width: 46rem; height: auto; overflow-y: visible; }
+            .comment-indicator { right: 2px; }
         }
     </style>
 </head>
 <body class="{{if eq .Mode "diff"}}diff-review{{end}}">
     <div class="layout">
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
+        <aside class="contents-rail" id="contentsRail">
+            <div class="contents-rail-header">
                 <h2>{{.Title}}</h2>
-                <button type="button" class="rail-toggle" id="hideSidebarBtn" title="Hide contents" aria-label="Hide contents" aria-expanded="true" aria-controls="sidebar">&#x2039;</button>
+                <button type="button" class="rail-toggle" id="hideRailBtn" title="Hide contents" aria-label="Hide contents" aria-expanded="true" aria-controls="contentsRail">&#x2039;</button>
             </div>
             {{if eq .Mode "diff"}}
             <p style="font-size: 0.9rem;">{{.Stats}}</p>
@@ -1504,12 +1504,12 @@
             <p style="font-size: 0.9rem;">Version: {{.Version}}</p>
             <p style="font-size: 0.9rem;">Date: {{.Date}}</p>
             {{end}}
-            <nav class="sidebar-toc" id="sidebarToc">
+            <nav class="rail-toc" id="railToc">
                 <!-- Dynamic headings loaded via JS -->
             </nav>
         </aside>
 
-        <main class="main-content{{if eq .Mode "diff"}} diff-mode{{end}}" tabindex="0">
+        <main class="document-column{{if eq .Mode "diff"}} diff-mode{{end}}" tabindex="0">
             {{.Body}}
         </main>
 
@@ -1535,11 +1535,11 @@
                 <span id="commentContextText" style="color: var(--text-primary); margin-left: 0.25rem; display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;"></span>
                 <span id="clearContextBtn" style="float: right; cursor: pointer; color: var(--badge-must); font-weight: bold; font-size: 1.1rem; line-height: 1;" title="Clear targeting">&times;</span>
             </div>
-            <div class="comment-box">
-                <textarea id="commentInput" placeholder="Type a comment or request changes..."></textarea>
+            <div class="composer">
+                <textarea id="composerInput" placeholder="Type a comment or request changes..."></textarea>
             </div>
             <div id="suggestionActions" style="display: none;">
-                <button class="btn-sm btn-cancel" id="quoteSuggestionBtn" title="Insert the selected lines as a ```suggestion block">Quote lines as suggestion</button>
+                <button class="btn-sm btn-cancel" id="quoteLinesBtn" title="Insert the selected lines as a ```suggestion block">Quote lines as suggestion</button>
             </div>
             <button class="btn" id="addCommentBtn">Add Comment</button>
             
@@ -1558,7 +1558,7 @@
         </aside>
     </div>
 
-    <button type="button" class="rail-toggle" id="showSidebarBtn" title="Show contents" aria-label="Show contents" aria-expanded="false" aria-controls="sidebar">&#x203A;</button>
+    <button type="button" class="rail-toggle" id="showRailBtn" title="Show contents" aria-label="Show contents" aria-expanded="false" aria-controls="contentsRail">&#x203A;</button>
 
     <svg id="connectorOverlay" aria-hidden="true"></svg>
 
@@ -1605,7 +1605,7 @@
 
         // Tag commentable elements on load
         function initializeCommentableElements() {
-            const container = document.querySelector('.main-content');
+            const container = document.querySelector('.document-column');
             if (!container) return;
 
             // Target block elements inside main spec body
@@ -1642,7 +1642,7 @@
                 // a non-collapsed selection exists; also let interactive
                 // children (links, the view-indicator) keep their own behaviour.
                 el.addEventListener('mouseup', (e) => {
-                    if (e.target.closest('a, .element-comment-indicator')) return;
+                    if (e.target.closest('a, .comment-indicator')) return;
                     if (!window.getSelection().isCollapsed) return;
                     // Mode A: a commented element selects its comment (shows the line);
                     // an uncommented element targets a new comment (line to the input box).
@@ -1663,7 +1663,7 @@
         // "<path>#<start>-<end>" where the numbers are 1-based positions among the file's
         // rendered diff lines. The anchor is built when the range is selected; the DOM
         // attribute that carries it is (re)applied by applyDiffAnchors.
-        const isDiffMode = !!document.querySelector(".main-content.diff-mode");
+        const isDiffMode = !!document.querySelector(".document-column.diff-mode");
 
         function diffLineElements() { return Array.from(document.querySelectorAll(".diff-line")); }
         function lineIndexOf(el) { return parseInt(el.getAttribute("data-line-index"), 10); }
@@ -1784,10 +1784,10 @@
             document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("suggestionActions").style.display = "block";
 
-            clearConnectionMarks();
-            connection = { kind: "compose", anchor: activeAnchor };
+            clearConnectorMarks();
+            connector = { kind: "compose", anchor: activeAnchor };
             hoverAnchor = null;
-            drawConnection(connection, true);
+            drawConnector(connector, true);
         }
 
         // Target a whole file. There is no line content to carry, so no anchorLines and no
@@ -1810,10 +1810,10 @@
             document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("suggestionActions").style.display = "none";
 
-            clearConnectionMarks();
-            connection = { kind: "compose", anchor: activeAnchor };
+            clearConnectorMarks();
+            connector = { kind: "compose", anchor: activeAnchor };
             hoverAnchor = null;
-            drawConnection(connection, true);
+            drawConnector(connector, true);
         }
 
         function diffContextPreview(path, start, end, firstLine) {
@@ -1886,7 +1886,7 @@
         }
 
         function initializeDiffLines() {
-            const container = document.querySelector(".main-content");
+            const container = document.querySelector(".document-column");
             if (!container) return;
 
             let dragFrom = null;    // where the current drag started
@@ -1897,7 +1897,7 @@
                 // The 💬 badge runs selectComment from its own click handler. Letting this one
                 // run too selects the comment on mousedown and then toggles it straight back off
                 // on click, so the connector line appears and vanishes within the same gesture.
-                if (e.target.closest(".element-comment-indicator, a")) return;
+                if (e.target.closest(".comment-indicator, a")) return;
 
                 const header = e.target.closest(".diff-file-header");
                 if (header) {
@@ -1949,7 +1949,7 @@
             // eye is still on the line that was just picked.
             window.addEventListener("mouseup", () => {
                 if (pendingFocus && activeAnchor) {
-                    document.getElementById("commentInput").focus({ preventScroll: true });
+                    document.getElementById("composerInput").focus({ preventScroll: true });
                 }
                 dragging = false;
                 pendingFocus = false;
@@ -1959,9 +1959,9 @@
         // Quote the selected lines into the comment box as a ```suggestion fence. Only ever on
         // click: a fence inserted automatically would be in the way of every comment that is
         // just a question, and would train the agent to expect a patch that is not there.
-        function quoteSelectionAsSuggestion() {
+        function quoteLines() {
             if (!activeAnchorLines.length) return;
-            const input = document.getElementById("commentInput");
+            const input = document.getElementById("composerInput");
             const fence = "```suggestion\n" + activeAnchorLines.join("\n") + "\n```\n";
             const at = input.selectionStart != null ? input.selectionStart : input.value.length;
             const before = input.value.slice(0, at);
@@ -1997,13 +1997,13 @@
             const contextText = document.getElementById("commentContextText");
             contextText.textContent = activeContext;
             document.getElementById("commentContextContainer").style.display = "block";
-            document.getElementById("commentInput").focus();
+            document.getElementById("composerInput").focus();
 
             // Draw a connector from the targeted element to the comment input box.
-            clearConnectionMarks();
-            connection = { kind: "compose", anchor: anchorId };
+            clearConnectorMarks();
+            connector = { kind: "compose", anchor: anchorId };
             hoverAnchor = null;
-            drawConnection(connection, true);
+            drawConnector(connector, true);
         }
 
         // Clear active target
@@ -2020,14 +2020,14 @@
             if (suggestionActions) suggestionActions.style.display = "none";
             document.getElementById("commentContextContainer").style.display = "none";
 
-            if (connection && connection.kind === "compose") {
-                connection = null;
-                clearConnector();
+            if (connector && connector.kind === "compose") {
+                connector = null;
+                clearConnectorSvg();
             }
         }
 
         document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
-        document.getElementById("quoteSuggestionBtn").addEventListener("click", quoteSelectionAsSuggestion);
+        document.getElementById("quoteLinesBtn").addEventListener("click", quoteLines);
 
         // Fetch existing comments on load. The server returns {comments, summary}.
         function loadExistingComments() {
@@ -2040,7 +2040,7 @@
                     summary = (data && data.summary) || "";
                     renderSummary();
                     renderComments();
-                    updateInlineIndicators();
+                    updateCommentIndicators();
                 })
                 .catch(err => console.error("Error loading feedback comments:", err));
         }
@@ -2095,9 +2095,9 @@
         }
 
         // Render inline indicators next to commented elements
-        function updateInlineIndicators() {
+        function updateCommentIndicators() {
             // Clear existing indicators
-            document.querySelectorAll('.element-comment-indicator').forEach(el => el.remove());
+            document.querySelectorAll('.comment-indicator').forEach(el => el.remove());
             document.querySelectorAll('.has-comments-highlight').forEach(el => el.classList.remove('has-comments-highlight'));
 
             // In diff mode the anchors are attributes this page puts on the lines, so they have
@@ -2119,7 +2119,7 @@
                     targetEl.classList.add('has-comments-highlight');
 
                     const indicator = document.createElement('span');
-                    indicator.className = 'element-comment-indicator';
+                    indicator.className = 'comment-indicator';
                     indicator.innerHTML = `💬 ${count}`;
                     indicator.title = `Click to view ${count} comment(s)`;
                     indicator.addEventListener('click', (e) => {
@@ -2136,12 +2136,12 @@
                     badgeHost.appendChild(indicator);
                 }
             });
-            reconcileConnection();
+            reconcileConnector();
         }
 
-        // Scroll sidebar to first comment matching anchor
-        function scrollToSidebarComment(anchorId) {
-            const commentItems = Array.from(document.querySelectorAll('.feedback-item'));
+        // Scroll the feedback panel to the first comment card matching the anchor
+        function scrollToCommentCard(anchorId) {
+            const commentItems = Array.from(document.querySelectorAll('.comment-card'));
             const match = commentItems.find(item => item.getAttribute('data-anchor') === anchorId);
             if (match) {
                 match.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2166,15 +2166,15 @@
 
         // ---------- Connector line: comment ⇄ target element ----------
         // A single SVG overlay draws one line at a time. State:
-        //   connection: null | { kind: "selected" | "compose", anchor }
+        //   connector: null | { kind: "selected" | "compose", anchor }
         //   hoverAnchor: anchor previewed on hover (only when nothing is selected)
         const connectorSvg = document.getElementById("connectorOverlay");
         const SVG_NS = "http://www.w3.org/2000/svg";
         const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        let connection = null;
+        let connector = null;
         let hoverAnchor = null;
 
-        function anchorElement(anchor) { return document.querySelector(`.main-content [data-anchor="${anchor}"]`); }
+        function anchorElement(anchor) { return document.querySelector(`.document-column [data-anchor="${anchor}"]`); }
 
         // Every element the anchor covers. Only the first line of a diff range carries
         // data-anchor (so the querySelector-based lookups above resolve to one element), but the
@@ -2183,11 +2183,11 @@
         function anchorElements(anchor) {
             const first = anchorElement(anchor);
             if (!first) return [];
-            const members = Array.from(document.querySelectorAll(".main-content [data-anchor-member]"))
+            const members = Array.from(document.querySelectorAll(".document-column [data-anchor-member]"))
                 .filter(el => el.getAttribute("data-anchor-member") === anchor);
             return [first].concat(members);
         }
-        function commentCard(anchor) { return document.querySelector(`.feedback-item[data-anchor="${anchor}"]`); }
+        function commentCard(anchor) { return document.querySelector(`.comment-card[data-anchor="${anchor}"]`); }
         function isCommented(anchor) { return !!anchor && comments.some(c => c.anchor === anchor); }
 
         // Clamp a y coordinate to the viewport so an endpoint whose element has
@@ -2200,7 +2200,7 @@
         // present; uncommented elements have no badge, so use the element's edge.
         // Horizontal position is unaffected by vertical scroll; y is clamped.
         function connectorStart(el) {
-            const badge = el.querySelector(".element-comment-indicator");
+            const badge = el.querySelector(".comment-indicator");
             const r = (badge || el).getBoundingClientRect();
             const rawY = r.top + r.height / 2;
             const y = clampY(rawY);
@@ -2212,7 +2212,7 @@
             return { x: rect.left - 6, y, offscreen: y !== rawY };
         }
 
-        function clearConnector() { if (connectorSvg) connectorSvg.innerHTML = ""; }
+        function clearConnectorSvg() { if (connectorSvg) connectorSvg.innerHTML = ""; }
 
         function paintConnector(start, end, kind, animate) {
             if (!connectorSvg) return;
@@ -2271,50 +2271,50 @@
             });
         }
 
-        function drawConnection(conn, animate) {
+        function drawConnector(conn, animate) {
             const el = anchorElement(conn.anchor);
-            if (!el) { clearConnector(); return; }
+            if (!el) { clearConnectorSvg(); return; }
             let endRect;
             if (conn.kind === "selected") {
                 const card = commentCard(conn.anchor);
-                if (!card) { clearConnector(); return; }
+                if (!card) { clearConnectorSvg(); return; }
                 endRect = card.getBoundingClientRect();
             } else {
-                const box = document.querySelector(".comment-box");
-                if (!box) { clearConnector(); return; }
+                const box = document.querySelector(".composer");
+                if (!box) { clearConnectorSvg(); return; }
                 endRect = box.getBoundingClientRect();
             }
             paintConnector(connectorStart(el), connectorEnd(endRect), "persistent", animate);
         }
 
         function refreshConnector() {
-            if (connection) { drawConnection(connection, false); return; }
+            if (connector) { drawConnector(connector, false); return; }
             if (hoverAnchor) {
                 const el = anchorElement(hoverAnchor);
                 const card = commentCard(hoverAnchor);
                 if (el && card) {
                     paintConnector(connectorStart(el), connectorEnd(card.getBoundingClientRect()), "transient", false);
                 } else {
-                    clearConnector();
+                    clearConnectorSvg();
                 }
                 return;
             }
-            clearConnector();
+            clearConnectorSvg();
         }
 
-        function clearConnectionMarks() {
-            document.querySelectorAll(".feedback-item.selected").forEach(n => n.classList.remove("selected"));
+        function clearConnectorMarks() {
+            document.querySelectorAll(".comment-card.selected").forEach(n => n.classList.remove("selected"));
             // Not scoped to .commentable-element: a diff line is a target too, and leaving the
             // class on it would strand the highlight of a range that is no longer selected.
             document.querySelectorAll(".selected-target").forEach(n => n.classList.remove("selected-target"));
         }
 
-        /* Whatever currently scrolls the document column. .main-content owns its scrollport in
+        /* Whatever currently scrolls the document column. .document-column owns its scrollport in
            the three-column layout, but the narrow-viewport media query hands scrolling back to
            the page. Reading the computed overflow keeps the breakpoint in the stylesheet instead
            of restating it here, where the two could drift apart. */
-        function contentScroller() {
-            const main = document.querySelector(".main-content");
+        function documentScroller() {
+            const main = document.querySelector(".document-column");
             return main && getComputedStyle(main).overflowY === "auto" ? main : window;
         }
 
@@ -2329,8 +2329,8 @@
             const er = el.getBoundingClientRect();
             const cr = card.getBoundingClientRect();
             const delta = (er.top + er.height / 2) - (cr.top + cr.height / 2);
-            const finish = () => { if (connection) drawConnection(connection, true); };
-            const scroller = contentScroller();
+            const finish = () => { if (connector) drawConnector(connector, true); };
+            const scroller = documentScroller();
             if (Math.abs(delta) < 2 || prefersReducedMotion) {
                 scroller.scrollBy(0, delta);
                 finish();
@@ -2341,13 +2341,13 @@
         }
 
         function selectComment(anchor) {
-            if (connection && connection.kind === "selected" && connection.anchor === anchor) {
-                clearConnection();
+            if (connector && connector.kind === "selected" && connector.anchor === anchor) {
+                dropConnector();
                 return;
             }
             clearCommentTarget();       // drop any compose state / line first
-            clearConnectionMarks();
-            connection = { kind: "selected", anchor };
+            clearConnectorMarks();
+            connector = { kind: "selected", anchor };
             hoverAnchor = null;
             const card = commentCard(anchor);
             const els = anchorElements(anchor);
@@ -2358,23 +2358,23 @@
             }
         }
 
-        function clearConnection() {
-            connection = null;
-            clearConnectionMarks();
-            clearConnector();
+        function dropConnector() {
+            connector = null;
+            clearConnectorMarks();
+            clearConnectorSvg();
         }
 
-        function hoverConnector(anchor) { hoverAnchor = anchor; if (!connection) refreshConnector(); }
-        function unhoverConnector() { hoverAnchor = null; if (!connection) clearConnector(); }
+        function hoverConnector(anchor) { hoverAnchor = anchor; if (!connector) refreshConnector(); }
+        function unhoverConnector() { hoverAnchor = null; if (!connector) clearConnectorSvg(); }
 
-        // Re-apply the active connection after comment list / indicators re-render.
-        // Drops the connection if its comment or element no longer exists.
-        function reconcileConnection() {
-            if (connection && connection.kind === "selected") {
-                const card = commentCard(connection.anchor);
-                const els = anchorElements(connection.anchor);
-                if (!card || !els.length) { clearConnection(); return; }
-                clearConnectionMarks();
+        // Re-apply the active connector after comment list / indicators re-render.
+        // Drops the connector if its comment or element no longer exists.
+        function reconcileConnector() {
+            if (connector && connector.kind === "selected") {
+                const card = commentCard(connector.anchor);
+                const els = anchorElements(connector.anchor);
+                if (!card || !els.length) { dropConnector(); return; }
+                clearConnectorMarks();
                 card.classList.add("selected");
                 els.forEach(el => el.classList.add("selected-target"));
             }
@@ -2389,18 +2389,18 @@
         }
         window.addEventListener("scroll", scheduleConnectorRefresh, true);
         window.addEventListener("resize", scheduleConnectorRefresh);
-        document.addEventListener("keydown", (e) => { if (e.key === "Escape") { clearConnection(); clearCommentTarget(); } });
+        document.addEventListener("keydown", (e) => { if (e.key === "Escape") { dropConnector(); clearCommentTarget(); } });
         // Click on empty space (not a comment / element / composer) deselects.
         // .diff-line belongs in this list for the same reason .commentable-element does: it is a
         // comment target, and without it selecting a diff comment is undone by the very click
         // that made it, connector line included.
         document.addEventListener("click", (e) => {
-            if (e.target.closest(".feedback-item, .commentable-element, .diff-line, .diff-file-header, .comment-box, #commentContextContainer")) return;
-            if (connection && connection.kind === "selected") clearConnection();
+            if (e.target.closest(".comment-card, .commentable-element, .diff-line, .diff-file-header, .composer, #commentContextContainer")) return;
+            if (connector && connector.kind === "selected") dropConnector();
         });
 
         document.getElementById("addCommentBtn").addEventListener("click", () => {
-            const input = document.getElementById("commentInput");
+            const input = document.getElementById("composerInput");
             const text = input.value.trim();
             if (text) {
                 const comment = {
@@ -2420,22 +2420,22 @@
                 markDirty();
                 clearCommentTarget();
                 renderComments();
-                updateInlineIndicators();
+                updateCommentIndicators();
             }
         });
 
-        document.getElementById("commentInput").addEventListener("keydown", (e) => {
+        document.getElementById("composerInput").addEventListener("keydown", (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
                 document.getElementById("addCommentBtn").click();
             }
         });
         // Any text in the composer counts as an unsent change (guards auto-reload).
-        document.getElementById("commentInput").addEventListener("input", (e) => {
+        document.getElementById("composerInput").addEventListener("input", (e) => {
             if (e.target.value.trim()) markDirty();
             autoGrowTextarea(e.target);
         });
 
-        // Sidebar display order follows the target block's appearance in the document, so the
+        // Feedback panel display order follows the target block's appearance in the document, so the
         // panel can be read top-down alongside the spec. `comments` itself (and the feedback
         // file written from it) keeps creation order — only the rendering is reordered, and the
         // original array index travels with each entry so the idx-based handlers stay valid.
@@ -2443,7 +2443,7 @@
         const DOCUMENT_RANK = -1;
         function commentsInAppearanceOrder() {
             const order = new Map();
-            document.querySelectorAll('.main-content [data-anchor]').forEach((el, i) => {
+            document.querySelectorAll('.document-column [data-anchor]').forEach((el, i) => {
                 order.set(el.getAttribute('data-anchor'), i);
             });
             // A comment with no target at all is about the document as a whole — it belongs above
@@ -2544,7 +2544,7 @@
 
         function resolveQuoteAnchors() {
             if (document.body.classList.contains("diff-review")) return;
-            const targets = Array.from(document.querySelectorAll('.main-content [data-anchor]'));
+            const targets = Array.from(document.querySelectorAll('.document-column [data-anchor]'));
 
             comments.forEach(c => {
                 if (!c.anchorQuote) return;
@@ -2779,7 +2779,7 @@
             // exists to be told apart from.
             const sectionLabel = (text) => {
                 const heading = document.createElement("div");
-                heading.className = "comment-section-label";
+                heading.className = "panel-section-label";
                 heading.textContent = text;
                 container.appendChild(heading);
             };
@@ -2790,7 +2790,7 @@
             ordered.forEach(({ c, idx }, pos) => {
                 if (documentLevel && pos === firstAnchored) sectionLabel("On the text");
                 const item = document.createElement("div");
-                item.className = "feedback-item";
+                item.className = "comment-card";
                 // The panel renders in the document's order, not the array's, so the card carries
                 // its index back — that is what lets the pending-question count reach its thread.
                 item.setAttribute('data-comment-idx', idx);
@@ -2989,15 +2989,15 @@
                             if (e.target.closest(".delete-btn, .edit-btn, .resolve-toggle, input, button, textarea, a")) return;
                             selectComment(c.anchor);
                         });
-                        item.addEventListener("mouseenter", () => { if (!connection) hoverConnector(c.anchor); });
-                        item.addEventListener("mouseleave", () => { if (!connection) unhoverConnector(); });
+                        item.addEventListener("mouseenter", () => { if (!connector) hoverConnector(c.anchor); });
+                        item.addEventListener("mouseleave", () => { if (!connector) unhoverConnector(); });
                     }
 
                     container.appendChild(item);
                 }
             });
             renderPendingQuestions();
-            reconcileConnection();
+            reconcileConnector();
         }
 
         // The count takes you to the first thread that is waiting, and opens its composer — the
@@ -3006,7 +3006,7 @@
             const idx = comments.findIndex(pendingQuestion);
             if (idx < 0) return;
             startReply(idx);
-            const card = document.querySelector(`.feedback-item[data-comment-idx="${idx}"]`);
+            const card = document.querySelector(`.comment-card[data-comment-idx="${idx}"]`);
             if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
         });
 
@@ -3078,7 +3078,7 @@
             comments[idx].timestamp = new Date().toISOString();
             editingIdx = -1;
             renderComments();
-            updateInlineIndicators();
+            updateCommentIndicators();
         };
 
         window.cancelEdit = function() {
@@ -3104,7 +3104,7 @@
                 else if (editingMsg.idx > idx) editingMsg.idx--;
             }
             renderComments();
-            updateInlineIndicators();
+            updateCommentIndicators();
         };
 
         document.getElementById("submitFeedbackBtn").addEventListener("click", () => {
@@ -3165,7 +3165,7 @@
         // Live reload over SSE: the server pushes "reload" when the agent edits the
         // document or writes replies. Defer the reload if the user has unsent edits.
         function hasUnsentEdits() {
-            return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || document.getElementById("commentInput").value.trim() !== "";
+            return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || document.getElementById("composerInput").value.trim() !== "";
         }
 
         function connectLiveReload() {
@@ -3224,7 +3224,7 @@
         function appendFileStatusMark(link, heading) {
             const status = heading.getAttribute("data-status") || "modified";
             const mark = document.createElement("span");
-            mark.className = "toc-file-status toc-file-status-" + status;
+            mark.className = "file-status file-status-" + status;
             mark.textContent = FILE_STATUS_MARK[status] || FILE_STATUS_MARK.modified;
             mark.setAttribute("aria-hidden", "true");
             // The words are still available, just not spent on the list's width.
@@ -3234,14 +3234,14 @@
         }
 
         function initializeTableOfContents() {
-            const tocContainer = document.getElementById("sidebarToc");
-            const mainContent = document.querySelector(".main-content");
-            if (!tocContainer || !mainContent) return;
+            const tocContainer = document.getElementById("railToc");
+            const documentColumn = document.querySelector(".document-column");
+            if (!tocContainer || !documentColumn) return;
 
             tocContainer.innerHTML = "";
 
             // 1. Fetch all headings (h1, h2, h3)
-            const headings = Array.from(mainContent.querySelectorAll("h1, h2, h3"));
+            const headings = Array.from(documentColumn.querySelectorAll("h1, h2, h3"));
             
             // Pre-fill usedIds with all existing DOM IDs to prevent collisions
             const usedIds = new Set(Array.from(document.querySelectorAll("[id]")).map(el => el.id));
@@ -3275,7 +3275,7 @@
                 // Create TOC link
                 const link = document.createElement("a");
                 link.href = `#${heading.id}`;
-                link.className = `sidebar-toc-item sidebar-toc-${heading.tagName.toLowerCase()}`;
+                link.className = `rail-toc-item rail-toc-${heading.tagName.toLowerCase()}`;
                 if (idx === 0) {
                     link.classList.add("active");
                 }
@@ -3286,10 +3286,10 @@
                     // in front of its name, so the names line up in one column and the list can
                     // be scanned down instead of read. The words stay on the header itself,
                     // where there is room to say "renamed from …" in full.
-                    link.classList.add("sidebar-toc-file");
+                    link.classList.add("rail-toc-file");
                     appendFileStatusMark(link, heading);
                     const label = document.createElement("span");
-                    label.className = "toc-file-name";
+                    label.className = "rail-toc-file-name";
                     label.textContent = filePath;
                     link.appendChild(label);
                 } else {
@@ -3316,7 +3316,7 @@
             });
 
             function setActiveTOCItem(activeLink) {
-                tocContainer.querySelectorAll(".sidebar-toc-item").forEach(item => {
+                tocContainer.querySelectorAll(".rail-toc-item").forEach(item => {
                     item.classList.remove("active");
                 });
                 activeLink.classList.add("active");
@@ -3347,16 +3347,16 @@
             headings.forEach(heading => observer.observe(heading));
 
             // Cache the first and last links to avoid DOM queries on scroll
-            const firstLink = tocContainer.querySelector(".sidebar-toc-item");
-            const lastLink = tocContainer.querySelector(".sidebar-toc-item:last-child");
+            const firstLink = tocContainer.querySelector(".rail-toc-item");
+            const lastLink = tocContainer.querySelector(".rail-toc-item:last-child");
 
             // Fallback for highlighting the first item near the top of the column, or the last
             // item at the bottom. Capture phase: scroll does not bubble, so a listener bound to
-            // window would never see .main-content scrolling.
+            // window would never see .document-column scrolling.
             window.addEventListener("scroll", () => {
                 if (isProgrammaticScroll) return;
 
-                const scroller = contentScroller();
+                const scroller = documentScroller();
                 const offset = scrollOffset(scroller);
                 const viewport = scroller === window ? window.innerHeight : scroller.clientHeight;
                 const total = scroller === window ? document.documentElement.scrollHeight : scroller.scrollHeight;
@@ -3383,20 +3383,20 @@
 
             // The document column's floor comes from the stylesheet, so the drag can never
             // squeeze the column past the width CSS already refuses to go below.
-            function mainMinWidth() {
-                const declared = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--main-min-width"), 10);
+            function documentMinWidth() {
+                const declared = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--document-min-width"), 10);
                 return Number.isFinite(declared) ? declared : 480;
             }
 
             // Whatever the rails already take is not the panel's to claim. Folding the
             // contents rail away therefore hands its width straight to the panel's ceiling.
             function railWidth() {
-                const sidebar = document.getElementById("sidebar");
-                if (!sidebar || document.body.classList.contains("sidebar-collapsed")) return 0;
-                return sidebar.getBoundingClientRect().width;
+                const contentsRail = document.getElementById("contentsRail");
+                if (!contentsRail || document.body.classList.contains("rail-collapsed")) return 0;
+                return contentsRail.getBoundingClientRect().width;
             }
 
-            const maxWidth = () => Math.max(MIN_WIDTH, window.innerWidth - railWidth() - mainMinWidth());
+            const maxWidth = () => Math.max(MIN_WIDTH, window.innerWidth - railWidth() - documentMinWidth());
 
             function applyWidth(px) {
                 document.documentElement.style.setProperty("--feedback-panel-width", px + "px");
@@ -3477,22 +3477,22 @@
         // ---------- Collapsible contents rail ----------
         // Reading a diff is worth more width than the file list is, so the rail folds away and
         // stays folded across the reloads the review loop performs.
-        (function initSidebarToggle() {
-            const SIDEBAR_KEY = "reviewer.sidebarCollapsed";
-            const hideBtn = document.getElementById("hideSidebarBtn");
-            const showBtn = document.getElementById("showSidebarBtn");
+        (function initRailToggle() {
+            const RAIL_KEY = "reviewer.railCollapsed";
+            const hideBtn = document.getElementById("hideRailBtn");
+            const showBtn = document.getElementById("showRailBtn");
             if (!hideBtn || !showBtn) return;
 
             function setCollapsed(collapsed) {
-                document.body.classList.toggle("sidebar-collapsed", collapsed);
+                document.body.classList.toggle("rail-collapsed", collapsed);
                 hideBtn.setAttribute("aria-expanded", String(!collapsed));
                 showBtn.setAttribute("aria-expanded", String(!collapsed));
-                localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0");
+                localStorage.setItem(RAIL_KEY, collapsed ? "1" : "0");
                 scheduleConnectorRefresh();
             }
 
-            if (localStorage.getItem(SIDEBAR_KEY) === "1") {
-                document.body.classList.add("sidebar-collapsed");
+            if (localStorage.getItem(RAIL_KEY) === "1") {
+                document.body.classList.add("rail-collapsed");
                 hideBtn.setAttribute("aria-expanded", "false");
                 showBtn.setAttribute("aria-expanded", "false");
             }
@@ -3546,7 +3546,7 @@
         // The column, not the page, is the scrollport now, so arrow/Space/PageDown keys aimed at
         // the body would scroll something that no longer moves. preventScroll so taking focus
         // cannot undo the #hash jump below.
-        const initialScroller = document.querySelector(".main-content");
+        const initialScroller = document.querySelector(".document-column");
         if (initialScroller) {
             initialScroller.classList.add("focus-on-load");
             initialScroller.focus({ preventScroll: true });

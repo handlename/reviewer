@@ -293,17 +293,17 @@ is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisi
     +/− totals instead), and navigation — headings for a spec, the file list for a diff, where
     each entry carries a status mark. It folds away, and the collapsed state is remembered.
   * **Main Content (Middle)**: Renders the compiled body. For a diff the layout drops its
-    1600px cap and the column is floored at `--main-min-width`.
+    1600px cap and the column is floored at `--document-min-width`.
   * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider drops the stored value and removes the custom property.
 * **Width and state live in custom properties and `<body>` classes, never in inline styles**:
-  `--feedback-panel-width` and `--main-min-width` are read by the stylesheet, the resize handle
+  `--feedback-panel-width` and `--document-min-width` are read by the stylesheet, the resize handle
   and the narrow-viewport media queries alike; mode and layout state ride classes on `<body>`
-  (`is-served`, `sidebar-collapsed`, `diff-review`). See UI_DESIGN.md §3.3 for why this is a
+  (`is-served`, `rail-collapsed`, `diff-review`). See UI_DESIGN.md §3.3 for why this is a
   hard rule rather than a preference.
 * **Comment Display Order**:
   The feedback panel renders comments in the **appearance order of their target block** in the
   document. `commentsInAppearanceOrder()` builds an `anchor → position` map from the live DOM
-  (`.main-content [data-anchor]`) and stable-sorts a `{comment, originalIndex}` view — so comments
+  (`.document-column [data-anchor]`) and stable-sorts a `{comment, originalIndex}` view — so comments
   on the same block keep creation order, and the `idx`-based handlers (`editingIdx`,
   `deleteComment`, `saveComment`) continue to address the untouched `comments` array. Comments
   with no anchor, or whose anchored element disappeared after an agent edit, sink to the end in

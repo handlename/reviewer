@@ -211,8 +211,8 @@ reasoning under the principle is what has to be answered.
     (UI_DESIGN.md §2.1–2.2). The four comment states are told apart by position, stroke style and
     depth for this reason, and **no comment state may touch `padding` or `border`** (§4).
   * **Never write a width or a layout state into an inline style.** Widths live in
-    `--feedback-panel-width` / `--main-min-width`, and mode state rides `<body>` classes
-    (`is-served`, `sidebar-collapsed`, `diff-review`). An inline style outranks the
+    `--feedback-panel-width` / `--document-min-width`, and mode state rides `<body>` classes
+    (`is-served`, `rail-collapsed`, `diff-review`). An inline style outranks the
     narrow-viewport media queries (§3.3).
   * **There is no browser test harness.** `go test ./...` cannot see this class of regression.
     Verify in a real browser, in **both** light and dark, against `examples/sample.md` and

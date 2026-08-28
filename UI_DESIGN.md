@@ -76,15 +76,15 @@ A contents rail on the left, the document in the middle, the feedback panel on t
 
 The document column is capped at a `--measure` of 40rem (~70 characters) and the layout at 1600px, because prose has an optimal measure and exceeding it costs comprehension.
 
-**In diff mode the cap is dropped entirely.** A diff has no measure to respect, and its lines wrap rather than run off the side (§6.2); on a large screen the cap was pure loss — lines wrapping while the window still had room. The column instead takes whatever the two rails leave, floored at `--main-min-width`.
+**In diff mode the cap is dropped entirely.** A diff has no measure to respect, and its lines wrap rather than run off the side (§6.2); on a large screen the cap was pure loss — lines wrapping while the window still had room. The column instead takes whatever the two rails leave, floored at `--document-min-width`.
 
 ### 3.3 Widths live in custom properties, never in inline styles
 
-`--feedback-panel-width` and `--main-min-width` are read by the stylesheet, by the drag handle and by the media queries alike. JavaScript writes the custom property; it never writes `el.style.width`.
+`--feedback-panel-width` and `--document-min-width` are read by the stylesheet, by the drag handle and by the media queries alike. JavaScript writes the custom property; it never writes `el.style.width`.
 
 **Why:** an inline style outranks a selector inside a media query. Assigning the width directly would defeat the `width: 100%` that the narrow-viewport layout applies, and the page would scroll sideways on a small screen. One property also means the stylesheet and the resize handle cannot disagree about the same number.
 
-The same reasoning governs **state**: `is-served`, `sidebar-collapsed` and `diff-review` are classes on `<body>`, not inline `display` values, so the narrow-viewport rules can still override them.
+The same reasoning governs **state**: `is-served`, `rail-collapsed` and `diff-review` are classes on `<body>`, not inline `display` values, so the narrow-viewport rules can still override them.
 
 ### 3.4 The feedback panel is the reviewer's to size
 
@@ -114,7 +114,7 @@ That load-time focus does **not** ring. Chrome turns `:focus-visible` on at the 
 
 JavaScript never assumes which element scrolls: it asks, by reading the column's computed `overflow-y`. The narrow-viewport layout stacks the rails and hands scrolling back to the page (`height: auto; overflow-y: visible`), and reading the computed value keeps that breakpoint in the stylesheet instead of restating it in two places that can drift apart.
 
-**Rejected:** wrapping the column in a full-width scrolling container so the scrollbar always hugs the panel's border. It buys a flush edge only on windows wider than 1616px — below that the column already fills its slot — and costs a DOM element that every `.main-content` query would then have to be re-pointed around.
+**Rejected:** wrapping the column in a full-width scrolling container so the scrollbar always hugs the panel's border. It buys a flush edge only on windows wider than 1616px — below that the column already fills its slot — and costs a DOM element that every `.document-column` query would then have to be re-pointed around.
 
 ---
 

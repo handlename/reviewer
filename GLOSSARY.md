@@ -1,6 +1,6 @@
 # reviewer Glossary (GLOSSARY)
 
-This document defines the core domain terms used within the `reviewer` codebase and documentation. It serves as a unified reference to ensure human developers and AI agents share a common understanding of the system's terminology. Sections 1-4 cover the domain and its features; section 5 names the parts of the review page and is canonical for those names.
+This document defines the core domain terms used within the `reviewer` codebase and documentation. It serves as a unified reference to ensure human developers and AI agents share a common understanding of the system's terminology. Sections 1-4 cover the domain and its features; section 5 names the parts of the review page. These names are canonical for code as well as prose.
 
 ---
 
@@ -77,6 +77,8 @@ This document defines the core domain terms used within the `reviewer` codebase 
 ### Connector Line
 * **Description**: The curve drawn between a selected comment and the thing it is about.
 * **Behavior**: Selecting a comment (clicking its **Comment Card**, or its **Comment Indicator**) scrolls the target into view, highlights it, and draws the line; it follows scrolling and resizing, and fades toward the screen edge when one end is off-screen.
+* **Note**: In code this is `connector`, never `connection` — `connection` is the SSE **Live Reload** connection the **Live Dot** reports, and one word for two things is how the two got confused.
+* **Implementation**: `#connectorOverlay`, `drawConnector()`, `dropConnector()`, `reconcileConnector()`, `clearConnectorMarks()`.
 
 ### Feedback
 * **Description**: The shared review state — a `{ comments, summary }` document read and written by both the browser and the session. It is reviewer's internal store; the agent reaches it only through the MCP tools.
@@ -165,6 +167,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 ### File Status
 * **Description**: What happened to a file in this diff: added, deleted, renamed, or modified.
 * **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the file header, where there is room to say "renamed from …" in full.
+* **Implementation**: `.file-status`, `.file-status-added` / `-deleted` / `-renamed` / `-modified`; the name beside it is `.rail-toc-file-name`.
 
 ---
 
@@ -172,7 +175,9 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 The names for the things on the review page.
 
-This section is **canonical**. Where a name here differs from one used in `UI_DESIGN.md`, in a CSS class or in an element id, the name here is the one to use in prose, in commit messages and when talking to an agent; the **Aliases** lines exist so that an older name still leads here. Identifiers are given as **Implementation** so that a term can be followed into the code, and are *not* themselves renamed to match — a class name is a selector, not a name for a thing.
+This section is **canonical**, for prose and for code alike: a CSS class, an element id, a function or a variable that names one of these things uses the name given here. The **Implementation** lines say which identifiers each term owns, so a term can be followed into the code and a reader can tell whether a name is already taken. The **Aliases** lines record the names that used to be used, so an older name still leads here.
+
+The exception is a name that has left the process: the JSON keys of the **Sidecar** (`anchor`, `anchorLines`, `needsAnswer`, `anchorQuote`, `messages`, …), the **Anchor** string forms, the MCP tool names, the `/api/…` paths and the sidecar filenames are wire formats. Renaming one breaks a sidecar written yesterday or an agent built against it, so they keep the spelling they were published with; where that spelling differs from a term here, the term's entry records it.
 
 Not covered here: decorative and internal state classes (`.diff-add`, `.suggestion-marker`, `.toc-file-status-added`, and some ninety others). They describe how a thing is painted rather than what it is, and registering them would make this document a copy of the stylesheet.
 
@@ -180,16 +185,16 @@ Not covered here: decorative and internal state classes (`.diff-add`, `.suggesti
 * **Description**: The left column: the document's title, and its navigation — headings for a **Spec**, the file list for a **Diff**.
 * **Aliases**: sidebar (the id), file list (its contents in diff review), TOC.
 * **Behavior**: Folds away with the **Rail Toggle**, and the folded state survives a reload. A diff is read across rather than down, so this is the first column worth trading for width.
-* **Implementation**: `#sidebar`, `#sidebarToc`, `.sidebar-toc-item`.
+* **Implementation**: `#contentsRail`, `.contents-rail`, `#railToc`, `.rail-toc-item`, `.rail-toggle`, body class `rail-collapsed`.
 
 ### Document Column
 * **Description**: The middle column, holding the rendered review target. It leads: the two rails recede so that this column reads as the page.
 * **Behavior**: Capped at a reading measure of 40rem for a spec; the cap is dropped entirely for a diff, which has no measure to respect. Takes focus on load, because it — not the page — is what scrolls.
-* **Implementation**: `.main-content`, `--measure`, `--main-min-width`.
+* **Implementation**: `.document-column`, `--measure`, `--document-min-width`, `documentScroller()`.
 
 ### Feedback Panel
 * **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Composer**, and one **Comment Card** per **Thread**.
-* **Aliases**: comment panel (`UI_DESIGN.md` §3.4), Review Comments (the heading label before it was named for the **Feedback** it shows).
+* **Aliases**: comment panel (what `UI_DESIGN.md` called it before this section), Review Comments (the heading label before it was named for the **Feedback** it shows).
 * **Behavior**: Its width is draggable, defaults to 520px and is remembered in `localStorage`, because the review loop reloads the page every round. Cards read top-down in the appearance order of their targets.
 * **Implementation**: `#feedbackPanel`, `--feedback-panel-width`.
 
@@ -210,17 +215,17 @@ Not covered here: decorative and internal state classes (`.diff-add`, `.suggesti
 ### Comment Indicator
 * **Description**: The `💬 N` control in the right **Comment Gutter** of a block that has comments. Clicking it selects the first of them, drawing the **Connector Line**.
 * **Aliases**: 💬 button, gutter badge.
-* **Implementation**: `.element-comment-indicator`.
+* **Implementation**: `.comment-indicator`, `updateCommentIndicators()`.
 
 ### Composer
 * **Description**: The text area at the top of the **Feedback Panel** where a comment is written, with its **Comment Context** above it and the Add Comment button below.
 * **Behavior**: Grows to fit its content up to `50vh`, then scrolls, so that a long **Suggestion** does not push Submit Review and End Review off the screen. Inline editing of a comment, and the **Reply Control**, both open a composer of the same kind.
-* **Implementation**: `#commentInput`, `#addCommentBtn`, `.comment-box`.
+* **Implementation**: `#composerInput`, `#addCommentBtn`, `.composer`.
 
 ### Comment Card
 * **Description**: One **Thread** as it appears in the **Feedback Panel**: the human's head comment, then every message after it, attributed and timestamped, with its **Reply Control** and **Resolve Toggle**.
 * **Behavior**: The two authors are separated by depth — the agent's message is a filled block, the human's is unfilled — never by a second colour. The human's own turns carry a `✎`; the agent's are a record and cannot be edited.
-* **Implementation**: `.feedback-item`, `.thread-message`.
+* **Implementation**: `.comment-card`, `commentCard()`, `scrollToCommentCard()`, `.thread-message`.
 
 ### Comment Context
 * **Description**: The line above the **Composer** naming what the comment being written is about, with a control to clear it.
@@ -229,11 +234,11 @@ Not covered here: decorative and internal state classes (`.diff-add`, `.suggesti
 ### Panel Sections
 * **Description**: The two headings the **Comment Card**s are grouped under: **About this document** for a comment with no target — the agent's question about the document as a whole, or one whose **Anchor Quote** is gone — and **On the text** for the rest.
 * **Behavior**: About this document comes first, because a comment about everything has no position in document order to sink to.
-* **Implementation**: `.comment-section-label`.
+* **Implementation**: `.panel-section-label`.
 
 ### Rail Toggle
 * **Description**: The `‹` / `›` control that folds and restores the **Contents Rail**.
-* **Implementation**: `#hideSidebarBtn`, `#showSidebarBtn`, `.rail-toggle`.
+* **Implementation**: `#hideRailBtn`, `#showRailBtn`, `.rail-toggle`, `initRailToggle()`.
 
 ### Whitespace Toggle
 * **Description**: The Hide whitespace control on a diff review, which folds whitespace-only changes away. They are folded, never removed.
@@ -252,7 +257,7 @@ Not covered here: decorative and internal state classes (`.diff-add`, `.suggesti
 ### Quote Lines Button
 * **Description**: The control that inserts the selected diff lines into the **Composer** as a `suggestion` fence.
 * **Behavior**: The only way a fence is ever inserted — never automatically, because most comments are questions.
-* **Implementation**: `#quoteSuggestionBtn`, `#suggestionActions`.
+* **Implementation**: `#quoteLinesBtn`, `#suggestionActions`, `quoteLines()` (and `QuoteLines` in Go).
 
 ### Suggestion Diff
 * **Description**: How a **Suggestion** renders inside a **Comment Card**: a diff against the **Anchor Lines** it replaces, in the same tints as the diff body, with shared lines at either end kept as context.
