@@ -88,7 +88,7 @@
             --radius: 3px;
             --u: 8px;           /* spacing base unit */
 
-            /* Comment panel width. A custom property rather than a fixed width so the
+            /* Feedback panel width. A custom property rather than a fixed width so the
                drag handle can rewrite it and the narrow-viewport media query can still
                override it — an inline el.style.width would beat the media query. */
             --feedback-panel-width: 520px;
@@ -214,7 +214,7 @@
             padding: clamp(2.5rem, 5vw, 4.5rem) clamp(1.5rem, 4vw, 3rem);
             /* Its own scrollport rather than the page's. Why not let the page scroll: the two
                rails are already 100vh and sticky, so a page-level scroll puts this column's
-               scrollbar at the window edge — outside the comment panel — instead of at the
+               scrollbar at the window edge — outside the feedback panel — instead of at the
                column's own right edge, where the content it scrolls actually ends. */
             height: 100vh;
             overflow-y: auto;
@@ -1514,9 +1514,9 @@
         </main>
 
         <!-- Feedback Panel visible in Serve mode -->
-        <div class="panel-resize-handle" id="panelResizeHandle" role="separator" aria-orientation="vertical" aria-label="Resize comment panel" title="Drag to resize"></div>
+        <div class="panel-resize-handle" id="panelResizeHandle" role="separator" aria-orientation="vertical" aria-label="Resize feedback panel" title="Drag to resize"></div>
         <aside class="feedback-panel" id="feedbackPanel" style="display: none;">
-            <div class="feedback-header">Review Comments<span class="live-dot offline" id="liveDot" title="Live connection"></span></div>
+            <div class="feedback-header">Feedback<span class="live-dot offline" id="liveDot" title="Live connection"></span></div>
 
             <div class="reload-prompt" id="reloadPrompt">
                 <span>Document updated by the agent.</span>
@@ -3373,7 +3373,7 @@
             }, true);
         }
 
-        // ---------- Resizable comment panel ----------
+        // ---------- Resizable feedback panel ----------
         // The width lives in a CSS custom property, never in el.style.width: an inline style
         // outranks the width:100% the narrow-viewport media query applies to the stacked
         // layout, which would leave the page scrolling sideways on a small screen.
