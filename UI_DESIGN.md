@@ -22,7 +22,7 @@ The review screen is one self-contained `references/template.html`, embedded int
 
 **No framework, no build step.** The binary must render a complete, styled page from a single embedded asset; a build pipeline would put a second toolchain between a change and the page it produces, and a framework would put a runtime there too. Everything in this document has to be achievable in plain CSS and plain DOM.
 
-The page does load three things from CDNs — the IBM Plex webfonts, Prism, and Mermaid. They are progressive enhancements: without them the page still renders and every review interaction still works.
+The page does load four things from CDNs — the IBM Plex webfonts, Prism, Mermaid, and markdown-it. They are progressive enhancements: without them the page still renders and every review interaction still works.
 
 ---
 
@@ -219,6 +219,18 @@ Two moments then ask before the question is lost:
 **Why the confirmation is not just a warning:** the agent cannot tell "ignored" from "refused". Recording `declined` turns silence into an answer of a kind, which is the whole reason the flag exists.
 
 **Why the count is a button:** it is the only affordance on the page that says *something is blocked on you*, and anything actionable has to be reachable by keyboard (§8).
+
+### 5.9 The panel's own text is Markdown, read as Markdown
+
+Everything authored in the panel — a comment, each message after it in the thread, the agent's change summary — is written in Markdown by people and agents who write Markdown everywhere else, so it is rendered as Markdown rather than shown as its own source.
+
+**Headings are the one block that had to be reshaped.** The panel is a 520px annotation column at `0.9rem`; the document column is what carries document-scale headings. An author's `## …` rendered at document size would make the panel a second document arguing with the first over the page's hierarchy. Rendered instead on a scale of the panel's own — capped just above body size, told apart by weight and spacing — a structured answer still reads as structured. Depth, not decoration (§2.1). Everything else reuses the treatment the page already has: inline code and code fences get the same chip and block as the document body, so the same notation does not acquire a second look inside a card.
+
+**The renderer is an enhancement, like Prism and Mermaid (§1).** When the script does not arrive, prose falls back to plain text with its line breaks kept, and commenting, replying, editing, resolving and submitting all still work.
+
+**A suggestion is not prose.** The ` ```suggestion ` fence is carved out before the renderer sees anything and stays a diff against the lines it replaces (§5.6) — reading a replacement as a code block was the thing §5.6 set out to avoid.
+
+**Only the rendering changes.** The comment array and the feedback file keep the author's raw text exactly as typed, so editing reopens the source that was written and the agent receives what the human wrote, not what the panel drew.
 
 ---
 

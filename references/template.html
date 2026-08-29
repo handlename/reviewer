@@ -25,6 +25,8 @@
     <!-- Prism.js Core and Autoloader JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js" defer></script>
+    <!-- markdown-it, for the Markdown the panel's own text is authored in -->
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js" defer></script>
     <style>
         /* ============================================================
            reviewer — premium minimal review screen
@@ -689,7 +691,9 @@
             letter-spacing: 0.04em;
             text-transform: none;
         }
-        .thread-message p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+        /* The direct child is the plain-text body drawn when markdown-it is not there; a
+           rendered message's own paragraphs are governed by .prose instead. */
+        .thread-message > p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
         /* Sits at the end of the message's own meta line, so it needs no gutter of its own and
            cannot collide with the card's edit and delete affordances. */
         .thread-message-edit {
@@ -703,6 +707,75 @@
         }
         .thread-message-edit:hover { color: var(--accent-color); }
         .thread-message .edit-textarea { margin-bottom: 0.25rem; }
+
+        /* ---------- Panel Prose ---------- */
+        /* Unrendered prose, drawn on all three surfaces when markdown-it is not there. Its
+           line breaks are all the structure it has left, so they are kept. */
+        .prose-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+        /* The panel's three authored surfaces — a comment, a thread message, the agent's
+           change summary — are written in Markdown, so they are read as Markdown. One scope
+           covers all three because the summary sits outside .comment-card and can inherit
+           nothing from it.
+
+           Why headings have a scale of their own: the panel is a 520px annotation column at
+           0.9rem, and document-scale headings belong to the document column. Rendering an
+           author's `## …` at document size would make the panel a second document arguing
+           with the first over the page's hierarchy. Collapsed just above body size, the
+           structure still reads as structure — depth, not decoration (UI_DESIGN.md 2.1).
+
+           These rules come after .change-summary p and .thread-message p deliberately: they
+           tie on specificity, and the rendered body must win inside all three surfaces. */
+        .prose { overflow-wrap: anywhere; }
+        .prose > :first-child { margin-top: 0; }
+        .prose > :last-child { margin-bottom: 0; }
+        .prose p { margin: 0 0 0.5rem; }
+        .prose h1, .prose h2, .prose h3,
+        .prose h4, .prose h5, .prose h6 {
+            margin: 0.75rem 0 0.3rem;
+            font-weight: 600;
+            line-height: 1.35;
+            letter-spacing: 0;
+            color: var(--text-primary);
+        }
+        .prose h1, .prose h2 { font-size: 1rem; }
+        .prose h3 { font-size: 0.92rem; }
+        .prose h4, .prose h5, .prose h6 { font-size: 0.9rem; color: var(--text-secondary); }
+        .prose ul, .prose ol { margin: 0 0 0.5rem; padding-left: 1.25rem; }
+        .prose li { margin: 0.12rem 0; }
+        .prose li > ul, .prose li > ol { margin: 0.12rem 0 0; }
+        .prose blockquote {
+            margin: 0 0 0.5rem;
+            padding-left: 0.6rem;
+            border-left: 2px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+        /* Inline code and code fences already have a treatment on this page, so the panel
+           reuses it rather than inventing a second one. Only the fence's 1.5rem document
+           margin is wrong inside a 0.7rem card — and it is set !important, so it has to be
+           answered in kind. An unclassed fence gets no padding from Prism's theme either. */
+        .prose pre { margin: 0 0 0.5rem !important; padding: 0.45rem 0.6rem; }
+        .prose > pre:last-child { margin-bottom: 0 !important; }
+        .prose a { color: var(--accent-color); }
+        .prose hr { margin: 0.7rem 0; border: 0; border-top: 1px solid var(--border-color); }
+        .prose img { max-width: 100%; }
+        /* A table is the one block that cannot be made to fit 520px, so it scrolls in place
+           rather than widening the panel. */
+        .prose table {
+            display: block;
+            width: max-content;
+            max-width: 100%;
+            overflow-x: auto;
+            margin: 0 0 0.5rem;
+            border-collapse: collapse;
+            font-size: 0.94em;
+        }
+        .prose th, .prose td {
+            border: 1px solid var(--border-color);
+            padding: 0.2rem 0.45rem;
+            text-align: left;
+        }
+        .prose th { font-weight: 600; background: var(--bg-tertiary); }
 
         /* Reply to a thread. Quiet until wanted: a text-weight control, the composer only once
            it is opened, so a thread at rest stays as calm as it was before it had one. */
@@ -911,7 +984,8 @@
         .comment-card.resolved {
             opacity: 0.6;
         }
-        .comment-card.resolved > p { text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
+        .comment-card.resolved > p,
+        .comment-card.resolved > .prose { text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
         .comment-card.resolved .resolve-toggle { color: var(--badge-could); }
 
         /* End Review — quiet secondary action, distinct from Submit */
@@ -2051,7 +2125,7 @@
             const body = document.getElementById("changeSummaryBody");
             if (!box || !body) return;
             if (summary && summary.trim()) {
-                body.textContent = summary.trim();
+                body.replaceChildren(proseBlock(summary.trim()));
                 box.style.display = "block";
             } else {
                 box.style.display = "none";
@@ -2483,11 +2557,56 @@
         function appendProse(item, text) {
             const trimmed = text.replace(/^\s*\n|\n\s*$/g, "");
             if (!trimmed.trim()) return;
-            const p = document.createElement("p");
-            p.style.marginBottom = "0";
-            p.textContent = trimmed;
-            item.appendChild(p);
+            item.appendChild(proseBlock(trimmed));
         }
+
+        // ---------- Panel Prose ----------
+        // A comment, a reply and the change summary are all written in Markdown, so the panel
+        // reads them as Markdown. markdown-it is a CDN script like Prism and Mermaid, and like
+        // them it is only an enhancement: when it has not arrived the same text is drawn the
+        // way it always was and every review interaction still works (UI_DESIGN.md 1).
+        //
+        // html:false leaves author-written HTML escaped instead of emitted and markdown-it
+        // validates link schemes itself, so no separate sanitizer is needed for text the agent
+        // wrote. breaks:true because a lone newline in a review comment is meant as a line
+        // break, not as the paragraph continuation Markdown would otherwise make of it.
+        let proseRenderer = null;
+        let proseFellBack = false;
+        function proseMarkdown() {
+            if (!proseRenderer && window.markdownit) {
+                proseRenderer = window.markdownit({ html: false, linkify: true, breaks: true });
+            }
+            return proseRenderer;
+        }
+
+        // Rendered Markdown may hold block children, so it needs a <div> to sit in; the
+        // fallback stays the <p> the panel has always drawn, keeping its pre-wrap and so its
+        // line breaks. Only the rendering differs — the comment's own text is never rewritten.
+        function proseBlock(text) {
+            const md = proseMarkdown();
+            if (md) {
+                const box = document.createElement("div");
+                box.className = "prose";
+                box.innerHTML = md.render(text);
+                return box;
+            }
+            proseFellBack = true;
+            const p = document.createElement("p");
+            p.className = "prose-plain";
+            p.style.marginBottom = "0";
+            p.textContent = text;
+            return p;
+        }
+
+        // markdown-it's <script> is deferred, so it has not run while this inline script does,
+        // and a panel drawn before the fetch returns can have fallen back for no reason.
+        // DOMContentLoaded fires after it: redraw then, and only if something did fall back.
+        window.addEventListener("DOMContentLoaded", () => {
+            if (!proseFellBack || !proseMarkdown()) return;
+            proseFellBack = false;
+            renderSummary();
+            renderComments();
+        });
 
         // Lines shared at either end stay as context, so a one-line edit inside a six-line quote
         // shows as a one-line change instead of six removals and six additions.
@@ -2665,9 +2784,7 @@
                 return box;
             }
 
-            const body = document.createElement("p");
-            body.textContent = m.text || "";
-            box.appendChild(body);
+            box.appendChild(proseBlock(m.text || ""));
             return box;
         }
 
