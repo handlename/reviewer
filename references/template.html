@@ -2814,6 +2814,10 @@
         // only in this page's DOM walk — reproducing that numbering in Go would be the very
         // duplication the anchor rules forbid. So the quote is resolved here, on every render.
         //
+        // Only the anchor, though. Reading the Markdown in the quote is the server's half, because
+        // it is the server that rendered the document and a second parser here would drift from
+        // what is on screen; the page is handed the result as anchorQuoteText.
+        //
         // A diff is different: its anchors are derived from the diff file, so the server has
         // already resolved those quotes by the time the page sees them.
         function normalizeQuote(text) {
@@ -2826,7 +2830,12 @@
 
             comments.forEach(c => {
                 if (!c.anchorQuote) return;
-                const want = normalizeQuote(c.anchorQuote);
+                // anchorQuoteText is the quote with its Markdown resolved to the text this page
+                // displays (NormalizeAnchorQuote in Go). Matching the raw quote instead would
+                // miss every passage the agent copied with its `**`, backticks or `##` intact —
+                // which is to say almost all of them. It falls back to the raw quote for a
+                // payload written before the server derived one.
+                const want = normalizeQuote(c.anchorQuoteText || c.anchorQuote);
                 if (!want) return;
                 // The first match only: exactly one element may carry the anchor, and the first
                 // occurrence is a more useful guess than none. A quote that matches nothing keeps

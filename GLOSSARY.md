@@ -108,6 +108,13 @@ This document defines the core domain terms used within the `reviewer` codebase 
 ### Anchor Quote
 * **Description**: The passage a thread the agent opened was written against (`anchorQuote`).
 * **Behavior**: Re-resolved to an **Anchor** on every render rather than trusted once — by the server on a diff, by the browser on Markdown, where the `spec-element-N` numbering lives. Several matches take the first; no match leaves the thread without a target, shown under the **About this document** section of the **Feedback Panel** rather than dropped. An empty quote is a question about the document as a whole.
+* **Behavior (Markdown, text form)**: The agent quotes the Markdown source while the page matches against a block's rendered text, so the server derives the **Anchor Quote Text** the browser compares — otherwise a quote carrying `**`, a backtick or a `##` never matched the very block it was copied from.
+* **Implementation**: `AnchorQuote` / `anchorQuote`, `NormalizeAnchorQuote`, `resolveQuoteAnchors()`.
+
+### Anchor Quote Text
+* **Description**: An **Anchor Quote** with its Markdown resolved to the text a rendered block displays (`anchorQuoteText`).
+* **Behavior**: Derived from the **Anchor Quote** on every read of the feedback, never stored — the quote the agent wrote stays the single source of truth, and a **Sidecar** written before this existed resolves its threads too. Markdown only: a diff review resolves its quotes against the diff lines in Go, so the page never reads one there. It is put through the same renderer as the document body, because a second Markdown parser would drift from what is on screen.
+* **Implementation**: `AnchorQuoteText` / `anchorQuoteText`, `NormalizeAnchorQuote`, `withQuoteText`.
 
 ### Change Summary
 * **Description**: The agent's page-level `summary` of the latest round's document changes, rendered in the **Change Summary Block** at the top of the **Feedback Panel**.

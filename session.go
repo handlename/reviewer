@@ -273,7 +273,9 @@ func (s *ReviewSession) feedbackForDisplay() []byte {
 	// Without this guard every Markdown comment fails FindFile, turns Outdated, and the Markdown
 	// review silently loses its indicators and connector lines.
 	if err != nil || DetectKind(content) != KindDiff {
-		return marshalFeedback(fb)
+		// This is the Markdown page, and it is the browser that turns a quote into an anchor
+		// there. Hand it the quote in the form it can match: see withQuoteText.
+		return marshalFeedback(withQuoteText(fb))
 	}
 
 	files, err := ParseUnifiedDiff(content)
@@ -282,6 +284,22 @@ func (s *ReviewSession) feedbackForDisplay() []byte {
 	}
 	fb.Comments = reAnchorComments(fb.Comments, files)
 	return marshalFeedback(fb)
+}
+
+// withQuoteText gives every agent-opened thread the text form of its Anchor Quote, which is what
+// the page matches against a block's textContent.
+//
+// Markdown only: a diff review resolves its quotes in Go, against the diff lines themselves, so
+// the page never reads this there and a Markdown reading of a line of source code would be
+// nothing but a trap. It is derived on every read rather than stored, so a sidecar written before
+// the field existed gets one too.
+func withQuoteText(fb Feedback) Feedback {
+	for i, c := range fb.Comments {
+		if c.AnchorQuote != "" {
+			fb.Comments[i].AnchorQuoteText = NormalizeAnchorQuote(c.AnchorQuote)
+		}
+	}
+	return fb
 }
 
 func marshalFeedback(fb Feedback) []byte {
@@ -527,6 +545,12 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			// above spans all of it.
 			stored := s.readFeedbackDoc()
 			fb = mergeFeedback(stored, fb)
+			// The page posts back what it was served, derived fields included. Dropping the text
+			// form here keeps the sidecar to what the agent actually wrote: it is recomputed on
+			// every read, so a stored copy could only ever go stale.
+			for i := range fb.Comments {
+				fb.Comments[i].AnchorQuoteText = ""
+			}
 			fb.Comments = pruneResolved(fb.Comments, resolvedIDs(stored.Comments))
 			// Give every comment a stable identity so the agent can address it by ID.
 			fb.Comments = assignCommentIDs(fb.Comments)
