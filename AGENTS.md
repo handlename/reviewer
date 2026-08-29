@@ -301,6 +301,8 @@ review page. It is not a summary written after the fact — it is where a name i
     identifiers that term owns. `Connector Line` is `connector`, never `connection`; `Comment Card`
     is `comment-card`, never `feedback-item`; `Contents Rail` is `contentsRail` / `.contents-rail`,
     and its parts take the shorter `rail-` prefix (`.rail-toc-item`, `#hideRailBtn`).
+    The two figures at the top of GLOSSARY §5 label every part of the review page with its term and
+    its identifiers — start there when you are unsure what a thing is called.
   * **A thing with no term yet needs a term first.** Add the entry to `GLOSSARY.md` in the same
     change — Description, and Implementation naming the identifiers — and then write the code. Do
     not leave the code naming something the glossary cannot name.

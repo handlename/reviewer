@@ -179,7 +179,15 @@ This section is **canonical**, for prose and for code alike: a CSS class, an ele
 
 The exception is a name that has left the process: the JSON keys of the **Sidecar** (`anchor`, `anchorLines`, `needsAnswer`, `anchorQuote`, `messages`, …), the **Anchor** string forms, the MCP tool names, the `/api/…` paths and the sidecar filenames are wire formats. Renaming one breaks a sidecar written yesterday or an agent built against it, so they keep the spelling they were published with; where that spelling differs from a term here, the term's entry records it.
 
-Not covered here: decorative and internal state classes (`.diff-add`, `.suggestion-marker`, `.toc-file-status-added`, and some ninety others). They describe how a thing is painted rather than what it is, and registering them would make this document a copy of the stylesheet.
+Not covered here: decorative and internal state classes (`.diff-add`, `.diff-marker`, `.suggestion-marker`, `.edit-textarea`, and some eighty others). They describe how a thing is painted rather than what it is, and registering them would make this document a copy of the stylesheet.
+
+The two figures below name the parts. Each label carries the term and the identifier it owns, so a screenshot is enough to write an instruction with: "the **Comment Indicator** sits 2px too low" leaves nothing to guess. Both are generated from the running page — every label is positioned from its own element's bounding box — so a part that moves takes its label with it the next time they are regenerated.
+
+![Spec review: the parts of the review page and the term for each](docs/images/screen-anatomy-spec.png)
+
+![Diff review: the parts a diff adds](docs/images/screen-anatomy-diff.png)
+
+The figures show the light theme, and only what is on the page at rest. Missing from them by nature: the **Quote Lines Button**, which exists only while a range is selected and is therefore gone by the time the comment it wrote is on the page; and the **Reload Prompt**, **Agent Activity Panel**, **Status Message** and the **Outdated** tag, each of which appears only in the moment it reports.
 
 ### Contents Rail
 * **Description**: The left column: the document's title, and its navigation — headings for a **Spec**, the file list for a **Diff**.
