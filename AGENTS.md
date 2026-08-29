@@ -309,6 +309,22 @@ review page. It is not a summary written after the fact — it is where a name i
   * **Renaming a term renames its identifiers.** If a canonical name changes, the identifiers under
     its Implementation line change with it in the same change, and the old name moves to Aliases so
     that a search for it still lands on the term.
+  * **The vocabulary is the same in conversation as it is in code.** When you talk about this
+    project in a development session — to the user in chat, in a scratch note, in a plan, in a PR
+    or issue body, in a `review_reply` — call each thing by the term `GLOSSARY.md` gives it. This
+    holds whatever language the session is conducted in: a term is a name, and a name is not
+    translated. The sentence around it takes the session's language; the term does not, and it is
+    not transliterated, glossed, or swapped for where the thing happens to sit on the screen. The
+    exception below travels with the rule: a wire-format name is spoken the way it is spelled.
+
+    ```text
+    Bad:  右のフィードバックパネルにあるコメントカードの解決トグルを押すと…
+    Good: Feedback Panel の Comment Card にある Resolve Toggle を押すと…
+    ```
+
+    Conversation is where the identifiers come from: a change discussed as「右のパネル」lands in
+    the code as `rightPanel`, so the term has to be right in the sentence before it can be right
+    in the name.
 
 * **The one exception — wire formats.** A name that has already left the process keeps the spelling
   it was published with: the **Sidecar**'s JSON keys, the **Anchor** string forms
