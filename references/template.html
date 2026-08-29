@@ -2056,15 +2056,34 @@
             const container = document.querySelector(".document-column");
             if (!container) return;
 
-            let dragFrom = null;    // where the current drag started
-            let dragging = false;
-            let pendingFocus = false;
+            // The line a Shift+click extends the range from: the last one a plain click targeted.
+            // A drag is a text selection here and never sets it.
+            let targetFrom = null;
 
-            container.addEventListener("mousedown", (e) => {
-                // The comment indicator runs selectComment from its own click handler. Letting this one
-                // run too selects the comment on mousedown and then toggles it straight back off
-                // on click, so the connector line appears and vanishes within the same gesture.
+            // Targeting runs on mouseup, not mousedown, because until the button comes up there is
+            // no telling a click from a drag — and a drag has to stay a text selection, which
+            // targeting would destroy by pulling focus into the composer. Reading a diff means
+            // taking lines out of it, so the browser's own selection is the feature here and the
+            // gesture belongs to it; a range for a comment is made by clicking and Shift+clicking.
+            container.addEventListener("mouseup", (e) => {
+                // The comment indicator runs selectComment from its own click handler. Letting this
+                // one run too selects the comment here and then toggles it straight back off on the
+                // click, so the connector line appears and vanishes within the same gesture.
                 if (e.target.closest(".comment-indicator, a")) return;
+
+                const line = e.target.closest(".diff-line");
+
+                // Shift+click is the range gesture, so the text the browser extended its selection
+                // over on the way is not what was asked for: drop it and take the range.
+                if (e.shiftKey && line && targetFrom && targetFrom.parentElement === line.parentElement) {
+                    window.getSelection().removeAllRanges();
+                    setDiffCommentTarget(targetFrom, line);
+                    focusComposer();
+                    return;
+                }
+
+                // A drag that selected text must stay a selection.
+                if (!window.getSelection().isCollapsed) return;
 
                 const header = e.target.closest(".diff-file-header");
                 if (header) {
@@ -2073,54 +2092,33 @@
                         selectComment(existing);
                     } else {
                         setDiffFileCommentTarget(header);
-                        pendingFocus = true;
+                        focusComposer();
                     }
                     return;
                 }
 
-                const line = e.target.closest(".diff-line");
                 if (!line) return;
 
                 // A line that already carries a comment shows it instead of starting a new
-                // selection — the same "commented targets select, uncommented targets compose"
+                // range — the same "commented targets select, uncommented targets compose"
                 // rule the Markdown page follows.
                 const existing = line.getAttribute("data-anchor") || line.getAttribute("data-anchor-member");
-                if (existing && !e.shiftKey && isCommented(existing)) {
+                if (existing && isCommented(existing)) {
                     selectComment(existing);
                     return;
                 }
 
-                if (e.shiftKey && dragFrom && dragFrom.parentElement === line.parentElement) {
-                    setDiffCommentTarget(dragFrom, line);
-                    pendingFocus = true;
-                    return;
-                }
-                dragFrom = line;
-                dragging = true;
-                pendingFocus = true;
+                targetFrom = line;
                 setDiffCommentTarget(line, line);
+                focusComposer();
             });
 
-            container.addEventListener("mouseover", (e) => {
-                if (!dragging || !dragFrom) return;
-                const line = e.target.closest(".diff-line");
-                // A drag that wanders out of the hunk keeps the last valid range rather than
-                // extending across the boundary.
-                if (!line || line.parentElement !== dragFrom.parentElement) return;
-                setDiffCommentTarget(dragFrom, line);
-            });
-
-            // Focus lands on mouseup, not on mousedown: the browser's own default handling of
-            // mousedown moves focus after our handler runs, so focusing there is undone before
-            // the user can type. preventScroll keeps the panel from jumping the page while the
-            // eye is still on the line that was just picked.
-            window.addEventListener("mouseup", () => {
-                if (pendingFocus && activeAnchor) {
-                    document.getElementById("composerInput").focus({ preventScroll: true });
-                }
-                dragging = false;
-                pendingFocus = false;
-            });
+            // preventScroll keeps the panel from jumping the page while the eye is still on the
+            // line that was just picked.
+            function focusComposer() {
+                if (!activeAnchor) return;
+                document.getElementById("composerInput").focus({ preventScroll: true });
+            }
         }
 
         // Quote the selected lines into the comment box as a ```suggestion fence. Only ever on
