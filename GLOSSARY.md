@@ -115,6 +115,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 ### Resolve
 * **Description**: A human-only action that marks an addressed comment `resolved` on the page after reviewing the agent's reply.
 * **Behavior**: A resolved thread recedes for the current cycle, is delivered to the agent once with `status: "resolved"`, and is pruned on the submit after that; only open threads carry forward. Resolving a thread that still holds a **Question** asks first, and closing it anyway records **Declined**.
+* **On the page**: it recedes by folding — its **Comment Card** becomes one line and sinks below every open card. It recedes rather than leaving because the submit is the last moment a resolve made by mistake can be caught, which is also why the folded line has to stay readable.
 
 ### Live Reload
 * **Description**: Automatic browser refresh driven by Server-Sent Events (`/api/events`).
@@ -223,7 +224,8 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Comment Indicator
 * **Description**: The `💬 N` control in the right **Comment Gutter** of a block that has comments. Clicking it selects the first of them, drawing the **Connector Line**.
 * **Aliases**: 💬 button, gutter badge.
-* **Implementation**: `.comment-indicator`, `updateCommentIndicators()`.
+* **All resolved**: when every thread on the block is **Resolve**d it reads `✅ N` instead. One open thread is enough to keep it speaking, so the mark turns only when nothing here is still waiting on the reader — which is what lets them tell from the document alone, without opening the **Feedback Panel**. The mark alone carries the state: the chip keeps its one accent, because a second background behind a full-colour ✅ would be two greens arguing.
+* **Implementation**: `.comment-indicator`, `.comment-indicator.resolved`, `updateCommentIndicators()`.
 
 ### Composer
 * **Description**: The text area at the top of the **Feedback Panel** where a comment is written, with its **Comment Context** above it and the Add Comment button below.
@@ -233,7 +235,9 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Comment Card
 * **Description**: One **Thread** as it appears in the **Feedback Panel**: the human's head comment, then every message after it, attributed and timestamped, with its **Reply Control** and **Resolve Toggle**.
 * **Behavior**: The two authors are separated by depth — the agent's message is a filled block, the human's is unfilled — never by a second colour. The human's own turns carry a `✎`; the agent's are a record and cannot be edited.
-* **Implementation**: `.comment-card`, `commentCard()`, `scrollToCommentCard()`, `.thread-message`.
+* **Folded**: a card whose thread is **Resolve**d renders as a single line — a `✓` and the comment's own opening words, truncated — and sorts below every open card, keeping document order among the other resolved. Clicking the folded line **opens it and nothing else**: a finished thread has nothing left to point at, so no **Connector Line** is drawn and the **Document Column** does not move. This is the one exception to the panel's click-a-card-to-select rule. Truncation is left to CSS because the panel's width is dragged by the reader.
+* **Which threads are open again** is held for the life of the page only: a resolved thread is pruned on the submit after this one, so there is nothing for a reload to remember.
+* **Implementation**: `.comment-card`, `commentCard()`, `scrollToCommentCard()`, `.thread-message`; folded: `.comment-card.folded`, `.resolved-summary`, `.resolved-summary-mark` / `-text` / `-chevron`, `resolvedSummary()`, `headLine()`, `expandedResolved`, `resolvedRank`; moved-card reveal: `flashCard()`, `revealCommentCard()`.
 
 ### Comment Context
 * **Description**: The line above the **Composer** naming what the comment being written is about, with a control to clear it.
@@ -261,6 +265,11 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Description**: The Mark resolved control on a **Comment Card**. Human-only, and present only once a thread has a message to resolve.
 * **Behavior**: Resolving a thread that still holds a pending **Question** asks first; closing it anyway records **Declined**.
 * **Implementation**: `.resolve-toggle`.
+
+### Fold Toggle
+* **Description**: The `▴` control that folds an opened resolved **Comment Card** back to its single line.
+* **Behavior**: Sits in the card's affordance row beside `✎` and `×` — the reader who has just opened a folded thread is still at its top, and that is where the control they reach for next has to be. It exists only while a resolved card is open, and it takes the keyboard the same way its neighbours do.
+* **Implementation**: `.fold-toggle`.
 
 ### Reply Control
 * **Description**: The Reply button under a started **Thread**, which opens a **Composer** in the card.
