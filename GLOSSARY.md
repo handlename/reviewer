@@ -239,6 +239,11 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Description**: The line above the **Composer** naming what the comment being written is about, with a control to clear it.
 * **Implementation**: `#commentContextContainer`, `#commentContextText`, `#clearContextBtn` (`title="Clear targeting"`).
 
+### Panel Prose
+* **Description**: The authored text of the **Feedback Panel** — a **Comment Card**'s head comment, each message after it in the **Thread**, and the **Change Summary** — rendered as the Markdown it is written in.
+* **Behavior**: Headings collapse onto a scale of the panel's own, capped just above body size, so the panel does not compete with the **Document Column**'s hierarchy. The renderer is a CDN script like Prism and Mermaid and is only an enhancement: without it the same text appears with its line breaks kept, and every review interaction still works. A **Suggestion** is never rendered as prose — it stays a **Suggestion Diff**. What is stored is always the raw text, never the rendering.
+* **Implementation**: `.prose`, `.prose-plain`, `proseBlock()`, `appendProse()`, `proseMarkdown()`, `proseRenderer`.
+
 ### Panel Sections
 * **Description**: The two headings the **Comment Card**s are grouped under: **About this document** for a comment with no target — the agent's question about the document as a whole, or one whose **Anchor Quote** is gone — and **On the text** for the rest.
 * **Behavior**: About this document comes first, because a comment about everything has no position in document order to sink to.
