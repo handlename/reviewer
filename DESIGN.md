@@ -292,8 +292,9 @@ is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisi
   * **Contents Rail (Left)**: Renders the title, version and date (a diff shows its file count and
     +/− totals instead), and navigation — headings for a spec, the file list for a diff, where
     each entry carries a status mark. It folds away, and the collapsed state is remembered.
-  * **Main Content (Middle)**: Renders the compiled body. For a diff the layout drops its
-    1600px cap and the column is floored at `--document-min-width`.
+  * **Main Content (Middle)**: Renders the compiled body. The column is uncapped in both modes —
+    it takes whatever the rails leave. A diff is floored at `--document-min-width`; a spec is
+    not, because prose reflows.
   * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider drops the stored value and removes the custom property.
 * **Width and state live in custom properties and `<body>` classes, never in inline styles**:
   `--feedback-panel-width` and `--document-min-width` are read by the stylesheet, the resize handle
