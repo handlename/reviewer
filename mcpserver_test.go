@@ -160,9 +160,9 @@ func TestReviewStart_RejectsSecondLiveSession(t *testing.T) {
 	}
 }
 
-// The question travels the whole agent-facing path: review_reply carries needsAnswer, and
-// review_wait hands the thread back with the flag on the agent's message.
-func TestReviewReply_CarriesAQuestionBackThroughWait(t *testing.T) {
+// The question travels the whole agent-facing path: review_reply carries needsAnswer, and the
+// wait it ends in hands the thread back with the flag on the agent's message.
+func TestReviewReply_CarriesAQuestionBackInItsResult(t *testing.T) {
 	ctx := t.Context()
 
 	h := newSessionHolder(ctx)
@@ -173,16 +173,12 @@ func TestReviewReply_CarriesAQuestionBackThroughWait(t *testing.T) {
 	}
 	id := submitComment(t, h.current, "which retry policy?")
 
-	if _, err := h.reply(replyInputArgs{
+	out, err := h.reply(ctx, replyInputArgs{
 		Replies: []ReplyInput{{CommentID: id, Reply: "three or five?", NeedsAnswer: true}},
 		Summary: "asked one question",
-	}); err != nil {
-		t.Fatalf("reply failed: %v", err)
-	}
-
-	out, err := h.wait(ctx, time.Second)
+	}, time.Second)
 	if err != nil {
-		t.Fatalf("wait failed: %v", err)
+		t.Fatalf("reply failed: %v", err)
 	}
 	if out.Outcome != string(WaitSubmitted) {
 		t.Fatalf("outcome = %q, want %q", out.Outcome, WaitSubmitted)
@@ -192,5 +188,184 @@ func TestReviewReply_CarriesAQuestionBackThroughWait(t *testing.T) {
 	}
 	if msg := out.Comments[0].Messages[0]; !msg.NeedsAnswer || msg.Author != AuthorAgent {
 		t.Errorf("message = %#v, want the agent's flagged question", msg)
+	}
+}
+
+// A submit that landed while the agent was editing must be returned by review_reply itself.
+// This is the gap the blocking reply exists to close: the agent used to end its turn here,
+// and nothing was left waiting to notice the round the human had already submitted.
+func TestReviewReply_ReturnsASubmitThatLandedWhileEditing(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	if _, err := h.start(startInput{Path: writeTempSpec(t)}, MCPOptions{NoOpen: true}); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	id := submitComment(t, h.current, "needs work")
+
+	out, err := h.reply(ctx, replyInputArgs{
+		Replies: []ReplyInput{{CommentID: id, Reply: "fixed"}},
+		Summary: "round 1",
+	}, time.Second)
+	if err != nil {
+		t.Fatalf("reply failed: %v", err)
+	}
+	if out.Outcome != string(WaitSubmitted) {
+		t.Fatalf("outcome = %q, want %q", out.Outcome, WaitSubmitted)
+	}
+	if len(out.Comments) != 1 {
+		t.Fatalf("comments = %#v, want the pending round", out.Comments)
+	}
+}
+
+func TestReviewReply_BlocksUntilTheNextSubmit(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	if _, err := h.start(startInput{Path: writeTempSpec(t)}, MCPOptions{NoOpen: true}); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	s := h.current
+	id := submitComment(t, s, "round 1")
+	if _, err := h.wait(ctx, time.Second); err != nil {
+		t.Fatalf("wait failed: %v", err)
+	}
+
+	done := make(chan waitOutput, 1)
+	go func() {
+		out, err := h.reply(ctx, replyInputArgs{
+			Replies: []ReplyInput{{CommentID: id, Reply: "fixed"}},
+			Summary: "round 1",
+		}, 5*time.Second)
+		if err != nil {
+			t.Errorf("reply failed: %v", err)
+		}
+		done <- out
+	}()
+
+	// The reply is written before the wait begins, so the human's next submit can only be
+	// posted once the reply is visible in the sidecar.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if len(s.readFeedbackDoc().Comments) == 1 && s.readFeedbackDoc().Summary == "round 1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reply was never written")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	submitComment(t, s, "round 2")
+
+	select {
+	case out := <-done:
+		if out.Outcome != string(WaitSubmitted) {
+			t.Fatalf("outcome = %q, want %q", out.Outcome, WaitSubmitted)
+		}
+		if len(out.Comments) != 1 || out.Comments[0].Text != "round 2" {
+			t.Fatalf("comments = %#v, want the second round", out.Comments)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reply did not return after the next submit")
+	}
+}
+
+func TestReviewReply_TimeoutIsNotAnError(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	if _, err := h.start(startInput{Path: writeTempSpec(t)}, MCPOptions{NoOpen: true}); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	id := submitComment(t, h.current, "needs work")
+	if _, err := h.wait(ctx, time.Second); err != nil {
+		t.Fatalf("wait failed: %v", err)
+	}
+
+	out, err := h.reply(ctx, replyInputArgs{
+		Replies: []ReplyInput{{CommentID: id, Reply: "fixed"}},
+		Summary: "round 1",
+	}, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("reply returned an error on timeout: %v", err)
+	}
+	if out.Outcome != string(WaitTimeout) {
+		t.Fatalf("outcome = %q, want %q", out.Outcome, WaitTimeout)
+	}
+}
+
+func TestReviewReply_EndReviewWhileWaitingReportsSessionEnded(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	if _, err := h.start(startInput{Path: writeTempSpec(t)}, MCPOptions{NoOpen: true}); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	s := h.current
+	id := submitComment(t, s, "needs work")
+	if _, err := h.wait(ctx, time.Second); err != nil {
+		t.Fatalf("wait failed: %v", err)
+	}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		s.triggerClose()
+	}()
+
+	out, err := h.reply(ctx, replyInputArgs{
+		Replies: []ReplyInput{{CommentID: id, Reply: "fixed"}},
+		Summary: "round 1",
+	}, 5*time.Second)
+	if err != nil {
+		t.Fatalf("reply after End Review returned an error: %v", err)
+	}
+	if out.Outcome != string(WaitSessionEnded) {
+		t.Fatalf("outcome = %q, want %q", out.Outcome, WaitSessionEnded)
+	}
+}
+
+// The submit that releases a waiting review_reply is posted over HTTP, so the reply must not
+// still be holding the sidecar lock while it waits: POST /api/feedback takes that same lock,
+// and the two would sit on each other with the human's Submit button hanging.
+func TestReviewReply_DoesNotHoldTheSidecarLockWhileWaiting(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	if _, err := h.start(startInput{Path: writeTempSpec(t)}, MCPOptions{NoOpen: true}); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	s := h.current
+	id := submitComment(t, s, "round 1")
+	if _, err := h.wait(ctx, time.Second); err != nil {
+		t.Fatalf("wait failed: %v", err)
+	}
+
+	go func() {
+		_, _ = h.reply(ctx, replyInputArgs{
+			Replies: []ReplyInput{{CommentID: id, Reply: "fixed"}},
+			Summary: "round 1",
+		}, 5*time.Second)
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	posted := make(chan struct{})
+	go func() {
+		submitComment(t, s, "round 2")
+		close(posted)
+	}()
+	select {
+	case <-posted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Submit blocked while review_reply was waiting")
 	}
 }
