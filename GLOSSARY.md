@@ -82,7 +82,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Feedback
 * **Description**: The shared review state — a `{ comments, summary }` document read and written by both the browser and the session. It is reviewer's internal store; the agent reaches it only through the MCP tools.
-* **Behavior**: Human comments can be edited inline or deleted before submitting. Clicking "Submit Review" POSTs the data to the server, which prunes the threads already delivered as resolved, assigns ids, and writes the **Sidecar** while **staying alive**. The submit releases any `/api/wait` long-poll waiter and any `review_wait` call. Nothing is written to stdout: that is the MCP transport.
+* **Behavior**: Human comments can be edited inline or deleted before submitting. Clicking "Submit Review" POSTs the data to the server, which prunes the threads already delivered as resolved, assigns ids, and writes the **Sidecar** while **staying alive**. The submit releases any `/api/wait` long-poll waiter and any waiting agent call — `review_wait`, or the wait `review_reply` ends in. Nothing is written to stdout: that is the MCP transport.
 
 ### Sidecar
 * **Description**: The files holding one document's review state: `$TMPDIR/reviewer/<stem>-<hash>-feedback.json` and its `-status.json` sibling.

@@ -10,11 +10,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// DefaultWaitTimeout bounds one review_wait call. It sits well under the 30-minute idle
-// timeout Claude Code applies to stdio MCP calls, and is deliberately configurable: delivery
-// of a result from a call that ran past two minutes relies on the client backgrounding the
-// call, which is documented but unverified here. Lowering this below two minutes must keep
-// the loop working.
+// DefaultWaitTimeout bounds one waiting call — review_wait, and the wait review_reply ends in.
+// It sits well under the 30-minute idle timeout Claude Code applies to stdio MCP calls.
+//
+// Delivery of a result from a call that ran past two minutes relies on the client backgrounding
+// the call. Claude Code does: a wait that ran 6 minutes came back to the agent as a task
+// notification and the round continued, so the long wait is not the fragile part of this loop
+// and does not need shortening. Lowering this below two minutes must still keep it working.
 const DefaultWaitTimeout = 15 * time.Minute
 
 // MCPOptions configures the MCP server process.
@@ -123,12 +125,15 @@ func (h *sessionHolder) wait(ctx context.Context, timeout time.Duration) (waitOu
 		return waitOutput{}, fmt.Errorf("no review is open; call review_start first")
 	}
 
-	res := s.Wait(ctx, timeout)
+	return toWaitOutput(s.Wait(ctx, timeout)), nil
+}
+
+func toWaitOutput(res WaitResult) waitOutput {
 	return waitOutput{
 		Outcome:  string(res.Outcome),
 		Comments: res.Comments,
 		Summary:  res.Summary,
-	}, nil
+	}
 }
 
 type replyInputArgs struct {
@@ -141,17 +146,24 @@ type okOutput struct {
 	OK bool `json:"ok"`
 }
 
-func (h *sessionHolder) reply(in replyInputArgs) (okOutput, error) {
+// reply writes the round's replies and then waits for the next submit, in one call.
+//
+// The wait is not a convenience: it is what makes the loop survive the agent. A reply that
+// returned as soon as it had written left the agent free to summarise the round and end its
+// turn, with nothing subscribed to the next submit — and a submit nobody is waiting for is a
+// review that stalls until the human says "I submitted" by hand. Closing the round and
+// entering the next wait are the same call, so that gap cannot open.
+func (h *sessionHolder) reply(ctx context.Context, in replyInputArgs, timeout time.Duration) (waitOutput, error) {
 	h.mu.Lock()
 	s := h.live()
 	h.mu.Unlock()
 	if s == nil {
-		return okOutput{}, fmt.Errorf("no review is open; call review_start first")
+		return waitOutput{}, fmt.Errorf("no review is open; call review_start first")
 	}
 	if err := s.Reply(in.Replies, in.NewThreads, in.Summary); err != nil {
-		return okOutput{}, err
+		return waitOutput{}, err
 	}
-	return okOutput{OK: true}, nil
+	return toWaitOutput(s.Wait(ctx, timeout)), nil
 }
 
 type progressInputArgs struct {
@@ -219,10 +231,14 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 				"Use newThreads to raise something the human has not commented on: each entry opens a thread of your own, anchored to the passage you quote " +
 				"(copy it exactly from the document; leave the quote empty to ask about the document as a whole). A quote that matches nothing is not an error — " +
 				"the thread appears without a target rather than being rejected. " +
-				"Resolving a comment is the human's decision and is not possible here.",
+				"Resolving a comment is the human's decision and is not possible here. " +
+				"This call then waits for the human's next submit and returns it, exactly as review_wait does: " +
+				"outcome=submitted with their comments, outcome=timeout if the wait expired (call review_wait to keep waiting), " +
+				"or outcome=session_ended once the human ends the review. Replying and waiting are one call, so there is no moment " +
+				"where the round is closed and nobody is waiting — do not end your turn on the result of this call unless it says session_ended.",
 		},
-		func(_ context.Context, _ *mcp.CallToolRequest, in replyInputArgs) (*mcp.CallToolResult, okOutput, error) {
-			out, err := holder.reply(in)
+		func(ctx context.Context, _ *mcp.CallToolRequest, in replyInputArgs) (*mcp.CallToolResult, waitOutput, error) {
+			out, err := holder.reply(ctx, in, opts.WaitTimeout)
 			return nil, out, err
 		})
 

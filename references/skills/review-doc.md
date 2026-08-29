@@ -16,7 +16,7 @@ temporary file and open that.
 | --- | --- |
 | `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
 | `review_wait` | Block until the human submits. Returns their comments. |
-| `review_reply` | Reply in each comment's thread, ask a question, open a thread of your own, and summarise the round. |
+| `review_reply` | Reply in each comment's thread, ask a question, open a thread of your own, summarise the round — then wait for the human's next submit and return it. |
 | `review_progress` | Report what you are doing, live, on the review page. |
 
 If these tools are not available, the `reviewer` MCP server is not registered. Tell the user how
@@ -58,7 +58,8 @@ Call `review_wait`. It returns one of three outcomes:
 - `timeout` — nobody submitted yet. This is normal, not a failure. Call `review_wait` again.
 - `session_ended` — the human clicked **End Review**. The review is over; stop.
 
-Never ask the user whether they have submitted. Waiting is what `review_wait` is for.
+Never ask the user whether they have submitted. Waiting is what `review_wait` is for, and
+`review_reply` waits for you after that (step 5).
 
 ### 3.5. Reading a comment on a diff
 A comment made on a diff carries two extra things:
@@ -97,15 +98,17 @@ watch without leaving the page. Then:
 
 - Edit the document — or, when reviewing a diff, the source the diff was taken from — to address
   each comment, then regenerate the diff into the same file.
-- Call `review_reply` with one entry per comment you addressed, using the `id` from
-  `review_wait`, plus a `summary` of this round's changes.
 - Call `review_progress` with `state: "idle"` and an empty message once the round is done.
+- Call `review_reply` **last**, with one entry per comment you addressed, using the `id` from
+  the previous wait, plus a `summary` of this round's changes. It writes your replies and then
+  keeps waiting for the human, returning the same outcomes as `review_wait` — so the next round
+  is already in your hands when it comes back.
 
 When a comment is unclear or you have to choose between readings, **ask instead of guessing**: set
 `needsAnswer: true` on that reply and write the question. The page marks the thread and will not
 let the human close it silently. Keep it off for an ordinary report of what you changed — flagging
-everything makes the mark meaningless. Then go back to `review_wait`; the answer arrives as a human
-message in that thread, like any other comment.
+everything makes the mark meaningless. The answer arrives as a human message in that thread, in the
+result of that same `review_reply` call.
 
 ### 4.5. Raise something nobody commented on
 A question does not have to hang off a comment. Pass `newThreads` in the same `review_reply` call
@@ -139,8 +142,14 @@ Resolving a comment is the human's decision, made on the page. You cannot mark o
 should not ask to.
 
 ### 5. Iterate
-Return to step 3. The human reviews your replies, answers your questions, marks comments resolved,
-may add new ones, and submits again.
+`review_reply` returns the next round: the human has reviewed your replies, answered your
+questions, marked comments resolved, perhaps added new ones, and submitted again. Read its
+`outcome` and go to step 4 with the comments it carries.
+
+**Your turn does not end on a `review_reply` result** unless it says `session_ended`. On
+`submitted`, address the round. On `timeout`, call `review_wait` and keep waiting. Ending your
+turn on either leaves nobody waiting, and the next submit reaches no one — the human then has to
+tell you by hand that they submitted, which is exactly what this loop exists to avoid.
 
 A comment the human resolved comes back to you once, with `status: "resolved"`, and is gone from
 the round after that; unresolved ones carry forward. Read that one delivery: it is where a

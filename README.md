@@ -60,7 +60,7 @@ it, opens the browser, and exposes four tools.
 | --- | --- |
 | `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
 | `review_wait` | Block until the human submits. Returns their comments. |
-| `review_reply` | Reply in each comment's thread — asking a question if you need one — open threads of your own, and summarise the round. |
+| `review_reply` | Reply in each comment's thread — asking a question if you need one — open threads of your own, summarise the round, then wait for the next submit and return it. |
 | `review_progress` | Report the agent's current activity, live, on the review page. |
 
 An agent can have its **own change** reviewed the same way: write `git diff` to a temporary file
@@ -70,10 +70,15 @@ the exact text of the anchored lines in `anchorLines`, and may carry a ` ```sugg
 apply. Regenerate the diff into the same file each round: comments follow their lines by content,
 and only go `outdated` when those lines are gone.
 
-The loop is: `review_start`, then `review_wait`, edit the document, `review_reply`, and back to
-`review_wait`. `review_wait` reports `submitted`, `timeout` (nothing yet — call again), or
-`session_ended` (the human clicked **End Review**). A timeout is an ordinary result, not a
-failure, so `--wait-timeout` can be tuned freely.
+The loop is: `review_start`, then `review_wait`, edit the document, `review_reply` — which
+replies **and waits**, so it hands back the next round and the loop closes on itself. Both waiting
+tools report `submitted`, `timeout` (nothing yet — call again), or `session_ended` (the human
+clicked **End Review**). A timeout is an ordinary result, not a failure, so `--wait-timeout` can be
+tuned freely.
+
+Replying and waiting are one call on purpose. When they were two, an agent could reply, summarise
+the round to its user and end its turn with nothing subscribed to the next submit — and a submit
+nobody is waiting for is a review that stalls until the human says "I submitted" by hand.
 
 A comment is a **thread**: its text is the first message and `messages` holds the turns after it.
 The exchange runs both ways. An agent that is unsure can set `needsAnswer` on a reply, or open a

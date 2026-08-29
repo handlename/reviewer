@@ -256,11 +256,20 @@ most one live `ReviewSession` per process.
   `outcome` is `submitted`, `timeout`, or `session_ended`. Waiting on a review that already ended
   reports `session_ended` rather than failing, because the human can click **End Review** while the
   agent is editing.
-* **`review_reply(replies, newThreads, summary)`**:
+* **`review_reply(replies, newThreads, summary)` → `{outcome, comments, summary}`**:
   Each reply names a comment by `commentId` and is **appended** to that comment's thread as an
   agent message, so the human's own fields cannot be damaged and the agent cannot resolve a
   comment. A reply may carry `needsAnswer`, which marks it as a question the human is expected to
   answer. `newThreads` opens threads of the agent's own, each anchored to a quoted passage.
+
+  It then **waits for the next submit** and returns what `review_wait` would, which is what keeps
+  the loop from falling out of the agent's hands. The failure it removes was not a lost signal:
+  the sidecar, the sequence counters and the notifier all did their job, and a submit that landed
+  while the agent was editing was still returned in full by the next wait. The gap was that there
+  was often no next wait — the agent replied, reported the round to its user and ended its turn,
+  and a pull-only protocol has no way to reach an agent that is not asking. Closing the round and
+  entering the next wait are now the same call, so the gap cannot open. `review_wait` remains for
+  the first wait after `review_start` and for resuming after a `timeout`.
 
   Questions ride this tool rather than a `review_ask` of their own so that a round is **one
   read-modify-write and one SSE reload**: two tools would mean two POSTs, two reloads, and a page
