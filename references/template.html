@@ -558,6 +558,26 @@
             transition: color 0.18s;
         }
         .comment-card .edit-btn:hover { color: var(--accent-color); }
+        /* Folding sits in the affordance row with edit and delete rather than at the foot of the
+           card: the reader who has just opened a folded thread is still at its top, and the
+           control they reach for next is the one that closes it again. */
+        .comment-card .fold-toggle {
+            position: absolute;
+            top: 8px;
+            right: 47px;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            font-size: 0.85rem;
+            line-height: 1;
+            user-select: none;
+            transition: color 0.18s;
+        }
+        .comment-card .fold-toggle:hover { color: var(--accent-color); }
+        /* A thread the agent opened carries no edit or delete, so the row starts at the edge. */
+        .comment-card.agent-thread .fold-toggle { right: 9px; }
+        /* Room for the third affordance, on top of the 46px the other two already hold. */
+        .comment-card.resolved:not(.folded) { padding-right: 66px; }
+        .comment-card.resolved.agent-thread:not(.folded) { padding-right: 28px; }
         .comment-card.editing-mode {
             border-color: var(--accent-color);
             background: hsl(var(--accent-hsl) / 0.05);
@@ -982,13 +1002,47 @@
             overflow-wrap: anywhere;
         }
 
-        /* a comment the user marked resolved recedes but stays visible for the cycle */
+        /* A comment the user marked resolved recedes but stays visible for the cycle: it folds to
+           one line and gathers at the end of the panel. It recedes rather than leaving because
+           submit is the last moment a resolve made by mistake can be caught, and that check is
+           the whole reason the folded line stays readable. */
         .comment-card.resolved {
             opacity: 0.6;
         }
+        .comment-card.resolved:hover { opacity: 1; }
         .comment-card.resolved > p,
         .comment-card.resolved > .prose { text-decoration: line-through; text-decoration-color: var(--text-tertiary); }
         .comment-card.resolved .resolve-toggle { color: var(--badge-could); }
+
+        /* Folded, the summary is the whole card, so the card keeps no padding of its own —
+           including the 46px reserved for the edit and delete affordances, which are not
+           rendered here. */
+        .comment-card.folded { padding: 0; }
+        .resolved-summary {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.45rem 0.6rem;
+            background: transparent;
+            border: 0;
+            border-radius: var(--radius);
+            font: inherit;
+            color: var(--text-body);
+            text-align: left;
+            cursor: pointer;
+        }
+        .resolved-summary-mark { flex: none; color: var(--badge-could); }
+        /* Truncation is left to CSS: the panel's width is dragged by the reader, so a character
+           count chosen here would be the right one at a single width. */
+        .resolved-summary-text {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        .resolved-summary-chevron { flex: none; color: var(--text-tertiary); font-size: 0.7rem; }
 
         /* End Review — quiet secondary action, distinct from Submit */
         #endReviewBtn {
@@ -1188,6 +1242,10 @@
             transform: translateY(-50%) scale(1.08);
             background-color: var(--accent-hover);
         }
+        /* An indicator whose threads are every one resolved says so, so that the reader can tell
+           from the document — without opening the panel — that nothing here still waits on them.
+           The mark alone carries it: a second background colour behind a full-colour ✅ would be
+           two greens arguing, and the chip's palette is not this change's to settle. */
         pre.commentable-element .comment-indicator {
             top: 1rem;
             transform: none;
@@ -1653,6 +1711,10 @@
         let comments = [];
         let summary = "";
         let editingIdx = -1;
+        // Which resolved threads the reader has opened again. Held for the life of the page only:
+        // a resolved thread is pruned on the submit after this one, so there is nothing here for a
+        // reload to remember.
+        let expandedResolved = new Set();
         // Which thread has its reply composer open. Separate from editingIdx: editing rewrites
         // the human's own head message, replying adds a turn to the thread.
         let replyingIdx = -1;
@@ -2182,11 +2244,15 @@
             applyDiffAnchors();
 
             const countsByAnchor = {};
+            const openByAnchor = {};
             comments.forEach(c => {
                 // An outdated comment keeps its anchor (so it can come back if its lines do),
                 // but it has nothing to point at in the current diff.
                 if (c.anchor && !c.outdated) {
                     countsByAnchor[c.anchor] = (countsByAnchor[c.anchor] || 0) + 1;
+                    if (c.status !== "resolved") {
+                        openByAnchor[c.anchor] = (openByAnchor[c.anchor] || 0) + 1;
+                    }
                 }
             });
 
@@ -2195,10 +2261,15 @@
                 if (targetEl) {
                     targetEl.classList.add('has-comments-highlight');
 
+                    // One open thread is enough to keep the block speaking: the mark turns only
+                    // when there is nothing left here to answer.
+                    const allResolved = !openByAnchor[anchorId];
                     const indicator = document.createElement('span');
-                    indicator.className = 'comment-indicator';
-                    indicator.innerHTML = `💬 ${count}`;
-                    indicator.title = `Click to view ${count} comment(s)`;
+                    indicator.className = allResolved ? 'comment-indicator resolved' : 'comment-indicator';
+                    indicator.textContent = `${allResolved ? '\u2705' : '\ud83d\udcac'} ${count}`;
+                    indicator.title = allResolved
+                        ? `Click to view ${count} comment(s), all resolved`
+                        : `Click to view ${count} comment(s)`;
                     indicator.addEventListener('click', (e) => {
                         e.stopPropagation();
                         selectComment(anchorId);
@@ -2216,17 +2287,27 @@
             reconcileConnector();
         }
 
+        function flashCard(card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.style.outline = "2px solid var(--accent-color)";
+            setTimeout(() => {
+                card.style.outline = "none";
+            }, 2000);
+        }
+
         // Scroll the feedback panel to the first comment card matching the anchor
         function scrollToCommentCard(anchorId) {
             const commentItems = Array.from(document.querySelectorAll('.comment-card'));
             const match = commentItems.find(item => item.getAttribute('data-anchor') === anchorId);
-            if (match) {
-                match.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                match.style.outline = "2px solid var(--accent-color)";
-                setTimeout(() => {
-                    match.style.outline = "none";
-                }, 2000);
-            }
+            if (match) flashCard(match);
+        }
+
+        // Resolving moves a card to the end of the panel and un-resolving carries it back, either
+        // way usually out of sight. The card is found by its index rather than its anchor because
+        // a thread about the document as a whole has no anchor to be found by.
+        function revealCommentCard(idx) {
+            const card = document.querySelector(`.comment-card[data-comment-idx="${idx}"]`);
+            if (card) flashCard(card);
         }
 
         // Scroll spec body to target element
@@ -2531,10 +2612,14 @@
                 if (!c.anchor) return DOCUMENT_RANK;
                 return (!c.outdated && order.has(c.anchor)) ? order.get(c.anchor) : UNPLACED_RANK;
             };
+            // A resolved thread is finished work: it sinks below every open one, keeping its own
+            // document order among the rest of the resolved, so that the panel reads as the work
+            // still outstanding followed by the work just closed.
+            const resolvedRank = c => (c.status === "resolved" ? 1 : 0);
             // sort is stable, so comments sharing a rank (same block, or both unplaced) stay in creation order.
             return comments
                 .map((c, idx) => ({ c, idx }))
-                .sort((a, b) => rank(a.c) - rank(b.c));
+                .sort((a, b) => (resolvedRank(a.c) - resolvedRank(b.c)) || (rank(a.c) - rank(b.c)));
         }
 
         // ---------- Comment body: prose plus ```suggestion blocks ----------
@@ -2542,6 +2627,77 @@
         // replacement is read anywhere else: as a diff against those lines. Reading it as a bare
         // code block means holding the original in your head to see what actually changed.
         const suggestionFenceRegex = /```suggestion[ \t]*\r?\n([\s\S]*?)\r?\n?```/g;
+
+        // The folded line carries the comment's own opening words and nothing else: what the
+        // reader has to do with it is recognise the remark they closed, and they wrote it.
+        //
+        // The panel reads a comment as Markdown, so the line is taken from the rendered text
+        // rather than the source — a folded thread should read the way its card reads, not show
+        // the asterisks and backticks the reader typed. It stays one line of plain text: the row
+        // truncates, and a heading or a list would have nowhere to go. Without markdown-it it
+        // falls back to the source, and marks the fallback so the DOMContentLoaded redraw picks
+        // this line up too.
+        function headLine(text) {
+            suggestionFenceRegex.lastIndex = 0;
+            const source = (text || "").replace(suggestionFenceRegex, " ");
+            const md = proseMarkdown();
+            if (!md) {
+                proseFellBack = true;
+                return source.replace(/\s+/g, " ").trim();
+            }
+            const box = document.createElement("div");
+            box.innerHTML = md.render(source);
+            return (box.textContent || "").replace(/\s+/g, " ").trim();
+        }
+
+        // Built like the edit and delete affordances it sits beside, down to the keyboard path.
+        function foldToggle(idx) {
+            const btn = document.createElement("span");
+            btn.className = "fold-toggle";
+            btn.textContent = "\u25b4";
+            btn.title = "Fold this resolved thread";
+            btn.tabIndex = 0;
+            const fold = () => {
+                expandedResolved.delete(idx);
+                renderComments();
+            };
+            btn.onclick = fold;
+            btn.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fold();
+                }
+            });
+            return btn;
+        }
+
+        function resolvedSummary(c, idx) {
+            const summaryBtn = document.createElement("button");
+            summaryBtn.type = "button";
+            summaryBtn.className = "resolved-summary";
+            summaryBtn.title = "Open this resolved thread";
+
+            const mark = document.createElement("span");
+            mark.className = "resolved-summary-mark";
+            mark.textContent = "\u2713";
+
+            const text = document.createElement("span");
+            text.className = "resolved-summary-text";
+            text.textContent = headLine(c.text);
+
+            const chevron = document.createElement("span");
+            chevron.className = "resolved-summary-chevron";
+            chevron.textContent = "\u25b8";
+
+            summaryBtn.appendChild(mark);
+            summaryBtn.appendChild(text);
+            summaryBtn.appendChild(chevron);
+            summaryBtn.addEventListener("click", () => {
+                expandedResolved.add(idx);
+                renderComments();
+            });
+            return summaryBtn;
+        }
 
         function renderCommentBody(item, c) {
             const text = c.text || "";
@@ -2918,6 +3074,19 @@
                     item.setAttribute('data-anchor', c.anchor);
                 }
 
+                // A resolved thread folds to one line. Opening it is all the click does: the
+                // thread is finished work, so there is nothing left to point at and no Connector
+                // Line to draw — the one exception to the panel's click-a-card-to-select rule.
+                if (c.status === "resolved" && idx !== editingIdx && !expandedResolved.has(idx)) {
+                    item.classList.add("resolved", "folded");
+                    // A folded card takes no hover, so a hover line left pointing at it could
+                    // never be dismissed by moving away from it. Folding ends the hover.
+                    if (hoverAnchor && hoverAnchor === c.anchor) unhoverConnector();
+                    item.appendChild(resolvedSummary(c, idx));
+                    container.appendChild(item);
+                    return;
+                }
+
                 if (idx === editingIdx) {
                     item.classList.add("editing-mode");
 
@@ -3029,6 +3198,9 @@
                     } else {
                         item.classList.add("agent-thread");
                     }
+                    if (c.status === "resolved") {
+                        item.appendChild(foldToggle(idx));
+                    }
                     item.appendChild(authorTag);
                     renderCommentBody(item, c);
 
@@ -3089,8 +3261,16 @@
                                 declinePendingQuestion(comments[idx]);
                             }
                             comments[idx].status = checkbox.checked ? "resolved" : "open";
+                            // Reopening a thread starts it folded again: the expansion was about
+                            // this card as it stood, not about the thread from here on.
+                            expandedResolved.delete(idx);
                             markDirty();
                             renderComments();
+                            // Resolving changes what the block's Comment Indicator says, so it is
+                            // recomputed here, the way every other change to the comment set does.
+                            updateCommentIndicators();
+                            // The card has just crossed to the other end of the panel. Say where.
+                            revealCommentCard(idx);
                         });
                         toggleLabel.appendChild(checkbox);
                         toggleLabel.appendChild(toggleText);
@@ -3106,7 +3286,7 @@
                     // target left in the body, so it is not selectable.
                     if (c.anchor && !c.outdated) {
                         item.addEventListener("click", (e) => {
-                            if (e.target.closest(".delete-btn, .edit-btn, .resolve-toggle, input, button, textarea, a")) return;
+                            if (e.target.closest(".delete-btn, .edit-btn, .fold-toggle, .resolve-toggle, input, button, textarea, a")) return;
                             selectComment(c.anchor);
                         });
                         item.addEventListener("mouseenter", () => { if (!connector) hoverConnector(c.anchor); });
