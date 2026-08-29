@@ -1197,7 +1197,7 @@
             outline-offset: 3px;
         }
         /* Table rows carry their state on the row, but never a generated box.
-           Why not `::before` on the tr, and why the 💬 badge is appended to the
+           Why not `::before` on the tr, and why the comment indicator is appended to the
            last cell in JS: a row may only contain cells, so an extra child or a
            generated box gets wrapped in an ANONYMOUS TABLE CELL — the row gains
            a column and its cells stop lining up with the rest of the table.
@@ -1225,12 +1225,19 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 0.15rem;
+            gap: 0.22rem;
             background: var(--accent-color);
             color: var(--on-accent);
+            border: 1px solid transparent;
             font-family: 'IBM Plex Mono', monospace;
             font-size: 0.66rem;
             font-weight: 500;
+            /* The chip is appended inside its target, so it inherits that target's text
+               metrics: a heading's tighter line-height and negative letter-spacing made the
+               same chip 5px shorter and a fraction narrower there than on a paragraph.
+               Measured, not assumed — the count is what has to line up across the page. */
+            line-height: 1;
+            letter-spacing: 0;
             padding: 0.12rem 0.4rem;
             border-radius: 2px;
             cursor: pointer;
@@ -1242,10 +1249,31 @@
             transform: translateY(-50%) scale(1.08);
             background-color: var(--accent-hover);
         }
+        /* Both glyphs are given a box of the same size. A speech bubble is wider than a check
+           mark, so left to their own metrics two chips carrying the same number of digits would
+           come out different widths and the chip's left edge would jump as threads get resolved. */
+        .comment-indicator .ci-glyph {
+            flex: none;
+            width: 10px;
+            height: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+        .comment-indicator .ci-glyph svg { display: block; }
         /* An indicator whose threads are every one resolved says so, so that the reader can tell
            from the document — without opening the panel — that nothing here still waits on them.
-           The mark alone carries it: a second background colour behind a full-colour ✅ would be
-           two greens arguing, and the chip's palette is not this change's to settle. */
+           It is drawn the way §2.5 steps a badge down: the fill is given up, and the accent moves
+           to a hairline outline and the text. Neither state spends a hue — the glyphs are a
+           stroked bubble and a ✓, both in currentColor — so the two read as one control in two
+           states rather than as two different marks. */
+        .comment-indicator.resolved {
+            background: transparent;
+            color: var(--accent-color);
+            border-color: hsl(var(--accent-hsl) / 0.55);
+        }
+        .comment-indicator.resolved:hover { background-color: hsl(var(--accent-hsl) / 0.10); }
         pre.commentable-element .comment-indicator {
             top: 1rem;
             transform: none;
@@ -1464,7 +1492,7 @@
             background-image: linear-gradient(var(--hl-halo), var(--hl-halo));
             box-shadow: inset 3px 0 0 var(--hl-ring);
         }
-        /* The 💬 badge cannot hang in the right gutter here: the hunk scrolls horizontally
+        /* The comment indicator cannot hang in the right gutter here: the hunk scrolls horizontally
            and would clip it. Sticking it to the scrollport's right edge keeps it in view at
            any scroll position. */
         .diff-line .comment-indicator {
@@ -1788,7 +1816,7 @@
                     if (isCommented(anchorId)) {
                         selectComment(anchorId);
                     } else {
-                        setCommentTarget(anchorId, el.textContent.trim());
+                        setCommentTarget(anchorId, visibleText(el).trim());
                     }
                 });
                 // Hover a commented element to preview its connector line.
@@ -2033,7 +2061,7 @@
             let pendingFocus = false;
 
             container.addEventListener("mousedown", (e) => {
-                // The 💬 badge runs selectComment from its own click handler. Letting this one
+                // The comment indicator runs selectComment from its own click handler. Letting this one
                 // run too selects the comment on mousedown and then toggles it straight back off
                 // on click, so the connector line appears and vanishes within the same gesture.
                 if (e.target.closest(".comment-indicator, a")) return;
@@ -2123,7 +2151,7 @@
 
             activeAnchor = anchorId;
             // Shorten context snippet and collapse consecutive whitespaces/newlines to a single space
-            activeContext = text.replace(/💬\s*$/, '').trim().replace(/\s+/g, ' ');
+            activeContext = text.trim().replace(/\s+/g, ' ');
             if (activeContext.length > 60) {
                 activeContext = activeContext.substring(0, 57) + '...';
             }
@@ -2233,6 +2261,24 @@
                 .catch(() => {});
         }
 
+        // The open-thread glyph, drawn rather than typed. A speech balloon exists as a
+        // codepoint, but every one of them carries a colour glyph, and a hue that is not the
+        // accent is the one thing the palette does not allow (UI_DESIGN §2.1). Stroked in
+        // currentColor, it takes the chip's colour in either state and in either theme.
+        const OPEN_GLYPH_SVG = '<svg viewBox="0 0 12 12" width="9.5" height="9.5">'
+            + '<path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"'
+            + ' d="M2.4 1.3h7.2a1.4 1.4 0 0 1 1.4 1.4v3.6a1.4 1.4 0 0 1-1.4 1.4H5.4L3.1 9.9V7.7h-.7A1.4 1.4 0 0 1 1 6.3V2.7a1.4 1.4 0 0 1 1.4-1.4Z"/>'
+            + '</svg>';
+
+        // An indicator is appended INSIDE its target element, so it lands in that element's
+        // textContent. Anything reading an element for its own words — a heading for the rail,
+        // a block for the composer's context line — has to read around it.
+        function visibleText(el) {
+            const clone = el.cloneNode(true);
+            clone.querySelectorAll('.comment-indicator').forEach(n => n.remove());
+            return clone.textContent;
+        }
+
         // Render inline indicators next to commented elements
         function updateCommentIndicators() {
             // Clear existing indicators
@@ -2266,7 +2312,16 @@
                     const allResolved = !openByAnchor[anchorId];
                     const indicator = document.createElement('span');
                     indicator.className = allResolved ? 'comment-indicator resolved' : 'comment-indicator';
-                    indicator.textContent = `${allResolved ? '\u2705' : '\ud83d\udcac'} ${count}`;
+                    const glyph = document.createElement('span');
+                    glyph.className = 'ci-glyph';
+                    glyph.setAttribute('aria-hidden', 'true');
+                    if (allResolved) {
+                        glyph.textContent = '\u2713';
+                    } else {
+                        glyph.innerHTML = OPEN_GLYPH_SVG;
+                    }
+                    indicator.appendChild(glyph);
+                    indicator.appendChild(document.createTextNode(String(count)));
                     indicator.title = allResolved
                         ? `Click to view ${count} comment(s), all resolved`
                         : `Click to view ${count} comment(s)`;
@@ -2354,7 +2409,7 @@
         const CONNECTOR_MARGIN = 8;
         function clampY(y) { return Math.max(CONNECTOR_MARGIN, Math.min(window.innerHeight - CONNECTOR_MARGIN, y)); }
 
-        // Element side of the line starts at the RIGHT EDGE of the 💬 badge when
+        // Element side of the line starts at the RIGHT EDGE of the comment indicator when
         // present; uncommented elements have no badge, so use the element's edge.
         // Horizontal position is unaffected by vertical scroll; y is clamped.
         function connectorStart(el) {
@@ -3547,7 +3602,7 @@
             const usedIds = new Set(Array.from(document.querySelectorAll("[id]")).map(el => el.id));
 
             function slugify(text) {
-                const cleanText = text.replace(/💬/g, "").replace(/\[.*?\]/g, "").trim();
+                const cleanText = text.replace(/\[.*?\]/g, "").trim();
                 let slug = cleanText.toLowerCase()
                     .replace(/[^\w\s-]/g, "")
                     .replace(/\s+/g, "-")
@@ -3567,7 +3622,7 @@
             headings.forEach((heading, idx) => {
                 // Ensure heading has ID for anchoring
                 if (!heading.id) {
-                    heading.id = slugify(heading.textContent);
+                    heading.id = slugify(visibleText(heading));
                 } else {
                     usedIds.add(heading.id);
                 }
@@ -3594,7 +3649,7 @@
                     link.appendChild(label);
                 } else {
                     // Clean heading text for display in TOC
-                    const text = heading.textContent.replace(/💬/g, "").trim();
+                    const text = visibleText(heading).trim();
                     link.textContent = text;
                 }
 

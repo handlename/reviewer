@@ -64,6 +64,16 @@ Square, monochrome. Priority is expressed by **fill and opacity** (`must` invert
 
 **Why:** two independent, non-colour channels can carry two independent taxonomies without spending the accent, and without asking the reader to memorise seven hues.
 
+### 2.6 The comment indicator spends no hue either
+
+The chip in the right gutter carries two things: how many threads a block has, and whether any of them is still open. Open is a **filled accent chip with a stroked speech bubble**; all-resolved gives up the fill and becomes an **accent hairline outline with a `✓`** — the same step-down §2.5 uses for a badge, and the same fill-versus-outline channel. Both glyphs are drawn in `currentColor`, so each takes the chip's own colour in either state and in either theme.
+
+**Why:** it used to read `💬 N` and `✅ N`, and those two codepoints have colour glyphs in every font that ships them. That made the indicator the one place on the page where a hue other than the accent appeared — and a green ✅ next to a blue chip is exactly the "second hue competing with the content" that §2.1 exists to prevent. The balloon and the check are still the right two symbols; they only had to be drawn rather than typed, which is why the open glyph is inline SVG and not a character.
+
+**Both glyphs sit in a box of the same size, and the chip fixes its own `line-height` and `letter-spacing`.** A bubble is wider than a check, and the chip is appended *inside* its target, so it inherits that target's text metrics: measured, the same chip came out 5px shorter and a fraction narrower on a heading than on a paragraph. Two chips carrying the same number of digits have to be the same size, or resolving a thread moves the chip's edge and a column of counts stops lining up.
+
+**Rejected:** dropping the open/resolved distinction, and hiding the chip once everything is resolved — both are quieter, but they give up telling the reader from the document alone that nothing here still waits on them, which is the whole reason the distinction exists. **Rejected:** `○`/`✓` and `…`/`✓`, which need no SVG and pair more neatly, but say "checklist item" and "in progress" rather than "there is discussion here".
+
 ---
 
 ## 3. Layout
@@ -155,7 +165,7 @@ The system forbids a second hue, so the four states an element can be in are sep
 
 ### 5.1 The whole block is the target
 
-In a Markdown review, clicking anywhere on a commentable block targets it. Targeting fires only when mouse-up leaves a collapsed selection, so dragging still selects text; clicks on links and on the `💬 N` indicator are excluded.
+In a Markdown review, clicking anywhere on a commentable block targets it. Targeting fires only when mouse-up leaves a collapsed selection, so dragging still selects text; clicks on links and on the comment indicator are excluded.
 
 **Why:** the original affordance was a hover-only bubble in the right gutter — small, outside the text column, and invisible until hovered. The hover background wash remains as the affordance.
 
@@ -256,9 +266,9 @@ A line too long for the column wraps, the way GitHub's diff does with wrapping o
 
 **Why:** a review is read at whatever width the two rails leave, and a column the reader has to scroll sideways hides half of every long line at once. Losing the exact character column of a long line costs less than losing the line's second half — and a diff of base64 or minified code was never read by column anyway.
 
-**The hunk stays the scroll unit** all the same: `overflow-x` lives on the hunk, unused in practice now but still the scrollport the `💬` badge sticks to. Scrolling per line would let rows slide independently and destroy the column alignment a diff is read by; scrolling the whole file card would carry its sticky path header away with it.
+**The hunk stays the scroll unit** all the same: `overflow-x` lives on the hunk, unused in practice now but still the scrollport the comment indicator sticks to. Scrolling per line would let rows slide independently and destroy the column alignment a diff is read by; scrolling the whole file card would carry its sticky path header away with it.
 
-The `💬` badge sits at the right edge of that scrollport rather than hanging in the right gutter. The code cell shrinks to make room for it, so the badge never lands on top of a wrapped line's text.
+The comment indicator sits at the right edge of that scrollport rather than hanging in the right gutter. The code cell shrinks to make room for it, so it never lands on top of a wrapped line's text.
 
 ### 6.3 Syntax highlighting: per file, per line, on demand
 

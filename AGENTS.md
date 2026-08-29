@@ -81,7 +81,7 @@ not. Badge and callout rewriting would corrupt code, and there is no Markdown to
 
 ## 4. Double Comment Anchor Prevention (No Nested Anchors)
 
-The client-side JavaScript in `template.html` walks the DOM tree of the spec page to inject `data-anchor` identifiers and a hover bubble (`💬`) onto block elements.
+The client-side JavaScript in `template.html` walks the DOM tree of the spec page to inject `data-anchor` identifiers and a comment indicator onto block elements.
 
 * **Rule**:
   * **Never attach multiple nested comment triggers to parent-child blocks.** For instance, callouts (`.callout`), tables (`spec-table`), and lists (`ul`/`ol`) are block-level items that can receive comments. Their inner child elements (`p`, `li`, `tr`) must **not** get their own nested comment triggers, as this breaks layout alignment and produces messy overlapping icons.

@@ -222,9 +222,9 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Behavior**: JavaScript never assumes which element scrolls — it reads the column's computed `overflow-y`, because the narrow-viewport layout hands scrolling back to the page.
 
 ### Comment Indicator
-* **Description**: The `💬 N` control in the right **Comment Gutter** of a block that has comments. Clicking it selects the first of them, drawing the **Connector Line**.
-* **Aliases**: 💬 button, gutter badge.
-* **All resolved**: when every thread on the block is **Resolve**d it reads `✅ N` instead. One open thread is enough to keep it speaking, so the mark turns only when nothing here is still waiting on the reader — which is what lets them tell from the document alone, without opening the **Feedback Panel**. The mark alone carries the state: the chip keeps its one accent, because a second background behind a full-colour ✅ would be two greens arguing.
+* **Description**: The chip in the right **Comment Gutter** of a block that has comments — a speech-bubble glyph and the thread count. Clicking it selects the first of them, drawing the **Connector Line**.
+* **Aliases**: gutter badge.
+* **All resolved**: when every thread on the block is **Resolve**d the chip gives up its fill and reads as an accent hairline outline with a `✓` and the count. One open thread is enough to keep it filled, so it steps down only when nothing here is still waiting on the reader — which is what lets them tell from the document alone, without opening the **Feedback Panel**. Neither state spends a hue: both glyphs are drawn in `currentColor`.
 * **Implementation**: `.comment-indicator`, `.comment-indicator.resolved`, `updateCommentIndicators()`.
 
 ### Composer
