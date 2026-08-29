@@ -1,6 +1,6 @@
 # reviewer Glossary (GLOSSARY)
 
-This document defines the core domain terms used within the `reviewer` codebase and documentation. It serves as a unified reference to ensure human developers and AI agents share a common understanding of the system's terminology.
+This document defines the core domain terms used within the `reviewer` codebase and documentation. It serves as a unified reference to ensure human developers and AI agents share a common understanding of the system's terminology. Sections 1-4 cover the domain and its features; section 5 names the parts of the review page. These names are canonical for code as well as prose: `AGENTS.md` §11 requires every new identifier to come from a term here.
 
 ---
 
@@ -64,7 +64,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Element-level Commenting
 * **Description**: The feature that allows reviewers to attach feedback directly to individual block-level elements (such as paragraphs `p`, list items `li`, table rows `tr`, and callouts) instead of a single page-wide comment. This is the **Spec** side of commenting; a **Diff** targets line ranges and files instead (see section 4).
-* **Behavior**: Hovering over a commentable block reveals a `💬` button in the right margin, which opens a targeted input text area in the feedback panel.
+* **Behavior**: Clicking anywhere on a commentable block targets it — the hover wash is the affordance — and a block that already has comments carries a **Comment Indicator** in the right **Comment Gutter**. Either opens a targeted **Composer** in the **Feedback Panel**.
 * **Related Attribute**: `data-anchor="spec-element-X"`.
 
 ### Anchor
@@ -76,7 +76,9 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Connector Line
 * **Description**: The curve drawn between a selected comment and the thing it is about.
-* **Behavior**: Selecting a comment (clicking its card, or its `💬` indicator) scrolls the target into view, highlights it, and draws the line; it follows scrolling and resizing, and fades toward the screen edge when one end is off-screen.
+* **Behavior**: Selecting a comment (clicking its **Comment Card**, or its **Comment Indicator**) scrolls the target into view, highlights it, and draws the line; it follows scrolling and resizing, and fades toward the screen edge when one end is off-screen.
+* **Note**: In code this is `connector`, never `connection` — `connection` is the SSE **Live Reload** connection the **Live Dot** reports, and one word for two things is how the two got confused.
+* **Implementation**: `#connectorOverlay`, `drawConnector()`, `dropConnector()`, `reconcileConnector()`, `clearConnectorMarks()`.
 
 ### Feedback
 * **Description**: The shared review state — a `{ comments, summary }` document read and written by both the browser and the session. It is reviewer's internal store; the agent reaches it only through the MCP tools.
@@ -97,7 +99,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Question (`needsAnswer`)
 * **Description**: An agent message the human is expected to answer.
-* **Behavior**: Opt-in per reply, so an ordinary report of what changed is not one. A thread has a **pending question** while no human message follows its last flagged one — any reply answers, which is why answering needs no control of its own. The page marks such threads, counts them above the composer, and asks before they are resolved or submitted past.
+* **Behavior**: Opt-in per reply, so an ordinary report of what changed is not one. A thread has a **pending question** while no human message follows its last flagged one — any reply answers, which is why answering needs no control of its own. The page marks such threads with a **Thread Tag**, counts them in the **Pending Questions Button** above the **Composer**, and asks before they are resolved or submitted past.
 
 ### Declined
 * **Description**: The record that the human closed a thread without answering its question.
@@ -105,10 +107,10 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Anchor Quote
 * **Description**: The passage a thread the agent opened was written against (`anchorQuote`).
-* **Behavior**: Re-resolved to an **Anchor** on every render rather than trusted once — by the server on a diff, by the browser on Markdown, where the `spec-element-N` numbering lives. Several matches take the first; no match leaves the thread without a target, shown under **About this document** in the panel rather than dropped. An empty quote is a question about the document as a whole.
+* **Behavior**: Re-resolved to an **Anchor** on every render rather than trusted once — by the server on a diff, by the browser on Markdown, where the `spec-element-N` numbering lives. Several matches take the first; no match leaves the thread without a target, shown under the **About this document** section of the **Feedback Panel** rather than dropped. An empty quote is a question about the document as a whole.
 
 ### Change Summary
-* **Description**: The agent's page-level `summary` of the latest round's document changes, rendered at the top of the feedback panel.
+* **Description**: The agent's page-level `summary` of the latest round's document changes, rendered in the **Change Summary Block** at the top of the **Feedback Panel**.
 
 ### Resolve
 * **Description**: A human-only action that marks an addressed comment `resolved` on the page after reviewing the agent's reply.
@@ -125,7 +127,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Agent Activity (Status)
 * **Description**: The agent's live progress, surfaced on the review page so the user can watch what the agent is doing between submitting and the reply landing — without leaving the page or inspecting the agent session.
-* **Behavior**: The agent writes its current activity to the `<input>-status.json` sidecar (`{ state, message }`). The server watches it and pushes a typed `status` event over SSE; the page updates the "Agent working…" panel **in place** (no reload). The agent writes `state:"idle"` when the round completes, which clears the panel. `GET /api/status` restores the indicator after a mid-round reload.
+* **Behavior**: The agent writes its current activity to the `<input>-status.json` sidecar (`{ state, message }`). The server watches it and pushes a typed `status` event over SSE; the page updates the **Agent Activity Panel** **in place** (no reload). The agent writes `state:"idle"` when the round completes, which clears the panel. `GET /api/status` restores the indicator after a mid-round reload.
 
 ---
 
@@ -156,12 +158,162 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Outdated
 * **Description**: A diff comment whose lines are no longer in the diff (or whose file has left it).
-* **Behavior**: It stays in the panel, marked, with the lines it was written against quoted — that quotation is the only remaining record of what it referred to. It keeps its anchor, so it re-attaches if the lines come back, and it remains a valid target for `review_reply`. It is excluded from the diff body: no highlight, no `💬`, sorted to the end of the panel.
+* **Behavior**: It stays in the **Feedback Panel**, marked with a **Thread Tag**, with the lines it was written against quoted — that quotation is the only remaining record of what it referred to. It keeps its anchor, so it re-attaches if the lines come back, and it remains a valid target for `review_reply`. It is excluded from the diff body: no highlight, no **Comment Indicator**, sorted to the end of the panel.
 
 ### Suggestion
 * **Description**: A ` ```suggestion ` fenced block inside a comment: the replacement the human wants for the anchored lines.
-* **Behavior**: Inserted into the composer only when the "quote lines" button is clicked, never automatically. The panel renders it as a diff against `anchorLines`, with lines shared at either end kept as context. Applying it is the agent's job — reviewer never touches the source.
+* **Behavior**: Inserted into the **Composer** only when the **Quote Lines Button** is clicked, never automatically. The panel renders it as a **Suggestion Diff** against `anchorLines`, with lines shared at either end kept as context. Applying it is the agent's job — reviewer never touches the source.
 
 ### File Status
 * **Description**: What happened to a file in this diff: added, deleted, renamed, or modified.
-* **Behavior**: Shown as a mark in front of the name in the file list (`+`, `−`, `⇄`, `·`) and in words on the file header, where there is room to say "renamed from …" in full.
+* **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the file header, where there is room to say "renamed from …" in full.
+* **Implementation**: `.file-status`, `.file-status-added` / `-deleted` / `-renamed` / `-modified`; the name beside it is `.rail-toc-file-name`.
+
+---
+
+## 5. Screen Anatomy
+
+The names for the things on the review page.
+
+This section is **canonical**, for prose and for code alike: a CSS class, an element id, a function or a variable that names one of these things uses the name given here. The **Implementation** lines say which identifiers each term owns, so a term can be followed into the code and a reader can tell whether a name is already taken. The **Aliases** lines record the names that used to be used, so an older name still leads here.
+
+The exception is a name that has left the process: the JSON keys of the **Sidecar** (`anchor`, `anchorLines`, `needsAnswer`, `anchorQuote`, `messages`, …), the **Anchor** string forms, the MCP tool names, the `/api/…` paths and the sidecar filenames are wire formats. Renaming one breaks a sidecar written yesterday or an agent built against it, so they keep the spelling they were published with; where that spelling differs from a term here, the term's entry records it.
+
+Not covered here: decorative and internal state classes (`.diff-add`, `.diff-marker`, `.suggestion-marker`, `.edit-textarea`, and some eighty others). They describe how a thing is painted rather than what it is, and registering them would make this document a copy of the stylesheet.
+
+The two figures below name the parts. Each label carries the term and the identifier it owns, so a screenshot is enough to write an instruction with: "the **Comment Indicator** sits 2px too low" leaves nothing to guess. Both are generated from the running page — every label is positioned from its own element's bounding box — so a part that moves takes its label with it the next time they are regenerated.
+
+![Spec review: the parts of the review page and the term for each](docs/images/screen-anatomy-spec.png)
+
+![Diff review: the parts a diff adds](docs/images/screen-anatomy-diff.png)
+
+The figures show the light theme, and only what is on the page at rest. Missing from them by nature: the **Quote Lines Button**, which exists only while a range is selected and is therefore gone by the time the comment it wrote is on the page; and the **Reload Prompt**, **Agent Activity Panel**, **Status Message** and the **Outdated** tag, each of which appears only in the moment it reports.
+
+### Contents Rail
+* **Description**: The left column: the document's title, and its navigation — headings for a **Spec**, the file list for a **Diff**.
+* **Aliases**: sidebar (the id), file list (its contents in diff review), TOC.
+* **Behavior**: Folds away with the **Rail Toggle**, and the folded state survives a reload. A diff is read across rather than down, so this is the first column worth trading for width.
+* **Implementation**: `#contentsRail`, `.contents-rail`, `#railToc`, `.rail-toc-item`, `.rail-toggle`, body class `rail-collapsed`.
+
+### Document Column
+* **Description**: The middle column, holding the rendered review target. It leads: the two rails recede so that this column reads as the page.
+* **Behavior**: Capped at a reading measure of 40rem for a spec; the cap is dropped entirely for a diff, which has no measure to respect. Takes focus on load, because it — not the page — is what scrolls.
+* **Implementation**: `.document-column`, `--measure`, `--document-min-width`, `documentScroller()`.
+
+### Feedback Panel
+* **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Composer**, and one **Comment Card** per **Thread**.
+* **Aliases**: comment panel (what `UI_DESIGN.md` called it before this section), Review Comments (the heading label before it was named for the **Feedback** it shows).
+* **Behavior**: Its width is draggable, defaults to 520px and is remembered in `localStorage`, because the review loop reloads the page every round. Cards read top-down in the appearance order of their targets.
+* **Implementation**: `#feedbackPanel`, `--feedback-panel-width`.
+
+### Panel Resize Handle
+* **Description**: The divider between the **Document Column** and the **Feedback Panel**, dragged to size the panel.
+* **Behavior**: Double-clicking restores the default by removing the custom property rather than writing the number back, so the default keeps living in one place.
+* **Implementation**: `#panelResizeHandle` (`role="separator"`).
+
+### Comment Gutter
+* **Description**: The margins either side of a commentable block, where comment affordances live so that they never move the text under review. There are two, and they carry different things: the **left gutter** takes the tick that marks a block as having comments, the **right gutter** takes the **Comment Indicator**.
+* **Note**: "Gutter" is a position, never a name for what sits in it — say **Comment Indicator**, not "the gutter badge", because **Badge** already means `[Must]` / `[Should]` (§2).
+* **Implementation**: `--hl-gutter`, `--hl-mark`.
+
+### Scrollport
+* **Description**: A column that scrolls its own content. All three columns are one; the page itself does not scroll.
+* **Behavior**: JavaScript never assumes which element scrolls — it reads the column's computed `overflow-y`, because the narrow-viewport layout hands scrolling back to the page.
+
+### Comment Indicator
+* **Description**: The `💬 N` control in the right **Comment Gutter** of a block that has comments. Clicking it selects the first of them, drawing the **Connector Line**.
+* **Aliases**: 💬 button, gutter badge.
+* **Implementation**: `.comment-indicator`, `updateCommentIndicators()`.
+
+### Composer
+* **Description**: The text area at the top of the **Feedback Panel** where a comment is written, with its **Comment Context** above it and the Add Comment button below.
+* **Behavior**: Grows to fit its content up to `50vh`, then scrolls, so that a long **Suggestion** does not push Submit Review and End Review off the screen. Inline editing of a comment, and the **Reply Control**, both open a composer of the same kind.
+* **Implementation**: `#composerInput`, `#addCommentBtn`, `.composer`.
+
+### Comment Card
+* **Description**: One **Thread** as it appears in the **Feedback Panel**: the human's head comment, then every message after it, attributed and timestamped, with its **Reply Control** and **Resolve Toggle**.
+* **Behavior**: The two authors are separated by depth — the agent's message is a filled block, the human's is unfilled — never by a second colour. The human's own turns carry a `✎`; the agent's are a record and cannot be edited.
+* **Implementation**: `.comment-card`, `commentCard()`, `scrollToCommentCard()`, `.thread-message`.
+
+### Comment Context
+* **Description**: The line above the **Composer** naming what the comment being written is about, with a control to clear it.
+* **Implementation**: `#commentContextContainer`, `#commentContextText`, `#clearContextBtn` (`title="Clear targeting"`).
+
+### Panel Sections
+* **Description**: The two headings the **Comment Card**s are grouped under: **About this document** for a comment with no target — the agent's question about the document as a whole, or one whose **Anchor Quote** is gone — and **On the text** for the rest.
+* **Behavior**: About this document comes first, because a comment about everything has no position in document order to sink to.
+* **Implementation**: `.panel-section-label`.
+
+### Rail Toggle
+* **Description**: The `‹` / `›` control that folds and restores the **Contents Rail**.
+* **Implementation**: `#hideRailBtn`, `#showRailBtn`, `.rail-toggle`, `initRailToggle()`.
+
+### Whitespace Toggle
+* **Description**: The Hide whitespace control on a diff review, which folds whitespace-only changes away. They are folded, never removed.
+* **Implementation**: `#hideWhitespaceToggle`, `.ws-toggle`.
+
+### Resolve Toggle
+* **Description**: The Mark resolved control on a **Comment Card**. Human-only, and present only once a thread has a message to resolve.
+* **Behavior**: Resolving a thread that still holds a pending **Question** asks first; closing it anyway records **Declined**.
+* **Implementation**: `.resolve-toggle`.
+
+### Reply Control
+* **Description**: The Reply button under a started **Thread**, which opens a **Composer** in the card.
+* **Behavior**: Text-weight until pressed, so a thread at rest stays quiet. A reply posts nothing by itself: it travels on the next submit, keeping one submit to one round.
+* **Implementation**: `.thread-reply-btn`, `.thread-reply`.
+
+### Quote Lines Button
+* **Description**: The control that inserts the selected diff lines into the **Composer** as a `suggestion` fence.
+* **Behavior**: The only way a fence is ever inserted — never automatically, because most comments are questions.
+* **Implementation**: `#quoteLinesBtn`, `#suggestionActions`, `quoteLines()` (and `QuoteLines` in Go).
+
+### Suggestion Diff
+* **Description**: How a **Suggestion** renders inside a **Comment Card**: a diff against the **Anchor Lines** it replaces, in the same tints as the diff body, with shared lines at either end kept as context.
+* **Implementation**: `.suggestion-diff`, `.suggestion-diff-label`.
+
+### Submit Review Button / End Review Button
+* **Description**: The two controls at the foot of the **Feedback Panel**. Submit Review hands the round to the agent (see **Feedback**); End Review closes the session.
+* **Behavior**: Submitting with any **Question** still pending asks first — the round is the last cheap moment to answer.
+* **Implementation**: `#submitFeedbackBtn`, `#endReviewBtn`.
+
+### Live Dot
+* **Description**: The dot beside the **Feedback Panel** heading showing whether the **Live Reload** connection is up.
+* **Implementation**: `#liveDot`, `.live-dot.offline` (`title="Live connection"`).
+
+### Reload Prompt
+* **Description**: The bar offering a manual reload, shown instead of reloading when the reader has unsent edits.
+* **Implementation**: `#reloadPrompt`, `#reloadNowBtn`.
+
+### Agent Activity Panel
+* **Description**: The **Agent working…** block that surfaces **Agent Activity (Status)** on the page.
+* **Behavior**: Updated in place over SSE, never by reloading; cleared when the agent writes `state:"idle"`.
+* **Implementation**: `#agentActivity`, `#agentActivityState`, `#agentActivityList`, `.agent-spinner`.
+
+### Change Summary Block
+* **Description**: The **Agent changes** card at the top of the **Feedback Panel** that shows the **Change Summary**.
+* **Implementation**: `#changeSummary`, `#changeSummaryBody`, `.change-summary-label`.
+
+### Pending Questions Button
+* **Description**: The count of threads with a pending **Question**, above the **Composer**. Pressing it scrolls to the first such card and opens its composer.
+* **Why a button**: it is the only affordance on the page that says *something is blocked on you*, and anything actionable has to be reachable by keyboard.
+* **Implementation**: `#pendingQuestions`, `.pending-questions`.
+
+### Status Message
+* **Description**: The line that reports the outcome of an action — a submit, or a session that has ended.
+* **Implementation**: `#statusMsg`, `.feedback-success`.
+
+### Thread Tags
+* **Description**: The marks a **Comment Card** carries about its own state: **Awaiting your answer** (a pending **Question**), **Outdated** (a diff comment whose lines have gone), and **Quoted passage not found** (an **Anchor Quote** that no longer resolves).
+* **Implementation**: `.awaiting-tag`, `.outdated-tag`, `.outdated-lines`, `.outdated-context`.
+
+### Element State
+* **Description**: Which of four states a commentable block is in. The design forbids a second colour, so they are separated by position, stroke and depth instead.
+
+  | State | Channel | Distinguishing axis |
+  |---|---|---|
+  | hover | background wash | — |
+  | has comments | tick in the left **Comment Gutter** | position — outside the box |
+  | composing | dashed full-perimeter ring | stroke — dashed |
+  | selected | solid full-perimeter ring + halo | stroke — solid; depth — halo |
+
+* **Behavior**: No state may touch `padding` or `border`, both of which would move the text under review. A selected *range* in a diff is drawn as one band — a single left rule plus a wash — rather than an outline per row.
