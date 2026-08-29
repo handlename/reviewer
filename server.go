@@ -75,6 +75,13 @@ type Comment struct {
 	// AnchorQuote is the passage an agent-opened thread was written against. It is re-resolved to
 	// an Anchor on every render rather than trusted, so the thread survives the document moving.
 	AnchorQuote string `json:"anchorQuote,omitempty"`
+	// AnchorQuoteText is AnchorQuote as the browser will see it: Markdown syntax resolved to the
+	// text a rendered block actually displays. The agent quotes the source, the page matches
+	// against textContent, and the two only meet through this.
+	//
+	// It is derived on every read of the feedback rather than stored, so a sidecar written before
+	// it existed gets one too, and the quote the agent wrote stays the single source of truth.
+	AnchorQuoteText string `json:"anchorQuoteText,omitempty"`
 	// Messages is the rest of the thread, in chronological order.
 	Messages []Message `json:"messages,omitempty"`
 	// Reply and ReplyTimestamp are the pre-threading shape of a single agent response.
