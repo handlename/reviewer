@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.6.0](https://github.com/handlename/reviewer/compare/v0.5.0...v0.6.0) - 2026-08-29
+- Make GLOSSARY canonical for every screen name by @handlename in https://github.com/handlename/reviewer/pull/59
+- feat: render the panel's own text as Markdown by @handlename in https://github.com/handlename/reviewer/pull/61
+- feat: drop the width cap on the document column by @handlename in https://github.com/handlename/reviewer/pull/62
+
 ## [v0.5.0](https://github.com/handlename/reviewer/compare/v0.4.0...v0.5.0) - 2026-08-22
 - docs: record the review screen design principles by @handlename in https://github.com/handlename/reviewer/pull/38
 - feat: make a comment a thread of messages by @handlename in https://github.com/handlename/reviewer/pull/41
