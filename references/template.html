@@ -86,7 +86,6 @@
             --hl-halo:   hsl(var(--accent-hsl) / 0.20);   /* selected only */
             --hl-gutter: 12px;                            /* tick offset, outside the box */
 
-            --measure: 40rem;   /* ~70ch reading column */
             --radius: 3px;
             --u: 8px;           /* spacing base unit */
 
@@ -166,8 +165,6 @@
         .layout {
             display: flex;
             width: 100%;
-            max-width: 1600px;
-            margin: 0 auto;
             position: relative;
         }
 
@@ -207,12 +204,17 @@
             margin: 0;
         }
 
-        /* The main column is the hero: a comfortable reading measure, centred. */
+        /* The main column is the hero: it takes whatever the two rails leave.
+           Why no reading measure caps it any more: on a wide window the cap was pure loss — the
+           column sat at 46rem with dead margin either side while the window still had room, and
+           the 1600px cap on .layout pushed the rest of that room outside the layout entirely.
+           Why no min-width floor here either: the panel drag is already clamped against
+           --document-min-width in JavaScript, so a CSS floor adds nothing the drag needs. What
+           it would add is harm — it only ever binds when the *window* is the narrow thing, and
+           then it pushes the feedback panel off the right edge of the screen. */
         .document-column {
             flex: 1;
             min-width: 0;
-            max-width: calc(var(--measure) + var(--u) * 12);
-            margin: 0 auto;
             padding: clamp(2.5rem, 5vw, 4.5rem) clamp(1.5rem, 4vw, 3rem);
             /* Its own scrollport rather than the page's. Why not let the page scroll: the two
                rails are already 100vh and sticky, so a page-level scroll puts this column's
@@ -1234,8 +1236,8 @@
         }
 
         /* ---------- Diff view ----------
-           A diff is read across, not down: it keeps the full column instead of the
-           reading measure, and each line scrolls on its own rather than wrapping.
+           A diff is read across, not down: it trades the document's generous reading
+           padding for room, and its lines wrap rather than run off the side.
            Added and removed are the one place a second hue is spent — they are not a
            hierarchy but a distinction of meaning, and nothing else on the page can
            carry it as fast. The tints are dropped to the saturation of the stone
@@ -1255,15 +1257,12 @@
             }
         }
 
-        /* A diff has no reading measure to respect — it is as wide as its longest line — so
-           the layout gives up its 1600px cap and the document column takes whatever the
-           window has. --document-min-width is the floor it is never squeezed below; the panel
-           drag reads the same value, so the two cannot disagree. */
-        body.diff-review .layout { max-width: none; }
+        /* A diff keeps a floor where a spec has none: its lines are as wide as the code, and
+           squeezing the column past --document-min-width stops being a diff. Prose reflows, so
+           a spec column that gets narrow is merely narrow. The tighter padding buys room for
+           the same reason. */
         .document-column.diff-mode {
-            max-width: none;
             min-width: var(--document-min-width);
-            margin: 0;
             padding: calc(var(--u) * 4) calc(var(--u) * 3);
         }
         .diff-file {
@@ -1543,7 +1542,7 @@
         /* ---------- Narrow viewports: collapse the rails ---------- */
         @media (max-width: 1080px) {
             body { display: block; }
-            .layout { flex-direction: column; max-width: 100%; }
+            .layout { flex-direction: column; }
             .contents-rail, .feedback-panel {
                 position: static;
                 width: 100%;
@@ -1556,7 +1555,11 @@
             body.is-served .panel-resize-handle { display: none; }
             /* The rails are stacked and the page scrolls again, so the column must not keep
                a second scrollport nested inside it. */
-            .document-column { max-width: 46rem; height: auto; overflow-y: visible; }
+            .document-column { height: auto; overflow-y: visible; }
+            /* A diff gives up its floor here too: body carries overflow-x: hidden, so a 480px
+               min-width on a narrower phone does not scroll sideways — it silently clips the
+               right edge of every line. */
+            .document-column.diff-mode { min-width: 0; }
             .comment-indicator { right: 2px; }
         }
     </style>
@@ -3534,10 +3537,10 @@
             if (!handle || !panel) return;
 
             let width = 0;
-            // The panel's right edge, measured when the drag starts. It is NOT the right edge of
-            // the window: the layout is capped at 1600px and centred, and a vertical scrollbar
-            // eats into window.innerWidth as well. Measuring instead of assuming is what keeps
-            // the panel edge under the pointer rather than a scrollbar's width to its left.
+            // The panel's right edge, measured when the drag starts. It is NOT the right edge
+            // of the window: a vertical scrollbar eats into window.innerWidth. Measuring instead
+            // of assuming is what keeps the panel edge under the pointer rather than a
+            // scrollbar's width to its left.
             let panelRight = 0;
 
             handle.addEventListener("pointerdown", (e) => {

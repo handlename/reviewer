@@ -72,11 +72,19 @@ Square, monochrome. Priority is expressed by **fill and opacity** (`must` invert
 
 A contents rail on the left, the document in the middle, the feedback panel on the right (served mode only). The rails recede — quieter surfaces, smaller type, secondary text — so the document column reads as the page.
 
-### 3.2 A spec has a reading measure; a diff does not
+### 3.2 Neither a spec nor a diff has a width cap
 
-The document column is capped at a `--measure` of 40rem (~70 characters) and the layout at 1600px, because prose has an optimal measure and exceeding it costs comprehension.
+The document column takes whatever the two rails leave, in both modes. Only the floor beneath it differs (see below).
 
-**In diff mode the cap is dropped entirely.** A diff has no measure to respect, and its lines wrap rather than run off the side (§6.2); on a large screen the cap was pure loss — lines wrapping while the window still had room. The column instead takes whatever the two rails leave, floored at `--document-min-width`.
+**It used to cap a spec** at a `--measure` of 40rem (~70 characters), with the layout capped at 1600px, on the grounds that prose has an optimal measure and exceeding it costs comprehension. What that bought on a wide window was dead space: the column stopped at 46rem with idle margin either side of it, and the 1600px cap pushed the rest of the window outside the layout altogether. The reviewer lost information per screen and gained nothing — a spec under review is read in passes against a comment panel, not settled into like a book.
+
+**Rejected:** letting only the wide elements — tables, code blocks — break out of the measure while prose kept it. The complaint was the whole document's margins, not any one element inside it.
+
+**Rejected:** raising the cap, or tying it to the viewport with `clamp()`. That keeps a number which has to be re-argued at every screen size, and the reviewer already has a direct control for this: widening the feedback panel narrows the column (§3.4). The width is theirs to set, not the stylesheet's to guess.
+
+**A spec has no floor; a diff does.** Prose reflows, so a narrow spec column is merely narrow. A diff's lines are as wide as the code, and squeezing that column past `--document-min-width` stops being a diff — so `.document-column.diff-mode` keeps `min-width`, and gives it up again in the narrow-viewport layout, where `body` carries `overflow-x: hidden` and a 480px floor on a narrower phone does not scroll sideways but silently clips the right edge of every line.
+
+**Rejected:** giving a spec the same floor, for symmetry. Measured at a 1200px window: rail 280 + floor 480 + panel 520 makes the layout 1280px wide and pushes Submit Review off the right edge, where without the floor the column simply reflows to 400px and every control stays on screen. The floor's only effect at that width was to hide the one the reviewer needs. It buys nothing at the drag either — `initPanelResize` already clamps the panel against `--document-min-width` in JavaScript, so the column cannot be dragged away regardless of what CSS says.
 
 ### 3.3 Widths live in custom properties, never in inline styles
 
@@ -94,7 +102,7 @@ The panel's width is draggable, defaults to 520px, and is remembered in `localSt
 
 **Rejected:** 640px as the default. It was compared against 520px on a real `git diff` in a browser and left long diff lines truncated at a 1500px viewport.
 
-The drag geometry measures the panel's **own** right edge once at drag start. Computing width as `window.innerWidth - clientX` assumes the panel's edge is the window's edge, which it is not: the layout is centred with a cap, and a scrollbar takes its own bite out of `innerWidth`.
+The drag geometry measures the panel's **own** right edge once at drag start. Computing width as `window.innerWidth - clientX` assumes the panel's edge is the window's edge, which it is not: a scrollbar takes its own bite out of `innerWidth`.
 
 ### 3.5 The contents rail folds away
 
@@ -114,7 +122,7 @@ That load-time focus does **not** ring. Chrome turns `:focus-visible` on at the 
 
 JavaScript never assumes which element scrolls: it asks, by reading the column's computed `overflow-y`. The narrow-viewport layout stacks the rails and hands scrolling back to the page (`height: auto; overflow-y: visible`), and reading the computed value keeps that breakpoint in the stylesheet instead of restating it in two places that can drift apart.
 
-**Rejected:** wrapping the column in a full-width scrolling container so the scrollbar always hugs the panel's border. It buys a flush edge only on windows wider than 1616px — below that the column already fills its slot — and costs a DOM element that every `.document-column` query would then have to be re-pointed around.
+**Rejected:** wrapping the column in a full-width scrolling container so the scrollbar always hugs the panel's border. The column fills its slot at every width now that nothing caps it (§3.2), so its scrollbar already sits where the content ends, and the wrapper would cost a DOM element that every `.document-column` query would then have to be re-pointed around.
 
 ---
 

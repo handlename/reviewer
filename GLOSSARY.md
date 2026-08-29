@@ -197,8 +197,8 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 
 ### Document Column
 * **Description**: The middle column, holding the rendered review target. It leads: the two rails recede so that this column reads as the page.
-* **Behavior**: Capped at a reading measure of 40rem for a spec; the cap is dropped entirely for a diff, which has no measure to respect. Takes focus on load, because it — not the page — is what scrolls.
-* **Implementation**: `.document-column`, `--measure`, `--document-min-width`, `documentScroller()`.
+* **Behavior**: Uncapped in both modes: it takes whatever the two rails leave. A diff is floored at `--document-min-width`; a spec is not, because prose reflows. Takes focus on load, because it — not the page — is what scrolls.
+* **Implementation**: `.document-column`, `--document-min-width`, `documentScroller()`.
 
 ### Feedback Panel
 * **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Composer**, and one **Comment Card** per **Thread**.
