@@ -171,11 +171,15 @@ In a Markdown review, clicking anywhere on a commentable block targets it. Targe
 
 ### 5.2 A diff selects line ranges
 
-In a diff review the unit is the line, not the block. Drag or shift-click selects a range; a file header is a target in its own right, for the comments that are about the change to a file rather than to any line of it. The anchor forms, and the constraints that shape them — the anchor on the first line only, no selection across a hunk boundary — are in [`DESIGN.md` §3](DESIGN.md#3-comment-targeting--dom-traversal-constraints).
+In a diff review the unit is the line, not the block. Clicking a line targets it and shift-clicking extends the range from the line clicked last; a file header is a target in its own right, for the comments that are about the change to a file rather than to any line of it. The anchor forms, and the constraints that shape them — the anchor on the first line only, no selection across a hunk boundary — are in [`DESIGN.md` §3](DESIGN.md#3-comment-targeting--dom-traversal-constraints).
 
 What matters here is that both are **selections a reviewer makes with the pointer**, so the states in §4 apply to a range as a band and to a file header as a single element.
 
-Focus moves into the composer on **`mouseup`**, not `mousedown`. The browser's own default handling of `mousedown` moves focus after the handler runs, and `preventDefault` there would cost click-drag text selection in the diff.
+**Dragging belongs to the browser.** A diff is read by taking lines out of it — into an editor, a terminal, a chat — so the one gesture every reader already has for that has to keep working: a drag selects text and nothing else. Targeting therefore runs on `mouseup` and bails when the selection it finds is not collapsed, which is the same rule §5.1 gives a Markdown block. Two things fall out of the line columns being `user-select: none`: what lands on the clipboard is the code alone, without line numbers or `+`/`-`, and a drag that starts on a number selects nothing.
+
+Shift+click is the exception that rule has to make. The browser extends its own text selection on the way there, so the handler drops that selection before taking the range: shift-click is the range gesture, and a stray highlight left behind is not what was asked for.
+
+**Rejected:** keeping drag as the range gesture and putting text selection behind `Option`+drag, which preserves every existing habit but hides copying — the more frequent act — behind a modifier no one would guess; and telling the two apart by how far the drag travelled or whether it crossed a row, which has no honest boundary and would flip meaning mid-gesture.
 
 ### 5.3 The connector line carries the mapping
 
