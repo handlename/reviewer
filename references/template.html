@@ -1510,7 +1510,14 @@
             margin-left: auto;
             align-self: center;
         }
-        .diff-line .comment-indicator:hover { transform: scale(1.08); }
+        /* No hover lift here, unlike everywhere else the chip appears. It is docked to the right
+           edge of a box that scrolls horizontally, and a transformed box counts toward scrollable
+           overflow — the ~1px the scale reaches past the padding edge is enough to raise a
+           scrollbar on the hunk, so hovering the chip would resize the diff under the pointer.
+           Why not transform-origin: right center, which would grow it inwards: it still grows
+           vertically, and the same rule would then raise the hunk's other scrollbar instead.
+           The background change from .comment-indicator:hover carries the hover on its own. */
+        .diff-line .comment-indicator:hover { transform: none; }
 
         /* The file header is a comment target too — for what is true of the change to the file
            rather than of any line in it. Same states as a line, drawn on the header's own bar. */

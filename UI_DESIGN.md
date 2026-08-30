@@ -284,6 +284,8 @@ A line too long for the column wraps, the way GitHub's diff does with wrapping o
 
 The comment indicator sits at the right edge of that scrollport rather than hanging in the right gutter. The code cell shrinks to make room for it, so it never lands on top of a wrapped line's text.
 
+**It is the one indicator that does not lift on hover.** A transformed box counts toward its scroll container's scrollable overflow, so scaling a chip docked to the right padding edge reaches about a pixel past it and raises a horizontal scrollbar on the hunk — hovering the chip would resize the diff under the pointer. Growing it inwards with `transform-origin` only moves the problem to the vertical axis. Its hover is carried by the background change alone, which is what the chip already does everywhere else on top of the lift. In a Markdown review the chip hangs in a gutter with room around it, so it keeps the lift.
+
 ### 6.3 Syntax highlighting: per file, per line, on demand
 
 The grammar is chosen **per file** from its path — the only signal a diff carries, and one page routinely mixes Go, Markdown and YAML. Highlighting runs **per line, as lines scroll into view**.
