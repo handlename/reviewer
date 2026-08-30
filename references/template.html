@@ -1300,8 +1300,15 @@
         }
         #connectorOverlay path.persistent { stroke-width: 1.75; opacity: 0.9; }
         #connectorOverlay path.transient  { stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.55; }
+        /* A resolved thread in a selected bunch keeps its line — the lines and the indicator's
+           count have to agree — but drawn faint, so the eye still lands on the threads that are
+           still open. Why opacity rather than a second colour: the palette spends one accent
+           (§2.1), and a resolved line is the same line with less to say, not another kind. */
+        #connectorOverlay path.dimmed.persistent { opacity: 0.32; }
+        #connectorOverlay path.dimmed.transient  { opacity: 0.2; }
         #connectorOverlay circle { fill: var(--accent-color); }
         #connectorOverlay circle.transient { opacity: 0.55; }
+        #connectorOverlay circle.dimmed { opacity: 0.32; }
         #connectorOverlay stop { stop-color: var(--accent-color); }
 
         @keyframes connector-draw { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
@@ -1503,7 +1510,14 @@
             margin-left: auto;
             align-self: center;
         }
-        .diff-line .comment-indicator:hover { transform: scale(1.08); }
+        /* No hover lift here, unlike everywhere else the chip appears. It is docked to the right
+           edge of a box that scrolls horizontally, and a transformed box counts toward scrollable
+           overflow — the ~1px the scale reaches past the padding edge is enough to raise a
+           scrollbar on the hunk, so hovering the chip would resize the diff under the pointer.
+           Why not transform-origin: right center, which would grow it inwards: it still grows
+           vertically, and the same rule would then raise the hunk's other scrollbar instead.
+           The background change from .comment-indicator:hover carries the hover on its own. */
+        .diff-line .comment-indicator:hover { transform: none; }
 
         /* The file header is a comment target too — for what is true of the change to the file
            rather than of any line in it. Same states as a line, drawn on the header's own bar. */
@@ -1811,13 +1825,11 @@
                 el.addEventListener('mouseup', (e) => {
                     if (e.target.closest('a, .comment-indicator')) return;
                     if (!window.getSelection().isCollapsed) return;
-                    // Mode A: a commented element selects its comment (shows the line);
-                    // an uncommented element targets a new comment (line to the input box).
-                    if (isCommented(anchorId)) {
-                        selectComment(anchorId);
-                    } else {
-                        setCommentTarget(anchorId, visibleText(el).trim());
-                    }
+                    // Clicking the text always targets a NEW thread, whether or not the block
+                    // already carries one — a block can hold several, and this is the only
+                    // gesture that can start the second. Reading the threads that are already
+                    // there is what the indicator (the whole bunch) and the cards (one each) do.
+                    setCommentTarget(anchorId, visibleText(el).trim());
                 });
                 // Hover a commented element to preview its connector line.
                 el.addEventListener('mouseenter', () => { if (isCommented(anchorId)) hoverConnector(anchorId); });
@@ -2087,31 +2099,41 @@
 
                 const header = e.target.closest(".diff-file-header");
                 if (header) {
-                    const existing = header.getAttribute("data-anchor");
-                    if (existing && isCommented(existing)) {
-                        selectComment(existing);
-                    } else {
-                        setDiffFileCommentTarget(header);
-                        focusComposer();
-                    }
+                    setDiffFileCommentTarget(header);
+                    focusComposer();
                     return;
                 }
 
                 if (!line) return;
 
-                // A line that already carries a comment shows it instead of starting a new
-                // range — the same "commented targets select, uncommented targets compose"
-                // rule the Markdown page follows.
-                const existing = line.getAttribute("data-anchor") || line.getAttribute("data-anchor-member");
-                if (existing && isCommented(existing)) {
-                    selectComment(existing);
-                    return;
-                }
+                // A line that already carries a comment still starts a new range — the same
+                // "clicking the text composes, the indicator and the cards select" rule the
+                // Markdown page follows. Selecting the same range again anchors the new thread
+                // to the same lines, which is how a range comes to hold more than one.
 
                 targetFrom = line;
                 setDiffCommentTarget(line, line);
                 focusComposer();
             });
+
+            // Hovering a commented line previews its connector, the same way hovering a Markdown
+            // block does — the two modes had no reason to differ, and the diff was simply missing
+            // it. Delegated to the container rather than bound per line: a diff runs to thousands
+            // of lines, and their anchors are attributes applyDiffAnchors rewrites every round, so
+            // there is nothing stable to bind to. mouseover/mouseout are used because they bubble;
+            // mouseenter does not.
+            container.addEventListener("mouseover", (e) => {
+                const el = e.target.closest(".diff-line, .diff-file-header");
+                const anchor = el && (el.getAttribute("data-anchor") || el.getAttribute("data-anchor-member"));
+                if (anchor && isCommented(anchor)) {
+                    // Guarded: mouseover fires again for every child crossed inside the same line,
+                    // and each unguarded call would repaint the overlay.
+                    if (hoverAnchor !== anchor) hoverConnector(anchor);
+                } else if (hoverAnchor) {
+                    unhoverConnector();
+                }
+            });
+            container.addEventListener("mouseleave", () => { if (hoverAnchor) unhoverConnector(); });
 
             // preventScroll keeps the panel from jumping the page while the eye is still on the
             // line that was just picked.
@@ -2376,8 +2398,10 @@
         }
 
         // ---------- Connector line: comment ⇄ target element ----------
-        // A single SVG overlay draws one line at a time. State:
-        //   connector: null | { kind: "selected" | "compose", anchor }
+        // A single SVG overlay draws the lines for one selection at a time. State:
+        //   connector: null | { kind: "selected", anchor, idx } | { kind: "compose", anchor }
+        //     idx names one comment (a card was clicked); undefined means the anchor's whole
+        //     bunch (the indicator was clicked). A bunch draws one line per card.
         //   hoverAnchor: anchor previewed on hover (only when nothing is selected)
         const connectorSvg = document.getElementById("connectorOverlay");
         const SVG_NS = "http://www.w3.org/2000/svg";
@@ -2398,7 +2422,21 @@
                 .filter(el => el.getAttribute("data-anchor-member") === anchor);
             return [first].concat(members);
         }
-        function commentCard(anchor) { return document.querySelector(`.comment-card[data-anchor="${anchor}"]`); }
+        // Every card on the anchor, in panel order. An anchor carries as many threads as were
+        // written against it, so this returns a list where a single card used to be returned:
+        // one thread per card, and the indicator's count is the length of this list.
+        // Filtered in JS rather than by attribute selector for the reason anchorElements gives.
+        function commentCards(anchor) {
+            return Array.from(document.querySelectorAll(".comment-card[data-anchor]"))
+                .filter(el => el.getAttribute("data-anchor") === anchor);
+        }
+        // The cards a connector state points at: one when a card was clicked (idx names it), the
+        // whole bunch when the indicator was.
+        function selectedCards(conn) {
+            if (conn.idx === undefined) return commentCards(conn.anchor);
+            const card = document.querySelector(`.comment-card[data-comment-idx="${conn.idx}"]`);
+            return card ? [card] : [];
+        }
         function isCommented(anchor) { return !!anchor && comments.some(c => c.anchor === anchor); }
 
         // Clamp a y coordinate to the viewport so an endpoint whose element has
@@ -2425,23 +2463,31 @@
 
         function clearConnectorSvg() { if (connectorSvg) connectorSvg.innerHTML = ""; }
 
-        function paintConnector(start, end, kind, animate) {
+        // A selected bunch draws one line per card, so a paint may either start a fresh overlay
+        // or add to the one already there — hence opts.append. opts.dim marks a resolved thread's
+        // line. The gradient gets a serial id for the same reason: several faded lines can be on
+        // the overlay at once, and a shared id would give them all the first one's endpoints.
+        let connectorGradSeq = 0;
+        const DIM_FACTOR = 0.35;
+        function paintConnector(start, end, kind, animate, opts) {
             if (!connectorSvg) return;
-            connectorSvg.innerHTML = "";
+            opts = opts || {};
+            if (!opts.append) connectorSvg.innerHTML = "";
             const dx = Math.max(40, (end.x - start.x) * 0.5);
             const d = `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`;
             const len = Math.hypot(end.x - start.x, end.y - start.y) + Math.abs(end.y - start.y);
-            const base = kind === "persistent" ? 0.9 : 0.55;
+            const base = (kind === "persistent" ? 0.9 : 0.55) * (opts.dim ? DIM_FACTOR : 1);
             const path = document.createElementNS(SVG_NS, "path");
             path.setAttribute("d", d);
             path.classList.add(kind);
+            if (opts.dim) path.classList.add("dimmed");
 
             // When an endpoint's element is off-screen (clamped to the edge),
             // fade the stroke to transparent toward that edge so the line looks
             // like it slips off the top/bottom rather than stopping abruptly.
             if (start.offscreen || end.offscreen) {
                 const grad = document.createElementNS(SVG_NS, "linearGradient");
-                grad.id = "connectorFade";
+                grad.id = "connectorFade" + (++connectorGradSeq);
                 grad.setAttribute("gradientUnits", "userSpaceOnUse");
                 grad.setAttribute("x1", start.x); grad.setAttribute("y1", start.y);
                 grad.setAttribute("x2", end.x);   grad.setAttribute("y2", end.y);
@@ -2459,7 +2505,7 @@
                 const defs = document.createElementNS(SVG_NS, "defs");
                 defs.appendChild(grad);
                 connectorSvg.appendChild(defs);
-                path.style.stroke = "url(#connectorFade)";
+                path.style.stroke = `url(#${grad.id})`;
                 path.style.opacity = "1"; // gradient stop-opacity carries the fade
             }
 
@@ -2478,6 +2524,7 @@
                 dot.setAttribute("cx", cx); dot.setAttribute("cy", cy);
                 dot.setAttribute("r", kind === "persistent" ? 3 : 2.5);
                 if (kind === "transient") dot.classList.add("transient");
+                if (opts.dim) dot.classList.add("dimmed");
                 connectorSvg.appendChild(dot);
             });
         }
@@ -2485,26 +2532,32 @@
         function drawConnector(conn, animate) {
             const el = anchorElement(conn.anchor);
             if (!el) { clearConnectorSvg(); return; }
-            let endRect;
+            const start = connectorStart(el);
             if (conn.kind === "selected") {
-                const card = commentCard(conn.anchor);
-                if (!card) { clearConnectorSvg(); return; }
-                endRect = card.getBoundingClientRect();
-            } else {
-                const box = document.querySelector(".composer");
-                if (!box) { clearConnectorSvg(); return; }
-                endRect = box.getBoundingClientRect();
+                const cards = selectedCards(conn);
+                if (!cards.length) { clearConnectorSvg(); return; }
+                cards.forEach((card, i) => paintConnector(
+                    start, connectorEnd(card.getBoundingClientRect()), "persistent", animate,
+                    { append: i > 0, dim: card.classList.contains("resolved") },
+                ));
+                return;
             }
-            paintConnector(connectorStart(el), connectorEnd(endRect), "persistent", animate);
+            const box = document.querySelector(".composer");
+            if (!box) { clearConnectorSvg(); return; }
+            paintConnector(start, connectorEnd(box.getBoundingClientRect()), "persistent", animate);
         }
 
         function refreshConnector() {
             if (connector) { drawConnector(connector, false); return; }
             if (hoverAnchor) {
                 const el = anchorElement(hoverAnchor);
-                const card = commentCard(hoverAnchor);
-                if (el && card) {
-                    paintConnector(connectorStart(el), connectorEnd(card.getBoundingClientRect()), "transient", false);
+                const cards = commentCards(hoverAnchor);
+                if (el && cards.length) {
+                    const start = connectorStart(el);
+                    cards.forEach((card, i) => paintConnector(
+                        start, connectorEnd(card.getBoundingClientRect()), "transient", false,
+                        { append: i > 0, dim: card.classList.contains("resolved") },
+                    ));
                 } else {
                     clearConnectorSvg();
                 }
@@ -2534,38 +2587,52 @@
             return scroller === window ? window.scrollY : scroller.scrollTop;
         }
 
-        // Scroll the document column so the target element's vertical centre lines up
-        // with the comment card's centre, then draw the (animated) line.
+        // Draw the line, then scroll the document column so the target element's vertical centre
+        // lines up with the comment card's centre.
+        //
+        // Draw FIRST. Waiting for the smooth scroll to land before drawing put a third of a second
+        // of nothing between the click and the line, which reads as the page having missed the
+        // click — and the wait was never needed: the scroll handler re-attaches the line on every
+        // frame (scheduleConnectorRefresh), so it can be drawn against where things are now and
+        // travel with them. The draw-on animation is asked for either way; a scroll simply
+        // overtakes it, which is the right trade when the alternative is waiting to see anything.
         function alignAndDraw(el, card) {
             const er = el.getBoundingClientRect();
             const cr = card.getBoundingClientRect();
             const delta = (er.top + er.height / 2) - (cr.top + cr.height / 2);
-            const finish = () => { if (connector) drawConnector(connector, true); };
             const scroller = documentScroller();
-            if (Math.abs(delta) < 2 || prefersReducedMotion) {
+            if (connector) drawConnector(connector, true);
+            if (Math.abs(delta) < 2) return;
+            if (prefersReducedMotion) {
                 scroller.scrollBy(0, delta);
-                finish();
-            } else {
-                scroller.scrollTo({ top: scrollOffset(scroller) + delta, behavior: "smooth" });
-                setTimeout(finish, 320);
+                return;
             }
+            scroller.scrollTo({ top: scrollOffset(scroller) + delta, behavior: "smooth" });
         }
 
-        function selectComment(anchor) {
-            if (connector && connector.kind === "selected" && connector.anchor === anchor) {
+        // Selecting from the indicator takes the whole bunch (idx undefined): an anchor may carry
+        // several threads, and the indicator is one chip for all of them, so it cannot name one.
+        // Selecting from a card takes that card alone — idx is the comment's index, not its ID,
+        // because a comment written this round has no server-assigned ID yet.
+        function selectComment(anchor, idx) {
+            if (connector && connector.kind === "selected"
+                && connector.anchor === anchor && connector.idx === idx) {
                 dropConnector();
                 return;
             }
             clearCommentTarget();       // drop any compose state / line first
             clearConnectorMarks();
-            connector = { kind: "selected", anchor };
+            connector = { kind: "selected", anchor, idx };
             hoverAnchor = null;
-            const card = commentCard(anchor);
+            const cards = selectedCards(connector);
             const els = anchorElements(anchor);
-            if (card) card.classList.add("selected");
-            if (els.length && card) {
+            cards.forEach(card => card.classList.add("selected"));
+            if (els.length && cards.length) {
                 els.forEach(el => el.classList.add("selected-target"));
-                alignAndDraw(els[0], card);
+                // The bunch is aligned by its first card: the lines fan out from one point on the
+                // element, so lining that point up with the top of the bunch keeps every line in
+                // view where lining it up with the middle would push the last one off.
+                alignAndDraw(els[0], cards[0]);
             }
         }
 
@@ -2575,6 +2642,11 @@
             clearConnectorSvg();
         }
 
+        // A preview is drawn only while nothing is selected AND nothing is being composed. The
+        // overlay carries one statement — what the page is pointing at right now — and a preview
+        // cutting across the compose line would leave the composer's own target ambiguous, which
+        // matters more now that clicking any block enters the compose state. The hover is still
+        // recorded, so it appears the moment the connector is dropped.
         function hoverConnector(anchor) { hoverAnchor = anchor; if (!connector) refreshConnector(); }
         function unhoverConnector() { hoverAnchor = null; if (!connector) clearConnectorSvg(); }
 
@@ -2582,11 +2654,13 @@
         // Drops the connector if its comment or element no longer exists.
         function reconcileConnector() {
             if (connector && connector.kind === "selected") {
-                const card = commentCard(connector.anchor);
+                // A bunch survives losing one of its cards — the rest are still selected. It is
+                // dropped only when nothing it pointed at is left.
+                const cards = selectedCards(connector);
                 const els = anchorElements(connector.anchor);
-                if (!card || !els.length) { dropConnector(); return; }
+                if (!cards.length || !els.length) { dropConnector(); return; }
                 clearConnectorMarks();
-                card.classList.add("selected");
+                cards.forEach(card => card.classList.add("selected"));
                 els.forEach(el => el.classList.add("selected-target"));
             }
             refreshConnector();
@@ -3349,7 +3423,9 @@
                     if (c.anchor && !c.outdated) {
                         item.addEventListener("click", (e) => {
                             if (e.target.closest(".delete-btn, .edit-btn, .fold-toggle, .resolve-toggle, input, button, textarea, a")) return;
-                            selectComment(c.anchor);
+                            // One card, one thread: a click here selects this thread alone, even
+                            // where the block carries others.
+                            selectComment(c.anchor, idx);
                         });
                         item.addEventListener("mouseenter", () => { if (!connector) hoverConnector(c.anchor); });
                         item.addEventListener("mouseleave", () => { if (!connector) unhoverConnector(); });
