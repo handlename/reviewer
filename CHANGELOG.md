@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.7.0](https://github.com/handlename/reviewer/compare/v0.6.0...v0.7.0) - 2026-08-30
+- feat: fold resolved comment cards in the panel by @handlename in https://github.com/handlename/reviewer/pull/63
+- docs: use GLOSSARY terms verbatim in sessions by @handlename in https://github.com/handlename/reviewer/pull/65
+- fix: make review_reply wait for the next submit by @handlename in https://github.com/handlename/reviewer/pull/66
+- feat: draw the comment indicator without colour by @handlename in https://github.com/handlename/reviewer/pull/67
+- fix: match an agent's quote against rendered text by @handlename in https://github.com/handlename/reviewer/pull/69
+- fix: let a drag on a diff select text by @handlename in https://github.com/handlename/reviewer/pull/68
+- feat: let one block carry several comment threads by @handlename in https://github.com/handlename/reviewer/pull/70
+- docs: reshoot the screenshots for v0.7.0 by @handlename in https://github.com/handlename/reviewer/pull/71
+
 ## [v0.6.0](https://github.com/handlename/reviewer/compare/v0.5.0...v0.6.0) - 2026-08-29
 - Make GLOSSARY canonical for every screen name by @handlename in https://github.com/handlename/reviewer/pull/59
 - feat: render the panel's own text as Markdown by @handlename in https://github.com/handlename/reviewer/pull/61
