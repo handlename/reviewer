@@ -2587,21 +2587,27 @@
             return scroller === window ? window.scrollY : scroller.scrollTop;
         }
 
-        // Scroll the document column so the target element's vertical centre lines up
-        // with the comment card's centre, then draw the (animated) line.
+        // Draw the line, then scroll the document column so the target element's vertical centre
+        // lines up with the comment card's centre.
+        //
+        // Draw FIRST. Waiting for the smooth scroll to land before drawing put a third of a second
+        // of nothing between the click and the line, which reads as the page having missed the
+        // click — and the wait was never needed: the scroll handler re-attaches the line on every
+        // frame (scheduleConnectorRefresh), so it can be drawn against where things are now and
+        // travel with them. The draw-on animation is asked for either way; a scroll simply
+        // overtakes it, which is the right trade when the alternative is waiting to see anything.
         function alignAndDraw(el, card) {
             const er = el.getBoundingClientRect();
             const cr = card.getBoundingClientRect();
             const delta = (er.top + er.height / 2) - (cr.top + cr.height / 2);
-            const finish = () => { if (connector) drawConnector(connector, true); };
             const scroller = documentScroller();
-            if (Math.abs(delta) < 2 || prefersReducedMotion) {
+            if (connector) drawConnector(connector, true);
+            if (Math.abs(delta) < 2) return;
+            if (prefersReducedMotion) {
                 scroller.scrollBy(0, delta);
-                finish();
-            } else {
-                scroller.scrollTo({ top: scrollOffset(scroller) + delta, behavior: "smooth" });
-                setTimeout(finish, 320);
+                return;
             }
+            scroller.scrollTo({ top: scrollOffset(scroller) + delta, behavior: "smooth" });
         }
 
         // Selecting from the indicator takes the whole bunch (idx undefined): an anchor may carry
