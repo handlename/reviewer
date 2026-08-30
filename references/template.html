@@ -2116,6 +2116,25 @@
                 focusComposer();
             });
 
+            // Hovering a commented line previews its connector, the same way hovering a Markdown
+            // block does — the two modes had no reason to differ, and the diff was simply missing
+            // it. Delegated to the container rather than bound per line: a diff runs to thousands
+            // of lines, and their anchors are attributes applyDiffAnchors rewrites every round, so
+            // there is nothing stable to bind to. mouseover/mouseout are used because they bubble;
+            // mouseenter does not.
+            container.addEventListener("mouseover", (e) => {
+                const el = e.target.closest(".diff-line, .diff-file-header");
+                const anchor = el && (el.getAttribute("data-anchor") || el.getAttribute("data-anchor-member"));
+                if (anchor && isCommented(anchor)) {
+                    // Guarded: mouseover fires again for every child crossed inside the same line,
+                    // and each unguarded call would repaint the overlay.
+                    if (hoverAnchor !== anchor) hoverConnector(anchor);
+                } else if (hoverAnchor) {
+                    unhoverConnector();
+                }
+            });
+            container.addEventListener("mouseleave", () => { if (hoverAnchor) unhoverConnector(); });
+
             // preventScroll keeps the panel from jumping the page while the eye is still on the
             // line that was just picked.
             function focusComposer() {
@@ -2617,6 +2636,11 @@
             clearConnectorSvg();
         }
 
+        // A preview is drawn only while nothing is selected AND nothing is being composed. The
+        // overlay carries one statement — what the page is pointing at right now — and a preview
+        // cutting across the compose line would leave the composer's own target ambiguous, which
+        // matters more now that clicking any block enters the compose state. The hover is still
+        // recorded, so it appears the moment the connector is dropped.
         function hoverConnector(anchor) { hoverAnchor = anchor; if (!connector) refreshConnector(); }
         function unhoverConnector() { hoverAnchor = null; if (!connector) clearConnectorSvg(); }
 

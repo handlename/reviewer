@@ -195,6 +195,10 @@ A single SVG overlay draws the lines between the selected comment cards and thei
 
 **Selecting from the indicator takes the whole bunch; selecting from a card takes that card.** The indicator is one chip for every thread on the anchor, so it cannot name one of them — it lights all of them and draws a line to each. A card is one thread, so clicking it draws exactly one line. The two are the same state with a different reach, not two mechanisms.
 
+**Hovering previews, in both kinds of review.** A commented Markdown block, a commented diff line and a commented file header all draw their lines dashed on hover. In the diff this is delegated from the column rather than bound per line, because the anchors there are attributes rewritten every round.
+
+**A preview is suppressed while anything is selected or being composed.** The overlay carries a single statement — what the page is pointing at right now — and a preview cutting across the compose line would leave the composer's own target ambiguous. This matters more than it used to: clicking any block now enters the compose state and stays there until the comment is added or the target cleared, so a reviewer clicking around sees no previews until they leave it. The hover is still recorded, so the preview appears the moment the connector is dropped.
+
 **A resolved thread in a bunch keeps its line, drawn faint.** The indicator's count is every thread on the anchor, so a bunch that dropped the resolved ones would show fewer lines than the number on the chip. Dimming keeps the count honest while leaving the open threads the ones the eye lands on. The dimming is opacity on the same accent, never a second hue (§2.1).
 
 **Rejected:** cycling the indicator through the threads one click at a time, which needs no new UI but never tells you what is coming next; a popover listing the threads, which is a new component and a new place for state to live; and dropping resolved threads from the bunch, which silently disagrees with the chip.
