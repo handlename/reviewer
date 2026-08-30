@@ -169,6 +169,12 @@ In a Markdown review, clicking anywhere on a commentable block targets it. Targe
 
 **Why:** the original affordance was a hover-only bubble in the right gutter — small, outside the text column, and invisible until hovered. The hover background wash remains as the affordance.
 
+**Clicking the text always composes, whether or not the block already carries comments.** A block holds as many threads as were written against it, and this is the only gesture that can start the second one; the threads already there are read from the indicator (which takes the whole bunch) and from the cards (one each). This is what §5.3 means by the bunch being the unit of selection from the document side.
+
+**Why a block needs more than one thread:** the two things a second thread gives that a reply inside the first cannot are **independent resolution** — a typo can be closed while the design question stays open — and keeping unrelated remarks apart on the page. A reply shares its parent's `status`, so it can do neither.
+
+**Rejected:** keeping "commented selects, uncommented composes" and adding a separate control to start a second thread, which leaves the most common gesture meaning two different things depending on invisible state; and putting the second thread behind a modifier key, which no reader would find.
+
 ### 5.2 A diff selects line ranges
 
 In a diff review the unit is the line, not the block. Clicking a line targets it and shift-clicking extends the range from the line clicked last; a file header is a target in its own right, for the comments that are about the change to a file rather than to any line of it. The anchor forms, and the constraints that shape them — the anchor on the first line only, no selection across a hunk boundary — are in [`DESIGN.md` §3](DESIGN.md#3-comment-targeting--dom-traversal-constraints).
@@ -183,11 +189,15 @@ Shift+click is the exception that rule has to make. The browser extends its own 
 
 ### 5.3 The connector line carries the mapping
 
-A single SVG overlay draws one line between a selected comment card and its target. Hover previews it dashed; click selects it solid and scrolls the document so the two line up horizontally. When the target scrolls off-screen the endpoint clamps to the viewport edge and fades, so the line reads as slipping away toward the element rather than stopping abruptly. Clicking an element with no comment yet draws the line to the composer.
+A single SVG overlay draws the lines between the selected comment cards and their target. Hover previews them dashed; click selects them solid and scrolls the document so the target and the first card line up horizontally. When the target scrolls off-screen the endpoint clamps to the viewport edge and fades, so the line reads as slipping away toward the element rather than stopping abruptly. Clicking an element draws a line to the composer instead, for the comment about to be written.
 
 **Why:** the mapping used to rely on a duplicated `💬 On: …` text snippet inside every comment — easy to miss, and clutter. Because the line now carries it, that label was removed.
 
-**Chosen model (Mode A), from an interactive prototype:** clicking a commented element **selects** its comment; clicking an uncommented element **targets** a new one.
+**Selecting from the indicator takes the whole bunch; selecting from a card takes that card.** The indicator is one chip for every thread on the anchor, so it cannot name one of them — it lights all of them and draws a line to each. A card is one thread, so clicking it draws exactly one line. The two are the same state with a different reach, not two mechanisms.
+
+**A resolved thread in a bunch keeps its line, drawn faint.** The indicator's count is every thread on the anchor, so a bunch that dropped the resolved ones would show fewer lines than the number on the chip. Dimming keeps the count honest while leaving the open threads the ones the eye lands on. The dimming is opacity on the same accent, never a second hue (§2.1).
+
+**Rejected:** cycling the indicator through the threads one click at a time, which needs no new UI but never tells you what is coming next; a popover listing the threads, which is a new component and a new place for state to live; and dropping resolved threads from the bunch, which silently disagrees with the chip.
 
 ### 5.4 The panel reads top-down alongside the document
 

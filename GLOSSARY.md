@@ -64,7 +64,8 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Element-level Commenting
 * **Description**: The feature that allows reviewers to attach feedback directly to individual block-level elements (such as paragraphs `p`, list items `li`, table rows `tr`, and callouts) instead of a single page-wide comment. This is the **Spec** side of commenting; a **Diff** targets line ranges and files instead (see section 4).
-* **Behavior**: Clicking anywhere on a commentable block targets it — the hover wash is the affordance — and a block that already has comments carries a **Comment Indicator** in the right **Comment Gutter**. Either opens a targeted **Composer** in the **Feedback Panel**.
+* **Behavior**: Clicking anywhere on a commentable block targets it for a **new** thread — the hover wash is the affordance — whether or not the block already carries comments. A block that already has some carries a **Comment Indicator** in the right **Comment Gutter**, and that is what reads them back.
+* **More than one per block**: a block may carry any number of threads. They are independent: each is **Resolve**d on its own, and each is a separate target for `review_reply`. What a reply cannot do is close half a card, which is why a second remark about the same block belongs in a thread of its own rather than appended to the first.
 * **Related Attribute**: `data-anchor="spec-element-X"`.
 
 ### Anchor
@@ -75,8 +76,8 @@ This document defines the core domain terms used within the `reviewer` codebase 
 * **Behavior**: Parsing splits on the **last** `#`, so a path that itself contains one still round-trips. A form that a parser does not recognise is passed through untouched, which is how one code path serves both kinds of review.
 
 ### Connector Line
-* **Description**: The curve drawn between a selected comment and the thing it is about.
-* **Behavior**: Selecting a comment (clicking its **Comment Card**, or its **Comment Indicator**) scrolls the target into view, highlights it, and draws the line; it follows scrolling and resizing, and fades toward the screen edge when one end is off-screen.
+* **Description**: The curve drawn between a selected comment and the thing it is about. One per selected **Comment Card**, so a **Comment Indicator** that selects a bunch of threads draws that many.
+* **Behavior**: Selecting scrolls the target into view, highlights it, and draws the line(s); they follow scrolling and resizing, and fade toward the screen edge when one end is off-screen. Clicking a **Comment Card** selects that thread alone; clicking a **Comment Indicator** selects every thread on the anchor. A line to a **Resolve**d thread is drawn faint, so that the lines still account for every thread the chip counts without competing with the open ones.
 * **Note**: In code this is `connector`, never `connection` — `connection` is the SSE **Live Reload** connection the **Live Dot** reports, and one word for two things is how the two got confused.
 * **Implementation**: `#connectorOverlay`, `drawConnector()`, `dropConnector()`, `reconcileConnector()`, `clearConnectorMarks()`.
 
@@ -229,7 +230,7 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Behavior**: JavaScript never assumes which element scrolls — it reads the column's computed `overflow-y`, because the narrow-viewport layout hands scrolling back to the page.
 
 ### Comment Indicator
-* **Description**: The chip in the right **Comment Gutter** of a block that has comments — a speech-bubble glyph and the thread count. Clicking it selects the first of them, drawing the **Connector Line**.
+* **Description**: The chip in the right **Comment Gutter** of a block that has comments — a speech-bubble glyph and the thread count. Clicking it selects **all** of them, drawing one **Connector Line** per thread; clicking it again drops the selection. It cannot name a single thread — it is one chip for all of them — so picking one out is the **Comment Card**'s job.
 * **Aliases**: gutter badge.
 * **All resolved**: when every thread on the block is **Resolve**d the chip gives up its fill and reads as an accent hairline outline with a `✓` and the count. One open thread is enough to keep it filled, so it steps down only when nothing here is still waiting on the reader — which is what lets them tell from the document alone, without opening the **Feedback Panel**. Neither state spends a hue: both glyphs are drawn in `currentColor`.
 * **Implementation**: `.comment-indicator`, `.comment-indicator.resolved`, `updateCommentIndicators()`.

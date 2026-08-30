@@ -342,6 +342,14 @@ is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisi
 
 ## 3. Comment Targeting & DOM Traversal Constraints
 
+**An anchor identifies a target, not a comment.** Several comments may carry the same anchor — the
+human writes a second thread about the same block, or the agent opens one on a passage that already
+has one — so the mapping is one element to *many* cards. The document side stays one element per
+anchor and is found with `querySelector`; the panel side must use `querySelectorAll`
+(`commentCards()`), and a connector state names one card by its index when a card was clicked and
+none when the indicator was, meaning the whole bunch. Resolving a card with `querySelector` is the
+bug this paragraph exists to prevent: it silently returns the first thread and drops the rest.
+
 To avoid rendering redundant comment bubbles on child nodes when their parent containers are already commentable, the frontend JavaScript enforces the following traversal guards:
 
 1. **Code block exclusion**:
