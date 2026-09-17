@@ -399,7 +399,7 @@ func (s *ReviewSession) Reply(replies []ReplyInput, newThreads []AskInput, summa
 	}
 	// The session is the only writer, so it announces its own change rather than waiting for a
 	// file watcher to notice it.
-	s.hub.broadcast(reloadPayload())
+	s.hub.broadcast(reloadPayload(reloadReasonReply))
 	return nil
 }
 
@@ -572,7 +572,7 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			_ = writeSidecar(s.statusPath, seeded)
 			s.hub.broadcast(statusPayload(seeded))
 			// Other tabs viewing the same document pick up the new comments.
-			s.hub.broadcast(reloadPayload())
+			s.hub.broadcast(reloadPayload(reloadReasonSubmit))
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)

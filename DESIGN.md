@@ -226,7 +226,10 @@ goes through MCP.
   live update reaches the page over SSE.
 * **`GET /api/events` (SSE)**:
   A Server-Sent Events stream carrying **typed JSON events** so the page can react differently:
-  * `{"kind":"reload"}` — the document or feedback changed; the page calls `location.reload()`.
+  * `{"kind":"reload","reason":...}` — the document or feedback changed; the page calls `location.reload()`.
+    The reason is `reply` (an agent reply landed), `submit` (another tab's submit) or `reviewTarget`
+    (the reviewed file changed on disk). All three reload the same way; only the reply notification
+    reads the reason.
   * `{"kind":"status","state":...,"message":...}` — the agent's activity changed; the page updates the
     live activity panel **in place**, without reloading.
 * **File watching (`fsnotify`)**:
