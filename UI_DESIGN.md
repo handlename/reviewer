@@ -199,6 +199,18 @@ A single SVG overlay draws the lines between the selected comment cards and thei
 
 **A preview is suppressed while anything is selected or being composed.** The overlay carries a single statement — what the page is pointing at right now — and a preview cutting across the compose line would leave the composer's own target ambiguous. This matters more than it used to: clicking any block now enters the compose state and stays there until the comment is added or the target cleared, so a reviewer clicking around sees no previews until they leave it. The hover is still recorded, so the preview appears the moment the connector is dropped.
 
+**The line outlived the `Target: …` row, and now carries that row's job too.** Clicking an element draws a line to the composer, and the composer is in its slot among the cards, so the line is short and nearly horizontal. It is also the only statement of what a draft is about: the row that used to name the target was removed, because position says the same thing without a second copy of it — but position says *which slot*, not *which block*, and the panel and the document scroll independently. The line says which block.
+
+**A selection and a draft can coexist, and the line goes to the selection.** Clicking a **Comment Card** while a comment is being written draws that card's line and leaves the draft standing; dropping the selection hands the line back to the draft. The overlay still carries one statement — the compose line is retracted, not dropped, and re-armed when the selection goes.
+
+**Why not close the composer instead:** it would keep the invariant exactly, and cost the reader their words to do it. The rule this replaces was "clicking a card drops any compose state", which was free when the composer was a fixture with its text still on screen and is not free now.
+
+**Escape asks before it discards.** Escape closes the composer, and closing it now takes the text off the screen rather than leaving it in a box the reader can still see. So Escape over a non-empty draft confirms first. An Escape aimed at a **Reply Control** or an inline edit belongs to that box and never reaches the composer at all — neither stops propagation, so this has to be said explicitly rather than assumed.
+
+**Why:** hiding a draft instead of clearing it is the worst of both. The words are gone from the screen but not from the page, and `hasUnsentEdits` goes on holding the **Reload Prompt** open for text nothing on screen explains.
+
+**Rejected:** dropping the compose-time line entirely and letting position speak for itself — it reads well until the two columns are scrolled apart, which is most of the time; and discarding the draft silently on Escape, which matches the **Reply Control**'s Escape but loses work the reader can no longer see to rescue.
+
 **A resolved thread in a bunch keeps its line, drawn faint.** The indicator's count is every thread on the anchor, so a bunch that dropped the resolved ones would show fewer lines than the number on the chip. Dimming keeps the count honest while leaving the open threads the ones the eye lands on. The dimming is opacity on the same accent, never a second hue (§2.1).
 
 **Rejected:** cycling the indicator through the threads one click at a time, which needs no new UI but never tells you what is coming next; a popover listing the threads, which is a new component and a new place for state to live; and dropping resolved threads from the bunch, which silently disagrees with the chip.
@@ -211,13 +223,27 @@ Comments render in the appearance order of their target block, derived from the 
 
 **Why first rather than last:** a comment about everything has no position in document order to sink to, and the panel already opens with the round summary, which is about everything in the same way.
 
+**The composer is a member of this order, not a fixture above it.** It opens in the slot the comment it produces will occupy — for a targeted comment, immediately after every card already on the same anchor, which is where a newly pushed comment sorts; for an untargeted one, at the top under **About this document**, reached by the **Document Comment Control**. When nothing is being composed it is not on the screen at all.
+
+**Why:** the panel already answers *where does this comment belong* for every card in it, and a composer pinned above that answer made the reader hold the mapping in their head while writing. Submitting is now the composer turning into its card in place, in the slot it was already occupying.
+
+**The order comes from one comparator, and the list has one writer.** The composer goes through the same sort as the cards, as a synthetic entry appended before sorting so the stable sort lands it exactly where `comments.push` lands the real comment. `renderComments()` places it, parks it when idle, and carries typed text across the rebuild; nothing else writes to the list.
+
+**Why:** the alternative — a second pass that inserted the composer after the render — was tried and failed three ways at once. The slot was read from the DOM instead of from the ranks, so an anchor whose newest card was resolved put the composer down in the resolved region while the submitted comment sorted elsewhere; the connector measured a node that had already moved; and the draft was destroyed on every render, because the render clears its container. One pass and one comparator remove all three at the source.
+
+**Typed text survives a render, and focus belongs to whoever opened a box.** The composer is the same node every round, so its value, selection and listeners survive being detached — only its caret and focus are put back. Every other box in the panel is rebuilt from scratch, so the render carries their text across by role. Focus is claimed by the *action* that opens an input and expires with that tick, rather than being inferred by the render.
+
+**Why:** the panel re-renders on a reply, a resolve, an edit — and now on every click that targets a block. A reply draft used to live only in the DOM, so any of those ate it; it was rare enough to read as bad luck rather than as a rule. And three deferred handlers each grab focus one tick after the render puts it back, so without a stated owner they take the caret out of a draft the reader is still typing into.
+
 **Ordering is applied to the rendering only.** The `comments` array and the feedback file written from it keep creation order, so nothing changes for the agent.
 
-**Rejected:** reordering the array itself (would change the persisted JSON and the order the agent reads); layering by `status` before appearance order (breaks document order into groups).
+**Rejected:** reordering the array itself (would change the persisted JSON and the order the agent reads); layering by `status` before appearance order (breaks document order into groups); marking the composer's slot with a placeholder card while the composer itself stayed put (two representations of one comment being written); and rebuilding the composer inside the render like every other box, which loses its value *and* the listeners bound to it at load, making their recovery a permanent obligation in the one place where a mistake silently eats the reader's words.
 
 ### 5.5 The composer grows to fit its content
 
-A suggestion fence is as many lines as the range it quotes. The composer grows up to `50vh`, then scrolls rather than pushing Submit and End Review off the screen. Inline comment editing in the panel does the same, sized to the comment it opens with.
+A suggestion fence is as many lines as the range it quotes. The composer grows up to `50vh`, then scrolls. Inline comment editing in the panel does the same, sized to the comment it opens with.
+
+**Why the cap, now:** it used to protect the panel's own buttons — Submit Review and End Review sat directly below the composer and a long suggestion pushed them off the screen. The composer now sits inside the scrolling list of cards, so the cap protects the cards instead: without it a long draft would push every thread below it out of reach, and the reader would be scrolling past their own unfinished comment to find the conversation it is about. The reason changed; the number did not.
 
 ### 5.6 Suggestions are opt-in, and applying one is not our job
 
@@ -234,6 +260,8 @@ reviewer never edits source. Applying a suggestion is the agent's job. Marking a
 A comment card renders the whole exchange: the human's own remark as the head, then every message after it, attributed and timestamped, in the order it was said. The two authors are separated by **depth** — the agent's message is a filled block, the human's answer is unfilled — never by a second hue (§2.1).
 
 A **Reply** control sits under a thread that has started. It is a text-weight button until it is pressed, and only then a composer, so a thread at rest stays as quiet as it was before it could be replied to. Ctrl/Cmd+Enter sends and Escape cancels, matching the composer and inline editing (§8).
+
+The **Document Comment Control** at the top of the panel is the same shape of thing, for a comment about the document or the diff as a whole: text-weight until pressed, and the only way into a composer with no target. **Why it has to exist:** once the composer stops being a fixture, an untargeted comment has no way in at all. **Why it is quiet:** it is on screen whenever nothing is being written, which is most of the time, and a panel whose resting state is a button shouting for input is the thing §5.4 just removed.
 
 **A thread nobody has answered yet renders exactly as it did before threading** — no Reply control, no resolve toggle. Both appear with the first message, which is also the point at which there is something to resolve.
 
