@@ -143,7 +143,8 @@ This document defines the core domain terms used within the `reviewer` codebase 
 ## 4. Diff Review
 
 ### File / Hunk / Line
-* **Description**: The parsed shape of a diff. A `File` has hunks, a `Hunk` has its `@@` header and lines, a `Line` has a kind (context / add / delete / meta), its content with the leading marker stripped, and its number on each side (0 where it does not exist).
+* **Description**: The parsed shape of a diff. A `File` has hunks, a `Hunk` has its `@@` header, the line each side starts at, and its lines; a `Line` has a kind (context / add / delete / meta), its content with the leading marker stripped, and its number on each side (0 where it does not exist).
+* **Behavior**: The `@@` header is shown for every hunk except one case: a file that is a single **Foldable Hunk**, where the header reads "@@ -1,500 +1,502 @@" and says nothing. Several hunks mean the diff really does skip lines between them, and that gap stays marked so it is not mistaken for something an **Expander** could open.
 * **Relevant Modules**: `ParseUnifiedDiff` in `diff.go`.
 
 ### Display Path
@@ -160,7 +161,8 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Re-anchoring
 * **Description**: Recomputing where a diff comment belongs against the current diff.
-* **Rules**: (1) if the recorded range still holds exactly that content, keep it and do not search; (2) otherwise search the file — exactly one match moves the comment, zero or several leave it **Outdated**. Matching compares content only, never line kind, and never crosses a hunk boundary. A whole-file comment follows the file itself.
+* **Rules**: (1) if the recorded range still holds exactly that content, keep it and do not search; (2a) otherwise, for a comment written inside a **Change Block**, search the Change Blocks alone — exactly one match moves it; (2b) failing that, search the file — exactly one match moves the comment, zero or several leave it **Outdated**. Matching compares content only, never line kind, and never crosses a hunk boundary. A whole-file comment follows the file itself.
+* **Why 2a**: a whole-file diff carries hundreds of lines the narrow diff never showed, so a short anchor like `}` meets its twin among them and goes **Outdated** where a `git diff -U3` would have placed it. Searching the Change Blocks first gives that comment the answer the narrow diff would have given, because a Change Block *is* a `-U3` hunk. A comment written on a folded line has no such answer to borrow, which is why 2a is not offered to it: preferring the changed region there would walk it hundreds of lines to code it was never about. Every match 2a can find, 2b finds at the same place, so nothing that anchors today stops anchoring.
 * **Behavior**: Computed **for display only**, when the page asks for the comments, and never written back. The browser holds the result and posts it at the next submit, so persistence keeps riding the existing write path.
 * **Why rule 1**: Searching by content alone would send most single-line comments outdated on the first reload with the diff unchanged, because lines like `}` or `return nil` occur several times in one file.
 * **Relevant Modules**: `reanchor.go`.
@@ -177,6 +179,32 @@ This document defines the core domain terms used within the `reviewer` codebase 
 * **Description**: What happened to a file in this diff: added, deleted, renamed, or modified.
 * **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the file header, where there is room to say "renamed from …" in full.
 * **Implementation**: `.file-status`, `.file-status-added` / `-deleted` / `-renamed` / `-modified`; the name beside it is `.rail-toc-file-name`.
+
+### Change Block
+* **Description**: The lines a diff shows by default: every changed line, plus three lines of context on each side, with blocks that overlap or touch merged into one.
+* **Why three**: it makes a Change Block exactly a `git diff -U3` hunk. git splits two changes apart when more than six unchanged lines lie between them, and two blocks are left with a line between them under the same condition — which is what lets **Re-anchoring** inside a block behave as it would on the narrow diff.
+* **Implementation**: `Block`, `Hunk.ChangeBlocks()`, `File.ChangeBlocks()` (the file-level view counts in **Rendered Line Index**), `blockContext` in `diff.go`.
+
+### Collapsed Run
+* **Description**: A run of lines outside the **Change Blocks**, long enough to be worth hiding, that the page folds away until the reader opens it. The lines stay in the document and keep their **Rendered Line Index**; only their visibility changes, exactly as with the **Whitespace Toggle**.
+* **When a hunk may fold at all**: only when it holds a gap longer than 40 lines. git merges two hunks only when at most 2U unchanged lines separate them, so a run of context inside one hunk is never longer than 2U and the part of it the Change Blocks leave uncovered never longer than 2U − 6 — 34 at `-U20`, reaching 40 at `-U23`. A gap past that cannot have come from `git diff -U<n>` for any n a person would type: the hunk carries more of the file than a diff normally shows, and that is the licence to fold.
+* **Which of its gaps then fold**: every one longer than 8 lines, which leaves the reader roughly what a `git diff -U3` would have shown. Keeping this at 40 as well would leave up to 40 lines of untouched context around every change — the burying the fold exists to undo. It is not 0 only because hiding a handful of lines behind a control that is itself a line saves nobody anything.
+* **What the reasoning does not cover**: `-W` sizes a hunk by the enclosing function and `--inter-hunk-context` by a figure of its own, so either can produce a gap past 40 and be folded — a `-W` diff of a function over about 46 lines is. Nothing is lost when it happens: the rows stay in the document, the **Rendered Line Index** holds, and the run opens in one click.
+* **Implementation**: `Hunk.CollapsedRuns()`, `Hunk.uncoveredRuns()`, `wideGap` and `minCollapsedRun` in `diff.go`; `data-collapsed` and `data-expanded` on the row.
+
+### Foldable Hunk
+* **Description**: A hunk with at least one **Collapsed Run**. Everything that depends on the fold — the dropped `@@` header, the **Selection Cap** — keys off this rather than off any guess about how the diff was generated.
+* **Implementation**: `Hunk.IsFoldable()`, `data-foldable` on `.diff-hunk`.
+
+### Expansion Range
+* **Description**: How much of a **Collapsed Run** the reader has opened, as a count from its top and a count from its bottom.
+* **Behavior**: Kept per run in `localStorage`, so it survives the reload that follows every round. A run is identified by the text on either side of it and its length, never by line number: the numbers move whenever the agent regenerates the diff, which is exactly when the expansion has to be found again. An entry that matches no run, or more than one, is dropped rather than guessed at; the runs themselves still open and close by hand, since an **Expander** is read off its own bar.
+* **Implementation**: `reviewer.diffExpanded`, `data-run-key`, `expandedRuns`, `EXPANDED_KEY`, `EXPANDED_LIMIT`, `readExpandedRuns()` / `writeExpandedRuns()`; `runKey` in `diff.go`.
+
+### Selection Cap
+* **Description**: The most lines one comment may cover inside a **Foldable Hunk** — 200.
+* **Why**: a folded hunk is a whole file in one element, so the "never across a hunk" rule that limits a range elsewhere does not bite there, and one stray Shift+click could anchor a comment to thousands of lines that the sidecar then carries and the agent then reads.
+* **Implementation**: `SELECTION_CAP` in `references/template.html`.
 
 ---
 
@@ -196,7 +224,7 @@ The two figures below name the parts. Each label carries the term and the identi
 
 ![Diff review: the parts a diff adds](docs/images/screen-anatomy-diff.png)
 
-The figures show the light theme, and only what is on the page at rest. Missing from them by nature: the **Quote Lines Button**, which exists only while a range is selected and is therefore gone by the time the comment it wrote is on the page; and the **Reload Prompt**, **Agent Activity Panel**, **Status Message** and the **Outdated** tag, each of which appears only in the moment it reports.
+The figures show the light theme, and only what is on the page at rest. Missing from them by nature: the **Quote Lines Button**, which exists only while a range is selected and is therefore gone by the time the comment it wrote is on the page; the **Reload Prompt**, **Agent Activity Panel**, **Status Message** and the **Outdated** tag, each of which appears only in the moment it reports; the **Selection Notice**, which is shown only when a range is refused; and the **Expander**, which needs a diff carrying whole files and so cannot appear over the ordinary diff the second figure is shot from.
 
 ### Contents Rail
 * **Description**: The left column: the document's title, and its navigation — headings for a **Spec**, the file list for a **Diff**.
@@ -268,6 +296,22 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Whitespace Toggle
 * **Description**: The Hide whitespace control on a diff review, which folds whitespace-only changes away. They are folded, never removed.
 * **Implementation**: `#hideWhitespaceToggle`, `.ws-toggle`.
+
+### Expander
+* **Description**: The bar that opens a **Collapsed Run**, sitting on the seam it opens. It carries a downward control that reveals the next screenful from the top of the run, an upward one that reveals a screenful from the bottom, the number of lines still hidden, and — once anything is open — a control that folds the run away again, drawn as two chevrons closing on each other.
+* **Why one bar and not two**: everything between a run's two ends is hidden, so the ends are always adjacent on screen however much of the run is open. Two bars would simply stack on top of each other.
+* **Behavior**: It rides the top edge of what is still folded, and the page holds it still as lines appear around it. It never moves a row: opening a run only sets `data-expanded`.
+* **Implementation**: `.diff-expander`, `.diff-expander-button`, `.diff-expander-fold`, `.diff-expander-count`, `data-run-start`, `data-run-end`, `initializeDiffExpanders()`, `renderRun()`, `EXPAND_STEP`; `renderExpander` and `foldIcon` in `diff.go`; `.diff-expander-icon`.
+
+### Selection Notice
+* **Description**: The short message that appears beside a line when a range is refused — because it crosses lines still folded, or because it is past the **Selection Cap**.
+* **Why**: the boundary that refused it is `display: none`, so without a word the gesture just fails and reads as a broken page.
+* **Implementation**: `.selection-notice`, `#selectionNotice`, `showSelectionNotice()`.
+
+### Diff Line Index
+* **Description**: The page's index of every diff row, by file and then by **Rendered Line Index**.
+* **Why**: a whole-file diff runs to thousands of rows, and resolving an anchor used to walk all of them for every comment. It is safe to cache precisely because the fold never adds or removes a row.
+* **Implementation**: `diffLineIndex`, `buildDiffLineIndex()`, `linesInRange()`.
 
 ### Resolve Toggle
 * **Description**: The Mark resolved control on a **Comment Card**. Human-only, and present only once a thread has a message to resolve.

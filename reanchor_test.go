@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -554,5 +555,270 @@ func TestReAnchorCommentsResolvesAgentThreadQuotes(t *testing.T) {
 	}
 	if got[2].Outdated || got[2].Anchor != "" {
 		t.Errorf("a document-level thread = %#v, want no target and not outdated", got[2])
+	}
+}
+
+// reAnchorLegacy is ReAnchor as it stood before the Change Blocks were searched first: rule 1,
+// then one search of the whole file. It is kept here, as a copy rather than as a call, so the
+// promise that no comment which anchors today stops anchoring is checked against the old code
+// itself instead of against a description of it.
+func reAnchorLegacy(prevStart, prevEnd int, anchorLines []string, file File) (start, end int, ok bool) {
+	if len(anchorLines) == 0 {
+		return 0, 0, false
+	}
+	if prevEnd-prevStart+1 == len(anchorLines) {
+		if hunk, offset, ok := locateInHunk(file, prevStart, prevEnd); ok && matchesAt(hunk.Lines, offset, anchorLines) {
+			return prevStart, prevEnd, true
+		}
+	}
+	var matches []int
+	base := 0
+	for _, h := range file.Hunks {
+		for i := 0; i+len(anchorLines) <= len(h.Lines); i++ {
+			if matchesAt(h.Lines, i, anchorLines) {
+				matches = append(matches, base+i+1)
+			}
+		}
+		base += len(h.Lines)
+	}
+	if len(matches) != 1 {
+		return 0, 0, false
+	}
+	return matches[0], matches[0] + len(anchorLines) - 1, true
+}
+
+func ctxLine(content string) Line { return Line{Kind: LineContext, Content: content} }
+func addLine(content string) Line { return Line{Kind: LineAdd, Content: content} }
+
+func padLines(prefix string, n int) []Line {
+	out := make([]Line, n)
+	for i := range out {
+		out[i] = ctxLine(fmt.Sprintf("%s %d", prefix, i))
+	}
+	return out
+}
+
+// foldedFixture lays out a file that carries far more context than a narrow diff would, so the
+// fold has something to hide and the two-tier search has both grounds to search.
+//
+// Layout, 0-based: [0,99] padding, 100 "before", 101 the change, 102 "}", [103,...] padding.
+// The change makes a Change Block of [98,104]; everything outside it is folded away.
+func foldedFixture(t *testing.T, headSwap map[int]string) File {
+	t.Helper()
+	lines := padLines("head", 100)
+	for i, content := range headSwap {
+		lines[i] = ctxLine(content)
+	}
+	lines = append(lines, ctxLine("before"), addLine("changed"), ctxLine("}"))
+	lines = append(lines, padLines("tail", 150)...)
+
+	f := File{OldPath: "a.go", NewPath: "a.go", Hunks: []Hunk{
+		{Header: "@@ -1,251 +1,251 @@", OldStart: 1, NewStart: 1, Lines: lines},
+	}}
+	if !f.Hunks[0].IsFoldable() {
+		t.Fatal("fixture does not fold; the two-tier search would have nothing to distinguish")
+	}
+	return f
+}
+
+// ruleTwoAWouldDecide reports whether the Change Block search is what answers this lookup —
+// that is, whether it finds exactly one match where the whole-file search does not.
+func ruleTwoAWouldDecide(file File, prevStart, prevEnd int, want []string) bool {
+	return inChangeBlock(file, prevStart, prevEnd) &&
+		len(searchChangeBlocks(file, want)) == 1 &&
+		len(searchHunks(file, want)) != 1
+}
+
+// Every comment the old code could place, the new code places in the same spot. The property is
+// meant to hold by construction — a Change Block is part of a hunk, so the narrow search can
+// only ever find a subset of what the whole-file search finds — and this pins it down.
+//
+// The corpus has to reach the branch it is testing, so it carries all three shapes: one the
+// Change Block search answers, one that falls through to the whole-file search, and one rule 1
+// settles without searching at all. The count at the end is what stops it passing vacuously.
+func TestReAnchorNeverLosesWhatTheOldSearchFound(t *testing.T) {
+	withTwin := foldedFixture(t, map[int]string{50: "}"})
+	plain := foldedFixture(t, nil)
+
+	cases := []struct {
+		name                string
+		file                File
+		prevStart, prevEnd  int
+		anchor              []string
+		wantRuleTwoADecides bool
+	}{
+		{
+			// "}" sits both in the folded padding and in the Change Block. The whole-file search
+			// finds two and gives up; the Change Block search finds the one the narrow diff
+			// would have shown.
+			// prev points at a line that no longer holds the anchor, which is what happens once
+			// the agent's edit shifts everything below it — the only time the search runs at all.
+			name: "the Change Block search settles an ambiguity",
+			file: withTwin, prevStart: 99, prevEnd: 99,
+			anchor:              []string{"}"},
+			wantRuleTwoADecides: true,
+		},
+		{
+			// The anchor runs out of the Change Block into the folded lines below it, so no
+			// block contains it and the whole-file search answers.
+			//
+			// prev is off by the five lines an edit above would have inserted, which is what
+			// makes rule 1 miss and the search run — pointing it at the lines it already holds
+			// would settle it before either search was reached.
+			name: "an anchor spanning the block and the fold falls through",
+			file: plain, prevStart: 108, prevEnd: 111,
+			anchor: []string{"}", "tail 0", "tail 1", "tail 2"},
+		},
+		{
+			name: "rule 1 settles an unmoved anchor without searching",
+			file: plain, prevStart: 101, prevEnd: 101,
+			anchor: []string{"before"},
+		},
+		{
+			name: "a unique anchor deep in the folded region",
+			file: plain, prevStart: 30, prevEnd: 30,
+			anchor: []string{"head 29"},
+		},
+		{
+			name: "an anchor that occurs nowhere",
+			file: plain, prevStart: 103, prevEnd: 103,
+			anchor: []string{"not in this file"},
+		},
+		{
+			name: "a multi-line anchor inside the Change Block",
+			file: plain, prevStart: 101, prevEnd: 103,
+			anchor: []string{"before", "changed", "}"},
+		},
+	}
+
+	decided := 0
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wantStart, wantEnd, wantOK := reAnchorLegacy(tc.prevStart, tc.prevEnd, tc.anchor, tc.file)
+			gotStart, gotEnd, gotOK := ReAnchor(tc.prevStart, tc.prevEnd, tc.anchor, tc.file)
+
+			if wantOK && (!gotOK || gotStart != wantStart || gotEnd != wantEnd) {
+				t.Errorf("the old search placed this at %d-%d; the new one returned %d-%d (ok=%v)",
+					wantStart, wantEnd, gotStart, gotEnd, gotOK)
+			}
+			if got := ruleTwoAWouldDecide(tc.file, tc.prevStart, tc.prevEnd, tc.anchor); got != tc.wantRuleTwoADecides {
+				t.Errorf("the Change Block search deciding = %v, want %v", got, tc.wantRuleTwoADecides)
+			}
+		})
+		if ruleTwoAWouldDecide(tc.file, tc.prevStart, tc.prevEnd, tc.anchor) {
+			decided++
+		}
+	}
+
+	if decided == 0 {
+		t.Error("no case in the corpus reached the Change Block search, so the property was never exercised")
+	}
+}
+
+// P1: a whole-file diff shows a twin of the anchor that the narrow diff never did. Without the
+// Change Block search the comment would go outdated the moment the agent regenerated the diff.
+func TestReAnchorPrefersTheChangeBlockWhenTheFoldHidesATwin(t *testing.T) {
+	f := foldedFixture(t, map[int]string{50: "}"})
+	// prev no longer holds the anchor, so rule 1 misses and the search decides. That is the
+	// ordinary case: the agent edits something above and every index below it shifts.
+	if _, _, ok := reAnchorLegacy(99, 99, []string{"}"}, f); ok {
+		t.Fatal("the old search was expected to give up here; the fixture proves nothing otherwise")
+	}
+	start, end, ok := ReAnchor(99, 99, []string{"}"}, f)
+	if !ok || start != 103 || end != 103 {
+		t.Errorf("ReAnchor() = %d-%d, ok=%v, want 103-103 and ok", start, end, ok)
+	}
+}
+
+// P2: the twin is in a Change Block too, so neither search can choose. Outdated is the honest
+// answer, and it is what both the old and the new code give.
+func TestReAnchorStaysOutdatedWhenBothBlocksHoldTheAnchor(t *testing.T) {
+	f := foldedFixture(t, nil)
+	h := &f.Hunks[0]
+	// A second change far below, with a "}" of its own beside it.
+	h.Lines[200] = addLine("changed twice")
+	h.Lines[201] = ctxLine("}")
+
+	if len(searchChangeBlocks(f, []string{"}"})) != 2 {
+		t.Fatalf("fixture should put the anchor in two Change Blocks, got %v", searchChangeBlocks(f, []string{"}"}))
+	}
+	if _, _, ok := ReAnchor(99, 99, []string{"}"}, f); ok {
+		t.Error("ReAnchor() chose between two equally good Change Block matches; it should go outdated")
+	}
+}
+
+// P3: the comment sits on a folded line, which a narrow diff never showed, so there is no
+// narrow-diff answer to borrow. Preferring the changed region here would walk the comment a
+// hundred lines to code it was never about — quietly, and for keeps once the page posts back.
+func TestReAnchorDoesNotPullAFoldedCommentIntoTheChange(t *testing.T) {
+	f := foldedFixture(t, map[int]string{20: "}"})
+	// The comment was written on the "}" at index 20, folded away; its twin at index 102 sits in
+	// the Change Block. prev has drifted off it, so rule 1 misses and the search decides.
+	if inChangeBlock(f, 25, 25) {
+		t.Fatal("fixture puts the anchor inside a Change Block; it must be in the fold")
+	}
+	if len(searchChangeBlocks(f, []string{"}"})) != 1 {
+		t.Fatalf("fixture should leave exactly one twin in a Change Block, got %v", searchChangeBlocks(f, []string{"}"}))
+	}
+	// Ungated, the Change Block search would find that single twin and take it.
+	if start, end, ok := ReAnchor(25, 25, []string{"}"}, f); ok {
+		t.Errorf("ReAnchor() moved a folded comment to %d-%d; it should go outdated", start, end)
+	}
+}
+
+// Inside one file the changed code answers first, so a passage quoted from it is not claimed by
+// an identical line buried in the context above.
+func TestResolveQuoteReadsTheChangeBlockFirst(t *testing.T) {
+	f := foldedFixture(t, map[int]string{50: "}"})
+	anchor, lines, ok := ResolveQuote("}", []File{f})
+	if !ok {
+		t.Fatal("ResolveQuote() found nothing")
+	}
+	if want := FormatDiffAnchor("a.go", 103, 103); anchor != want {
+		t.Errorf("ResolveQuote() = %q, want %q (the occurrence beside the change)", anchor, want)
+	}
+	if len(lines) != 1 || lines[0] != "}" {
+		t.Errorf("ResolveQuote() lines = %v, want [}]", lines)
+	}
+}
+
+// Files keep their order. Staging the search across all of them would let a later file's change
+// outrank an earlier file's context, which is not what "the first occurrence" has ever meant.
+func TestResolveQuoteKeepsFileOrder(t *testing.T) {
+	first := File{OldPath: "first.go", NewPath: "first.go", Hunks: []Hunk{{
+		Header: "@@ -1,3 +1,3 @@", OldStart: 1, NewStart: 1,
+		Lines: []Line{ctxLine("alpha"), ctxLine("shared"), ctxLine("omega")},
+	}}}
+	second := foldedFixture(t, map[int]string{50: "shared"})
+	second.OldPath, second.NewPath = "second.go", "second.go"
+	second.Hunks[0].Lines[102] = ctxLine("shared")
+
+	anchor, _, ok := ResolveQuote("shared", []File{first, second})
+	if !ok {
+		t.Fatal("ResolveQuote() found nothing")
+	}
+	if want := FormatDiffAnchor("first.go", 2, 2); anchor != want {
+		t.Errorf("ResolveQuote() = %q, want %q — the earlier file wins even though the later one has it in a change", anchor, want)
+	}
+}
+
+// The case the two-tier search exists to leave alone: an anchor that reaches out of a Change
+// Block into the fold cannot be answered by the block search, and the whole-file search has to
+// place it. Checked with rule 1 out of the way, so the search is what is being measured.
+func TestReAnchorPlacesASpanningAnchorByTheFileSearch(t *testing.T) {
+	f := foldedFixture(t, nil)
+	anchor := []string{"}", "tail 0", "tail 1", "tail 2"}
+
+	if got := searchChangeBlocks(f, anchor); len(got) != 0 {
+		t.Fatalf("the Change Block search found %v; the anchor is meant to reach past the block", got)
+	}
+	if got := len(searchHunks(f, anchor)); got != 1 {
+		t.Fatalf("the file search found %d matches, want exactly 1", got)
+	}
+
+	// prev has drifted, as it does whenever the agent edits something above.
+	start, end, ok := ReAnchor(108, 111, anchor, f)
+	if !ok || start != 103 || end != 106 {
+		t.Errorf("ReAnchor() = %d-%d, ok=%v, want 103-106 and ok", start, end, ok)
 	}
 }
