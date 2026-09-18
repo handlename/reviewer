@@ -1512,6 +1512,90 @@
             color: var(--text-tertiary);
             font-weight: 400;
         }
+        /* ---------- Folding the context away ----------
+           A whole-file diff carries every line of the file, and showing all of them would bury
+           the change the review is about. The renderer marked the runs it is willing to hide
+           with data-collapsed; this hides them until the reader opens one.
+
+           The rows stay in the DOM, exactly as with data-ws-only above, so every
+           data-line-index holds still and a comment survives being folded and opened again.
+
+           An anchored line is exempt for the same reason it is exempt from the whitespace fold:
+           a connector is drawn from the anchor's bounding box, and display:none collapses that
+           box to the origin, so hiding a line someone has commented on would fling its connector
+           to the corner of the page. Keeping it visible is also the only thing that says the
+           comment is still there at all. */
+        .diff-line[data-collapsed]:not([data-expanded]):not([data-anchor]):not([data-anchor-member]) {
+            display: none;
+        }
+
+        /* The expander sits where the hidden lines are, so it reads as the seam it opens. One per
+           run, carrying both directions: everything between a run's ends is hidden, so the ends
+           are always adjacent and a bar at each would simply stack. The page keeps it against
+           the lines still folded. */
+        .diff-expander {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.15rem 0.85rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-tertiary);
+            background: hsl(var(--fg-hsl) / 0.035);
+        }
+        .diff-expander[hidden] { display: none; }
+        .diff-expander-button,
+        .diff-expander-fold {
+            appearance: none;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            line-height: 1;
+            padding: 0.1rem 0.4rem;
+            cursor: pointer;
+        }
+        .diff-expander-button:hover,
+        .diff-expander-fold:hover {
+            background: hsl(var(--fg-hsl) / 0.06);
+            color: var(--text-secondary);
+        }
+        .diff-expander-button:focus-visible,
+        .diff-expander-fold:focus-visible {
+            outline: 2px solid var(--hl-ring);
+            outline-offset: 1px;
+        }
+        .diff-expander-count { font-variant-numeric: tabular-nums; }
+        /* Drawn rather than set in type: no character stacks a v over a ^, and the two arrows
+           that open the run are already spoken for. */
+        .diff-expander-icon {
+            display: block;
+            width: 1rem;
+            height: 0.86rem;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.3;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* A refused selection has to say why: the boundary it crossed is display:none, so there
+           is nothing on screen for the reader to infer it from. */
+        .selection-notice {
+            position: absolute;
+            z-index: 5;
+            padding: 0.25rem 0.6rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            box-shadow: 0 2px 8px hsl(var(--fg-hsl) / 0.12);
+            pointer-events: none;
+        }
+        .selection-notice[hidden] { display: none; }
+
         .diff-line.range-selected,
         .diff-line.anchored-range {
             background-image: linear-gradient(var(--hl-wash), var(--hl-wash));
@@ -1901,7 +1985,24 @@
         // attribute that carries it is (re)applied by applyDiffAnchors.
         const isDiffMode = !!document.querySelector(".document-column.diff-mode");
 
-        function diffLineElements() { return Array.from(document.querySelectorAll(".diff-line")); }
+        // Every .diff-line on the page, indexed by file and then by Rendered Line Index.
+        //
+        // Built once. A whole-file diff runs to thousands of rows, and linesInRange used to walk
+        // all of them for every anchor, which is O(anchors x lines) on a path that reruns on
+        // every fetch and every click. Caching is safe here precisely because the fold never adds
+        // or removes a row: opening one only sets data-expanded, and the only innerHTML this page
+        // assigns is to the panel, the rail and the connector overlay.
+        let diffLineIndex = null;
+
+        function buildDiffLineIndex() {
+            diffLineIndex = new Map();
+            for (const el of document.querySelectorAll(".diff-line")) {
+                const path = el.getAttribute("data-file");
+                let rows = diffLineIndex.get(path);
+                if (!rows) diffLineIndex.set(path, rows = new Map());
+                rows.set(lineIndexOf(el), el);
+            }
+        }
         function lineIndexOf(el) { return parseInt(el.getAttribute("data-line-index"), 10); }
         function formatDiffAnchor(path, start, end) { return `${path}#${start}-${end}`; }
         function formatDiffFileAnchor(path) { return `${path}#file`; }
@@ -1935,10 +2036,21 @@
         // Matching on the elements rather than through an attribute selector: a file path can
         // contain quotes and backslashes, which would need escaping to survive a selector.
         function linesInRange(path, start, end) {
-            return diffLineElements().filter(el => {
-                const idx = lineIndexOf(el);
-                return el.getAttribute("data-file") === path && idx >= start && idx <= end;
-            });
+            if (!diffLineIndex) buildDiffLineIndex();
+            const rows = diffLineIndex.get(path);
+            if (!rows) return [];
+            const out = [];
+            for (let i = start; i <= end; i++) {
+                const el = rows.get(i);
+                if (el) out.push(el);
+            }
+            return out;
+        }
+
+        // A line the fold is hiding right now. An anchored line is not one of these: the CSS
+        // keeps it visible, and a range that includes it is a range the reader can see.
+        function isFoldedAway(el) {
+            return el.matches(".diff-line[data-collapsed]:not([data-expanded]):not([data-anchor]):not([data-anchor-member])");
         }
 
         function lineCode(el) {
@@ -1996,14 +2108,35 @@
         // coordinate system could express it, but lines on either side of a hunk boundary are
         // hundreds of lines apart in the real file, and storing them as if they were adjacent
         // would make them impossible to find again.
+        // How many lines one comment may cover inside a hunk the fold applies to. A folded hunk
+        // is the whole file in one element, so the parentElement check below stops being a limit
+        // there and a stray Shift+click could anchor a comment to thousands of lines, every one
+        // of which is then carried in the sidecar and handed to the agent.
+        const SELECTION_CAP = 200;
+
+        // Returns whether the target was taken. A refusal changes nothing: it returns before
+        // activeAnchor is touched and before the composer is opened, so the previous target
+        // survives intact. The caller still has to look, because only a line the page actually
+        // took may arm targetFrom for the next Shift+click.
         function setDiffCommentTarget(fromEl, toEl) {
-            if (fromEl.parentElement !== toEl.parentElement) return;
+            if (fromEl.parentElement !== toEl.parentElement) return false;
 
             const path = fromEl.getAttribute("data-file");
             const a = lineIndexOf(fromEl), b = lineIndexOf(toEl);
             const start = Math.min(a, b), end = Math.max(a, b);
             const els = linesInRange(path, start, end);
-            if (!els.length) return;
+            if (!els.length) return false;
+
+            // A range cannot reach across lines the fold is hiding. They are real lines the
+            // reader has not seen, and a comment quoting them would say nothing to anyone.
+            if (els.some(isFoldedAway)) {
+                showSelectionNotice(toEl, "Open the hidden lines first");
+                return false;
+            }
+            if (fromEl.closest(".diff-hunk[data-foldable]") && els.length > SELECTION_CAP) {
+                showSelectionNotice(toEl, `Select at most ${SELECTION_CAP} lines`);
+                return false;
+            }
 
             document.querySelectorAll(".active-comment-target").forEach(el => el.classList.remove("active-comment-target"));
             clearRangeSelection();
@@ -2020,6 +2153,28 @@
             document.getElementById("suggestionActions").style.display = "block";
 
             openComposer(activeAnchor);
+            return true;
+        }
+
+        // Say why a selection was refused, beside the line it was refused on. The boundary that
+        // stopped it — a run of folded lines, or the cap — is not on screen, so without this the
+        // gesture just fails silently and reads as a broken page.
+        let selectionNoticeTimer = null;
+        function showSelectionNotice(nearEl, text) {
+            let notice = document.getElementById("selectionNotice");
+            if (!notice) {
+                notice = document.createElement("div");
+                notice.id = "selectionNotice";
+                notice.className = "selection-notice";
+                document.body.appendChild(notice);
+            }
+            notice.textContent = text;
+            notice.hidden = false;
+            const box = nearEl.getBoundingClientRect();
+            notice.style.top = `${window.scrollY + box.bottom + 4}px`;
+            notice.style.left = `${window.scrollX + box.left + 12}px`;
+            clearTimeout(selectionNoticeTimer);
+            selectionNoticeTimer = setTimeout(() => { notice.hidden = true; }, 2400);
         }
 
         // Target a whole file. There is no line content to carry, so no anchorLines and no
@@ -2092,6 +2247,200 @@
             Prism.highlightElement(code);
         }
 
+        // ---------- Opening the folded context ----------
+        //
+        // A run is opened from either end, expandStep lines at a time, and closed again as a
+        // whole. Opening only sets data-expanded on rows that are already in the DOM; the bar
+        // moves so it stays against the lines still folded, which is the one bit of DOM the page
+        // does rearrange — never a .diff-line, so no Rendered Line Index moves.
+        const EXPAND_STEP = 20;
+        const EXPANDED_KEY = "reviewer.diffExpanded";
+        const EXPANDED_LIMIT = 500;
+
+        // Per run: how many lines are open from the top and from the bottom. seq is the order
+        // they were opened in, which is what decides who goes when the store fills up.
+        let expandedRuns = {};
+        let expandedSeq = 0;
+
+        function readExpandedRuns() {
+            // Reading the store starts the page's live state over, so the two compose: seeding
+            // from storage and then painting gives what was stored, not what was open before.
+            openByBar = new WeakMap();
+            try {
+                const raw = localStorage.getItem(EXPANDED_KEY);
+                expandedRuns = raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                expandedRuns = {};
+            }
+            for (const v of Object.values(expandedRuns)) expandedSeq = Math.max(expandedSeq, v.seq || 0);
+        }
+
+        function writeExpandedRuns() {
+            const keys = Object.keys(expandedRuns);
+            if (keys.length > EXPANDED_LIMIT) {
+                keys.sort((a, b) => (expandedRuns[a].seq || 0) - (expandedRuns[b].seq || 0));
+                for (const k of keys.slice(0, keys.length - EXPANDED_LIMIT)) delete expandedRuns[k];
+            }
+            try {
+                localStorage.setItem(EXPANDED_KEY, JSON.stringify(expandedRuns));
+            } catch (e) {
+                // A private window, or a full store. The fold still works; it just will not be
+                // remembered, which is not worth breaking the page over.
+            }
+        }
+
+        // A run is read off its own bar, so which run was clicked is never in doubt. The
+        // data-run-key is for the stored expansion only: it names the run by the text around it
+        // rather than by where it falls, because line indices move every time the agent
+        // regenerates the diff — which is exactly when an expansion has to be found again.
+        function runFromBar(el) {
+            return {
+                key: el.getAttribute("data-run-key"),
+                path: el.getAttribute("data-file"),
+                start: parseInt(el.getAttribute("data-run-start"), 10),
+                end: parseInt(el.getAttribute("data-run-end"), 10),
+                bar: el,
+            };
+        }
+
+        function runsOnPage() {
+            return Array.from(document.querySelectorAll(".diff-expander"), runFromBar);
+        }
+
+        // Keys that name more than one run on this page. It happens in a file with equal-length
+        // runs whose neighbouring lines match, which repetitive or generated source produces.
+        // Such a key cannot say which run a stored expansion meant, so the entry is dropped —
+        // the runs themselves still open and close by hand.
+        function ambiguousRunKeys() {
+            const count = new Map();
+            for (const el of document.querySelectorAll(".diff-expander")) {
+                const key = el.getAttribute("data-run-key");
+                count.set(key, (count.get(key) || 0) + 1);
+            }
+            const out = new Set();
+            for (const [key, n] of count) if (n > 1) out.add(key);
+            return out;
+        }
+
+        // How much of each run is open, held against the bar itself rather than against its key.
+        // The key is only how the state is remembered across a reload, and a key that names two
+        // runs cannot be remembered — but both runs still have to open and close by hand, which
+        // they would not if their live state shared the ambiguous key too.
+        let openByBar = new WeakMap();
+
+        function runState(run, ambiguous) {
+            let live = openByBar.get(run.bar);
+            if (!live) {
+                const stored = (ambiguous && ambiguous.has(run.key)) ? null : expandedRuns[run.key];
+                live = { head: stored ? (stored.head || 0) : 0, tail: stored ? (stored.tail || 0) : 0 };
+                openByBar.set(run.bar, live);
+            }
+            const total = run.end - run.start + 1;
+            const head = Math.min(live.head, total);
+            const tail = Math.min(live.tail, Math.max(0, total - head));
+            return { head, tail, total };
+        }
+
+        // Paint one run: which of its lines are open, where its expanders sit, and what they say.
+        function renderRun(run, ambiguous) {
+            const { head, tail, total } = runState(run, ambiguous);
+            const lines = linesInRange(run.path, run.start, run.end);
+            lines.forEach((el, i) => {
+                const open = i < head || i >= total - tail;
+                if (open) el.setAttribute("data-expanded", "");
+                else el.removeAttribute("data-expanded");
+            });
+
+            const hidden = total - head - tail;
+            const opened = head + tail > 0;
+            // With nothing left folded there is no seam to ride, so the bar goes back to the top
+            // of the run, where its fold control belongs.
+            const firstFolded = lines[head] || lines[0];
+
+            const bar = run.bar;
+            const down = bar.querySelector('[data-expand="down"]');
+            const up = bar.querySelector('[data-expand="up"]');
+            const fold = bar.querySelector(".diff-expander-fold");
+            const count = bar.querySelector(".diff-expander-count");
+            if (down) down.hidden = hidden <= 0;
+            if (up) up.hidden = hidden <= 0;
+            if (fold) fold.hidden = !opened;
+            if (count) count.textContent = hidden > 0 ? `${hidden} hidden lines` : "";
+            // The bar rides the top edge of what is still folded, so it always sits on the seam
+            // it opens. Nothing is left stranded above the lines it just revealed.
+            if (firstFolded) firstFolded.parentElement.insertBefore(bar, firstFolded);
+        }
+
+        function renderAllRuns() {
+            const ambiguous = ambiguousRunKeys();
+            for (const run of runsOnPage()) renderRun(run, ambiguous);
+        }
+
+        function initializeDiffExpanders() {
+            const container = document.querySelector(".document-column");
+            if (!container) return;
+            readExpandedRuns();
+            renderAllRuns();
+
+            // Delegated: a whole-file diff has thousands of rows and its expanders are moved
+            // around as runs open, so there is nothing stable to bind to one by one.
+            container.addEventListener("click", (e) => {
+                const button = e.target.closest("[data-expand]");
+                if (!button) return;
+                const el = button.closest(".diff-expander");
+                if (!el) return;
+
+                const run = runFromBar(el);
+                const ambiguous = ambiguousRunKeys();
+                const { head, tail, total } = runState(run, ambiguous);
+                const hidden = total - head - tail;
+
+                // Hold the bar itself still. Opening downwards reveals the rows above it and
+                // would otherwise push it down the page, out from under the reader's eye — the
+                // pointer is on it, and they are likely to click again.
+                const anchorEl = el;
+                const before = anchorEl.getBoundingClientRect().top;
+
+                const next = { head, tail, seq: ++expandedSeq };
+                switch (button.getAttribute("data-expand")) {
+                    case "down": next.head = head + Math.min(EXPAND_STEP, hidden); break;
+                    case "up": next.tail = tail + Math.min(EXPAND_STEP, hidden); break;
+                    case "fold": next.head = 0; next.tail = 0; break;
+                }
+                openByBar.set(el, { head: next.head, tail: next.tail });
+
+                // Remembered only when the key names this run alone. Writing it under a shared
+                // key would hand the other run the wrong expansion on the next reload.
+                if (!ambiguous.has(run.key)) {
+                    if (next.head === 0 && next.tail === 0) delete expandedRuns[run.key];
+                    else expandedRuns[run.key] = next;
+                    writeExpandedRuns();
+                }
+
+                renderRun(run, ambiguous);
+
+                if (anchorEl) {
+                    // scrollBy, not scrollTop: documentScroller() hands back window when the
+                    // column is not the scrollport, and window has no scrollTop to assign to —
+                    // the correction would vanish without a word. Both share scrollBy.
+                    //
+                    // "instant" matters as much. html has scroll-behavior: smooth, and animating
+                    // this correction is the very jump it exists to cancel: the rows appear at
+                    // once and the page then slides after them.
+                    //
+                    // The correction can come up short, and there is nothing to be done about it:
+                    // a run near the end of a short page asks for more scroll than the document
+                    // has left, and the bar keeps whatever the scrollport could not absorb.
+                    documentScroller().scrollBy({
+                        top: anchorEl.getBoundingClientRect().top - before,
+                        behavior: "instant",
+                    });
+                }
+                // The rows a connector is drawn between have just moved down the page.
+                scheduleConnectorRefresh();
+            });
+        }
+
         function initializeDiffHighlighting() {
             // Prism's <script> tags are deferred, so they have not run while this inline script
             // does. DOMContentLoaded fires after them.
@@ -2138,6 +2487,9 @@
                 // over on the way is not what was asked for: drop it and take the range.
                 if (e.shiftKey && line && targetFrom && targetFrom.parentElement === line.parentElement) {
                     window.getSelection().removeAllRanges();
+                    // A refused range opens nothing: setDiffCommentTarget returns before it
+                    // reaches the composer, so the previous target is left exactly as it was
+                    // rather than being armed with a range the reader never got.
                     setDiffCommentTarget(targetFrom, line);
                     return;
                 }
@@ -2158,8 +2510,9 @@
                 // Markdown page follows. Selecting the same range again anchors the new thread
                 // to the same lines, which is how a range comes to hold more than one.
 
-                targetFrom = line;
-                setDiffCommentTarget(line, line);
+                // Only a line the page actually took can anchor the next Shift+click. Arming it
+                // from a refused one would extend a range out of a line the reader never chose.
+                if (setDiffCommentTarget(line, line)) targetFrom = line;
             });
 
             // Hovering a commented line previews its connector, the same way hovering a Markdown
@@ -4214,6 +4567,7 @@
         // here would tag every diff row as a block-level comment target and anchor comments
         // that cannot survive the next round.
         initializeDiffLines();
+        initializeDiffExpanders();
         initializeDiffHighlighting();
         {{else}}
         initializeCommentableElements();

@@ -28,6 +28,7 @@ dist/*
 
 # Generated HTML spec files
 examples/sample.html
+testdata/perf/*.html
 
 tmp/*
 .superpowers/

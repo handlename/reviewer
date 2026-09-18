@@ -40,12 +40,19 @@ recently modified `.md` files. If several candidates exist, ask the user which o
 **Reviewing your own changes:** write the diff to a temporary file and use that path, e.g.
 
 ```console
-$ git diff > "$TMPDIR/review.diff"
+$ git diff --unified=100000 > "$TMPDIR/review.diff"
 ```
 
-Keep the same path for the whole review: each round you regenerate the diff into that file, and
-the page reloads by itself. `reviewer` decides from the content whether it is looking at Markdown
-or at a diff, so there is nothing to declare.
+`--unified=100000` puts the whole of every changed file into the diff. The page folds the context
+away and shows the change, with a control to open the surrounding lines a screenful at a time —
+the same reading a wide `-U` would give, without burying the change to get it. An ordinary
+`git diff` still works; it simply has nothing to open.
+
+Keep the same path **and the same width** for the whole review: each round you regenerate the diff
+into that file, and the page reloads by itself. Changing the width between rounds renumbers every
+rendered line, and comments anchored to the old numbering will not be found again. `reviewer`
+decides from the content whether it is looking at Markdown or at a diff, so there is nothing to
+declare.
 
 ### 2. Open the review
 Call `review_start` with the path. Tell the user the returned URL is open and they can start
