@@ -1,9 +1,14 @@
 package reviewer
 
 import (
+	"errors"
 	"flag"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -692,5 +697,734 @@ func TestRenderDiffBodyKeepsLineIndicesStableWhenFolding(t *testing.T) {
 	if strings.Count(body, "data-ws-only") != 2 {
 		t.Errorf("renderDiffBody() marked %d lines whitespace-only, want 2 (the -/+ pair):\n%s",
 			strings.Count(body, "data-ws-only"), body)
+	}
+}
+
+// hunkFromShape builds a hunk whose lines have the kinds the shape names, one rune per line:
+// "." context, "+" addition, "-" deletion, "\" meta. Each line's content is its index, so no
+// two lines are equal and a block's edges are unambiguous in a failure message.
+func hunkFromShape(shape string) Hunk {
+	h := Hunk{Header: "@@ -1 +1 @@", OldStart: 1, NewStart: 1}
+	for i, r := range shape {
+		kind := LineContext
+		switch r {
+		case '+':
+			kind = LineAdd
+		case '-':
+			kind = LineDelete
+		case '\\':
+			kind = LineMeta
+		}
+		h.Lines = append(h.Lines, Line{Kind: kind, Content: strconv.Itoa(i)})
+	}
+	return h
+}
+
+func ctxLines(n int) string { return strings.Repeat(".", n) }
+
+func assertBlocks(t *testing.T, got, want []Block) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("got %d blocks %v, want %d %v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("block %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestChangeBlocks(t *testing.T) {
+	tests := []struct {
+		name  string
+		shape string
+		want  []Block
+	}{
+		{
+			name:  "a hunk with no change has no block",
+			shape: ctxLines(50),
+			want:  nil,
+		},
+		{
+			name:  "the block is clamped at both ends of a short hunk",
+			shape: "..+..",
+			want:  []Block{{0, 4}},
+		},
+		{
+			name:  "a lone change keeps blockContext lines on each side",
+			shape: ctxLines(10) + "+" + ctxLines(10),
+			want:  []Block{{7, 13}},
+		},
+		{
+			// Five unchanged lines between the changes: git -U3 keeps these in one hunk.
+			name:  "changes five lines apart are one block",
+			shape: ctxLines(10) + "+" + ctxLines(5) + "+" + ctxLines(10),
+			want:  []Block{{7, 19}},
+		},
+		{
+			// Six is the widest gap git -U3 still merges across.
+			name:  "changes six lines apart are one block",
+			shape: ctxLines(10) + "+" + ctxLines(6) + "+" + ctxLines(10),
+			want:  []Block{{7, 20}},
+		},
+		{
+			// Seven is where git -U3 splits the hunk, so the blocks split too.
+			name:  "changes seven lines apart are two blocks",
+			shape: ctxLines(10) + "+" + ctxLines(7) + "+" + ctxLines(10),
+			want:  []Block{{7, 13}, {15, 21}},
+		},
+		{
+			name:  "a deletion anchors a block just as an addition does",
+			shape: ctxLines(10) + "-" + ctxLines(10),
+			want:  []Block{{7, 13}},
+		},
+		{
+			// The meta line sits one past the block's edge and is meaningless alone, so the
+			// block stretches to keep it with the line it annotates.
+			name:  "a meta line just past the edge joins the block",
+			shape: "+..." + `\` + ctxLines(50),
+			want:  []Block{{0, 4}},
+		},
+		{
+			// Far from any change the meta line inherits the context around it and stays out.
+			name:  "a meta line far from a change stays outside",
+			shape: "+" + ctxLines(50) + `\`,
+			want:  []Block{{0, 3}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertBlocks(t, hunkFromShape(tt.shape).ChangeBlocks(), tt.want)
+		})
+	}
+}
+
+func TestCollapsedRuns(t *testing.T) {
+	tests := []struct {
+		name  string
+		shape string
+		want  []Block
+	}{
+		{
+			name:  "a hunk with no change folds nothing",
+			shape: ctxLines(500),
+			want:  nil,
+		},
+		{
+			name:  "a short hunk folds nothing",
+			shape: ctxLines(10) + "+" + ctxLines(10),
+			want:  nil,
+		},
+		{
+			name:  "context on both sides of a change folds away",
+			shape: ctxLines(100) + "+" + ctxLines(100),
+			want:  []Block{{0, 96}, {104, 200}},
+		},
+		{
+			name:  "the run between two distant changes folds away",
+			shape: "+" + ctxLines(100) + "+",
+			want:  []Block{{4, 97}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertBlocks(t, hunkFromShape(tt.shape).CollapsedRuns(), tt.want)
+		})
+	}
+}
+
+// Folding turns on two things, so both are pinned.
+//
+// The licence comes first: a hunk that holds no run longer than wideGap folds nothing at all,
+// however many runs it has that are longer than minCollapsedRun. That is what leaves an ordinary
+// diff untouched.
+func TestNothingFoldsWithoutAWideGap(t *testing.T) {
+	// Two changes far enough apart to leave a 30-line gap — well past minCollapsedRun, well
+	// short of wideGap.
+	shape := "+" + ctxLines(36) + "+" + ctxLines(10)
+	h := hunkFromShape(shape)
+
+	gaps := h.uncoveredRuns()
+	if len(gaps) == 0 {
+		t.Fatal("fixture leaves no gap at all")
+	}
+	for _, g := range gaps {
+		if g.Len() > wideGap {
+			t.Fatalf("fixture has a gap of %d lines, past wideGap=%d; it is meant to stay under", g.Len(), wideGap)
+		}
+		if g.Len() <= minCollapsedRun {
+			continue
+		}
+		// There is at least one gap the threshold alone would have folded.
+		if got := h.CollapsedRuns(); len(got) != 0 {
+			t.Errorf("folded %v without a run past wideGap=%d", got, wideGap)
+		}
+		return
+	}
+	t.Fatalf("fixture has no gap past minCollapsedRun=%d, so it cannot test the licence", minCollapsedRun)
+}
+
+// Once a hunk has that licence, minCollapsedRun decides which of its gaps are worth hiding. The
+// boundary is pinned from both sides: a run of exactly minCollapsedRun stays.
+func TestCollapsedRunsThreshold(t *testing.T) {
+	for _, runLen := range []int{minCollapsedRun - 1, minCollapsedRun, minCollapsedRun + 1} {
+		// A gap of runLen lines, then a change, then a gap wide enough to unlock the fold.
+		shape := "+" + ctxLines(runLen+2*blockContext) + "+" + ctxLines(wideGap+2*blockContext)
+		got := hunkFromShape(shape).CollapsedRuns()
+
+		wantFold := runLen > minCollapsedRun
+		foldedTheShortGap := false
+		for _, r := range got {
+			if r.Len() == runLen {
+				foldedTheShortGap = true
+			}
+		}
+		if foldedTheShortGap != wantFold {
+			t.Errorf("a run of %d lines: folded = %v, want %v (got %v)", runLen, foldedTheShortGap, wantFold, got)
+		}
+		// The wide gap is what gave the hunk its licence, so it folds either way.
+		if len(got) == 0 {
+			t.Errorf("a run of %d lines: nothing folded at all, so the wide gap was missed", runLen)
+		}
+	}
+}
+
+func TestIsFoldable(t *testing.T) {
+	if hunkFromShape(ctxLines(10) + "+" + ctxLines(10)).IsFoldable() {
+		t.Error("a hunk with nothing long enough to fold reports itself foldable")
+	}
+	if !hunkFromShape(ctxLines(100) + "+" + ctxLines(100)).IsFoldable() {
+		t.Error("a hunk with a long run of context reports itself unfoldable")
+	}
+}
+
+// A mode-only change carries no hunk at all. Reaching for one would panic, and the fold has to
+// stay quiet rather than crash the render of every other file in the diff.
+func TestFoldOnFileWithoutHunks(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(`diff --git a/mode-only.sh b/mode-only.sh
+old mode 100644
+new mode 100755
+`))
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff() error = %v", err)
+	}
+	f := files[0]
+	if len(f.Hunks) != 0 {
+		t.Fatalf("got %d hunks, want 0", len(f.Hunks))
+	}
+	if got := f.ChangeBlocks(); got != nil {
+		t.Errorf("ChangeBlocks() = %v, want nil", got)
+	}
+	// The path that would actually panic is the renderer walking the file's hunks.
+	if body := renderDiffBody([]File{f}); !strings.Contains(body, "No textual changes.") {
+		t.Errorf("renderDiffBody() lost the no-change note for a file with no hunk:\n%s", body)
+	}
+}
+
+// The file-level views count in Rendered Line Index, the same 1-based coordinate a comment
+// anchor uses, and they keep counting across hunk boundaries.
+func TestFileChangeBlocksAreRenderedLineIndices(t *testing.T) {
+	f := File{Hunks: []Hunk{
+		hunkFromShape(ctxLines(10) + "+" + ctxLines(10)),
+		hunkFromShape(ctxLines(10) + "+" + ctxLines(10)),
+	}}
+	assertBlocks(t, f.ChangeBlocks(), []Block{{8, 14}, {29, 35}})
+}
+
+func TestHunkRecordsItsStartLines(t *testing.T) {
+	files, err := ParseUnifiedDiff([]byte(`diff --git a/a.go b/a.go
+--- a/a.go
++++ b/a.go
+@@ -53,7 +61,7 @@ func f() {
+ ctx
+-old
++new
+`))
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff() error = %v", err)
+	}
+	h := files[0].Hunks[0]
+	if h.OldStart != 53 || h.NewStart != 61 {
+		t.Errorf("hunk starts = %d/%d, want 53/61", h.OldStart, h.NewStart)
+	}
+}
+
+// A Change Block is meant to be exactly a `git diff -U3` hunk. That is the claim the narrow-diff
+// search rule in ReAnchor rests on, and it is an arithmetic claim about git's own hunk-merging,
+// so it is checked against git itself. Re-deriving the boundaries from a second copy of the same
+// formula would prove nothing.
+//
+// reviewer never runs git. This test does, because git is the oracle the claim is about.
+func TestChangeBlocksMatchNarrowDiffHunks(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH; this test needs it as the oracle")
+	}
+
+	tests := []struct {
+		name    string
+		changed []int // 1-based lines to rewrite
+	}{
+		{name: "a lone change", changed: []int{50}},
+		{name: "changes five lines apart merge", changed: []int{50, 56}},
+		{name: "changes six lines apart merge", changed: []int{50, 57}},
+		{name: "changes seven lines apart split", changed: []int{50, 58}},
+		{name: "a change at the first line", changed: []int{1}},
+		{name: "a change at the last line", changed: []int{100}},
+		{name: "changes at both ends", changed: []int{1, 100}},
+		{name: "a chain of changes that merges throughout", changed: []int{20, 26, 32, 38}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			old := make([]string, 100)
+			for i := range old {
+				old[i] = fmt.Sprintf("line %d", i+1)
+			}
+			updated := slices.Clone(old)
+			for _, n := range tt.changed {
+				updated[n-1] = fmt.Sprintf("CHANGED %d", n)
+			}
+			writeLines(t, filepath.Join(dir, "old.txt"), old)
+			writeLines(t, filepath.Join(dir, "new.txt"), updated)
+
+			narrow := gitDiff(t, dir, "-U3")
+			whole := gitDiff(t, dir, "-U100000")
+
+			got := blockRangesOnNewSide(whole.Hunks[0], whole.Hunks[0].ChangeBlocks())
+			want := hunkRangesOnNewSide(narrow.Hunks)
+
+			if len(got) != len(want) {
+				t.Fatalf("got %d Change Blocks %v, want %d -U3 hunks %v", len(got), got, len(want), want)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Errorf("Change Block %d covers new lines %v, -U3 hunk covers %v", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
+func writeLines(t *testing.T, path string, lines []string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s) = %v", path, err)
+	}
+}
+
+// gitDiff runs `git diff --no-index` at one context width and parses the result. --no-index
+// makes git compare two plain paths, so no repository is involved.
+func gitDiff(t *testing.T, dir, width string) File {
+	t.Helper()
+	cmd := exec.Command("git", "diff", "--no-index", width, "--", "old.txt", "new.txt")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	// git exits 1 when the files differ, which is the only case this test uses.
+	var exit *exec.ExitError
+	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+		t.Fatalf("git diff %s = %v", width, err)
+	}
+	files, err := ParseUnifiedDiff(out)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff(%s) = %v", width, err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("git diff %s produced %d files, want 1", width, len(files))
+	}
+	return files[0]
+}
+
+// The two diffs number their rendered lines differently, so they are compared on the one
+// coordinate they share: the line numbers of the new file.
+type newSideRange struct{ First, Last int }
+
+func hunkRangesOnNewSide(hunks []Hunk) []newSideRange {
+	var out []newSideRange
+	for _, h := range hunks {
+		n := 0
+		for _, l := range h.Lines {
+			if l.Kind != LineDelete && l.Kind != LineMeta {
+				n++
+			}
+		}
+		out = append(out, newSideRange{First: h.NewStart, Last: h.NewStart + n - 1})
+	}
+	return out
+}
+
+func blockRangesOnNewSide(h Hunk, blocks []Block) []newSideRange {
+	var out []newSideRange
+	for _, b := range blocks {
+		r := newSideRange{}
+		for _, l := range h.Lines[b.Start : b.End+1] {
+			if l.NewNo == 0 {
+				continue
+			}
+			if r.First == 0 || l.NewNo < r.First {
+				r.First = l.NewNo
+			}
+			if l.NewNo > r.Last {
+				r.Last = l.NewNo
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// wholeFileDiff renders a file of n lines with the given 1-based lines rewritten, as a diff
+// that carries the whole file.
+func wholeFileDiff(t *testing.T, n int, changed ...int) File {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH; this test needs it to build a whole-file diff")
+	}
+	dir := t.TempDir()
+	old := make([]string, n)
+	for i := range old {
+		old[i] = fmt.Sprintf("line %d", i+1)
+	}
+	updated := slices.Clone(old)
+	for _, c := range changed {
+		updated[c-1] = fmt.Sprintf("CHANGED %d", c)
+	}
+	writeLines(t, filepath.Join(dir, "old.txt"), old)
+	writeLines(t, filepath.Join(dir, "new.txt"), updated)
+	return gitDiff(t, dir, "-U100000")
+}
+
+func TestRenderDiffBodyFoldsAWholeFileDiff(t *testing.T) {
+	f := wholeFileDiff(t, 400, 200)
+	body := renderDiffBody([]File{f})
+
+	if !strings.Contains(body, "data-collapsed") {
+		t.Error("renderDiffBody() folded nothing away in a whole-file diff")
+	}
+	if !strings.Contains(body, `<div class="diff-hunk" data-foldable>`) {
+		t.Error("renderDiffBody() did not mark the hunk foldable")
+	}
+	// One bar per run, carrying both directions: the two ends of a run are always adjacent on
+	// screen, since everything between them is folded, so a control at each end would just be
+	// two bars stacked together.
+	if n := strings.Count(body, `class="diff-expander"`); n != 2 {
+		t.Errorf("got %d expanders, want 2 (one per run: above and below the change)", n)
+	}
+	for _, dir := range []string{`data-expand="down"`, `data-expand="up"`, `data-expand="fold"`} {
+		if n := strings.Count(body, dir); n != 2 {
+			t.Errorf("got %d %s buttons, want one per run (2)", n, dir)
+		}
+	}
+	// One hunk covering the file has no gap to mark, so its "@@ -1,400 +1,400 @@" says nothing.
+	if strings.Contains(body, "diff-hunk-header") {
+		t.Error("renderDiffBody() kept the @@ header on a single foldable hunk")
+	}
+	// Every line still ships; only its visibility changed.
+	if n := strings.Count(body, `class="diff-line`); n != len(f.Lines()) {
+		t.Errorf("rendered %d lines, want all %d", n, len(f.Lines()))
+	}
+}
+
+// Several hunks mean the diff really does skip lines between them. That gap must stay marked,
+// or it reads as something an expander could open.
+func TestRenderDiffBodyKeepsHeadersWhenAFileHasSeveralHunks(t *testing.T) {
+	f := wholeFileDiff(t, 400, 200)
+	// Split the single hunk in two, keeping both foldable.
+	mid := len(f.Hunks[0].Lines) / 2
+	f.Hunks = []Hunk{
+		{Header: "@@ -1,200 +1,200 @@", OldStart: 1, NewStart: 1, Lines: f.Hunks[0].Lines[:mid]},
+		{Header: "@@ -201,200 +201,200 @@", OldStart: 201, NewStart: 201, Lines: f.Hunks[0].Lines[mid:]},
+	}
+	body := renderDiffBody([]File{f})
+	if n := strings.Count(body, "diff-hunk-header"); n != 2 {
+		t.Errorf("got %d hunk headers, want 2 — a skipped gap must stay marked", n)
+	}
+}
+
+// The Rendered Line Index is the coordinate every comment anchor counts in, so it has to run
+// 1..N over the lines as rendered whether or not they are folded away.
+func TestRenderedLineIndexIsContinuousAcrossTheFold(t *testing.T) {
+	f := wholeFileDiff(t, 400, 100, 300)
+	body := renderDiffBody([]File{f})
+	for i := 1; i <= len(f.Lines()); i++ {
+		if !strings.Contains(body, fmt.Sprintf(`data-line-index="%d"`, i)) {
+			t.Fatalf("data-line-index=%d is missing from the rendered body", i)
+		}
+	}
+	if strings.Contains(body, fmt.Sprintf(`data-line-index="%d"`, len(f.Lines())+1)) {
+		t.Errorf("rendered a data-line-index past the file's %d lines", len(f.Lines()))
+	}
+}
+
+// examples/sample.diff is an ordinary diff and is not reached by TestRenderDiffBody's glob over
+// testdata, so its freedom from the fold is checked here.
+func TestSampleDiffDoesNotFold(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("examples", "sample.diff"))
+	if err != nil {
+		t.Fatalf("ReadFile(examples/sample.diff) = %v", err)
+	}
+	files, err := ParseUnifiedDiff(raw)
+	if err != nil {
+		t.Fatalf("ParseUnifiedDiff() = %v", err)
+	}
+	body := renderDiffBody(files)
+	for _, mark := range []string{"data-collapsed", "diff-expander", "data-foldable"} {
+		if strings.Contains(body, mark) {
+			t.Errorf("examples/sample.diff rendered %s; an ordinary diff must fold nothing", mark)
+		}
+	}
+}
+
+// Nothing `git diff -U<n>` produces may fold, for any n a person would type. The bound is
+// arithmetic — a run of context inside one hunk is at most 2U long, so what the Change Blocks
+// leave uncovered is at most 2U - 2*blockContext, which reaches minCollapsedRun only at U=23 —
+// but arithmetic is worth only as much as the widths it is checked against, so these are real
+// git output.
+//
+// The bound is about -U alone; see TestFunctionContextCanFold for what it does not cover.
+//
+// F1 is the case that matters most: git merges hunks whose gaps are at most 2U, so a chain of
+// edits near the top of a file becomes one long hunk starting at line 1 on both sides. Every
+// rule that keyed off the shape of that header rather than off the length of its context runs
+// let this diff through.
+func TestUnifiedDiffWidthsNeverFold(t *testing.T) {
+	sourceFile := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("line %d", i+1)
+		}
+		return out
+	}
+	goSource := func(funcs, body int) []string {
+		var out []string
+		for f := range funcs {
+			out = append(out, fmt.Sprintf("func f%d() {", f))
+			for i := range body {
+				out = append(out, fmt.Sprintf("\tstep%d := %d", i, i))
+			}
+			out = append(out, "}", "")
+		}
+		return out
+	}
+
+	tests := []struct {
+		name    string
+		width   string
+		lines   []string
+		changed []int
+	}{
+		{
+			name:    "F1: -U20 with edits chained into one hunk from line 1",
+			width:   "-U20",
+			lines:   sourceFile(400),
+			changed: []int{20, 55, 90, 125, 160, 195, 230, 265, 300},
+		},
+		{
+			name:    "F2: -U20 with the change on the first line",
+			width:   "-U20",
+			lines:   sourceFile(400),
+			changed: []int{1},
+		},
+		{
+			name:    "F3: -U10 with changes at the widest gap it still merges",
+			width:   "-U10",
+			lines:   sourceFile(400),
+			changed: []int{100, 121},
+		},
+		{
+			// -W is in this table only for a function short enough that the bound happens to
+			// hold anyway. TestFunctionContextCanFold covers the case where it does not.
+			name:    "F4: -W around a short function at the top of the file",
+			width:   "-W",
+			lines:   goSource(12, 30),
+			changed: []int{3},
+		},
+		{
+			name:    "F5a: -U3",
+			width:   "-U3",
+			lines:   sourceFile(400),
+			changed: []int{200},
+		},
+		{
+			name:    "F5b: -U5",
+			width:   "-U5",
+			lines:   sourceFile(400),
+			changed: []int{200},
+		},
+		{
+			name:    "F6: a file of two lines",
+			width:   "-U3",
+			lines:   []string{"alpha", "beta"},
+			changed: []int{1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := exec.LookPath("git"); err != nil {
+				t.Skip("git is not on PATH; this test needs it to produce real diffs")
+			}
+			dir := t.TempDir()
+			updated := slices.Clone(tt.lines)
+			for _, c := range tt.changed {
+				updated[c-1] = "CHANGED " + tt.lines[c-1]
+			}
+			writeLines(t, filepath.Join(dir, "old.txt"), tt.lines)
+			writeLines(t, filepath.Join(dir, "new.txt"), updated)
+
+			f := gitDiff(t, dir, tt.width)
+			body := renderDiffBody([]File{f})
+
+			for _, mark := range []string{"data-collapsed", "diff-expander", "data-foldable"} {
+				if strings.Contains(body, mark) {
+					t.Errorf("%s folded: found %s\nheaders: %v", tt.width, mark, headersOf(f))
+				}
+			}
+			if got, want := strings.Count(body, "diff-hunk-header"), len(f.Hunks); got != want {
+				t.Errorf("rendered %d hunk headers, want one per hunk (%d)", got, want)
+			}
+		})
+	}
+}
+
+func headersOf(f File) []string {
+	var out []string
+	for _, h := range f.Hunks {
+		out = append(out, h.Header)
+	}
+	return out
+}
+
+// The threshold is what holds TestOrdinaryDiffWidthsNeverFold up, so the widest uncovered run an
+// ordinary width can produce is measured directly. Anything at or below minCollapsedRun is safe;
+// F1 sits at 28, which is why lowering the threshold past it would start folding real diffs.
+func TestWidestUncoveredRunAtOrdinaryWidths(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	dir := t.TempDir()
+	old := make([]string, 400)
+	for i := range old {
+		old[i] = fmt.Sprintf("line %d", i+1)
+	}
+	updated := slices.Clone(old)
+	for _, c := range []int{20, 55, 90, 125, 160, 195, 230, 265, 300} {
+		updated[c-1] = "CHANGED"
+	}
+	writeLines(t, filepath.Join(dir, "old.txt"), old)
+	writeLines(t, filepath.Join(dir, "new.txt"), updated)
+
+	f := gitDiff(t, dir, "-U20")
+	if len(f.Hunks) != 1 {
+		t.Fatalf("got %d hunks, want the chain to merge into 1", len(f.Hunks))
+	}
+	h := f.Hunks[0]
+	if h.OldStart != 1 || h.NewStart != 1 {
+		t.Fatalf("hunk starts at %d/%d, want 1/1 — the point of this case is that it looks whole-file", h.OldStart, h.NewStart)
+	}
+
+	widest := 0
+	blocks := h.ChangeBlocks()
+	prev := -1
+	for _, b := range blocks {
+		widest = max(widest, b.Start-prev-1)
+		prev = b.End
+	}
+	widest = max(widest, len(h.Lines)-prev-1)
+
+	if widest > wideGap {
+		t.Errorf("a -U20 diff leaves a run of %d uncovered lines, past wideGap=%d — it would be folded", widest, wideGap)
+	}
+	t.Logf("widest uncovered run at -U20: %d (wideGap=%d)", widest, wideGap)
+}
+
+// On a -U3 diff a hunk IS one Change Block, so the Change Block search and the whole-file search
+// cover exactly the same ground and the first tier can never answer something the second could
+// not. That is what makes re-anchoring on an ordinary diff bit-for-bit what it was.
+//
+// It stops being true at wider widths: -U10 leaves context outside the blocks, so the first tier
+// searches strictly less. Nothing that anchors is lost either way — a narrower search can only
+// find a subset — but the widths above -U3 can have an ambiguity settled where they used to go
+// outdated. Measured here rather than asserted.
+func TestChangeBlocksCoverWholeHunksAtNarrowWidth(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	dir := t.TempDir()
+	old := make([]string, 400)
+	for i := range old {
+		old[i] = fmt.Sprintf("line %d", i+1)
+	}
+	updated := slices.Clone(old)
+	for _, c := range []int{20, 100, 107, 250, 399} {
+		updated[c-1] = "CHANGED"
+	}
+	writeLines(t, filepath.Join(dir, "old.txt"), old)
+	writeLines(t, filepath.Join(dir, "new.txt"), updated)
+
+	t.Run("-U3 hunks are exactly their Change Block", func(t *testing.T) {
+		for i, h := range gitDiff(t, dir, "-U3").Hunks {
+			blocks := h.ChangeBlocks()
+			if len(blocks) != 1 || blocks[0].Start != 0 || blocks[0].End != len(h.Lines)-1 {
+				t.Errorf("hunk %d (%s) has blocks %v over %d lines, want one covering all of them",
+					i, h.Header, blocks, len(h.Lines))
+			}
+		}
+	})
+
+	t.Run("-U10 leaves context outside the blocks", func(t *testing.T) {
+		uncovered := 0
+		for _, h := range gitDiff(t, dir, "-U10").Hunks {
+			covered := 0
+			for _, b := range h.ChangeBlocks() {
+				covered += b.Len()
+			}
+			uncovered += len(h.Lines) - covered
+		}
+		if uncovered == 0 {
+			t.Error("expected -U10 to leave context outside the Change Blocks; the two searches would be identical")
+		}
+		t.Logf("-U10 leaves %d lines outside the Change Blocks", uncovered)
+	})
+}
+
+// `-W` sizes a hunk by the enclosing function rather than by a context width, so a long enough
+// function hands over a run past minCollapsedRun and it folds. Nothing is lost when that happens
+// — the rows are all still rendered and the Rendered Line Index does not move — but it is not
+// what a reader of a -W diff would expect, so the behaviour is pinned here rather than described
+// in a comment that could drift away from it.
+func TestFunctionContextCanFold(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	var lines []string
+	for f := range 2 {
+		lines = append(lines, fmt.Sprintf("func big%d() {", f))
+		for i := range 80 {
+			lines = append(lines, fmt.Sprintf("\tstep%d := %d", i, i))
+		}
+		lines = append(lines, "}", "")
+	}
+	updated := slices.Clone(lines)
+	updated[2] = "\tstep0 := 999 // edited"
+
+	dir := t.TempDir()
+	writeLines(t, filepath.Join(dir, "old.txt"), lines)
+	writeLines(t, filepath.Join(dir, "new.txt"), updated)
+
+	f := gitDiff(t, dir, "-W")
+	if !f.Hunks[0].IsFoldable() {
+		t.Fatalf("expected a -W hunk of %d lines around one edit to fold; it did not", len(f.Hunks[0].Lines))
+	}
+
+	// Folding it changes what is shown, never what is there.
+	body := renderDiffBody([]File{f})
+	if n := strings.Count(body, `class="diff-line`); n != len(f.Lines()) {
+		t.Errorf("rendered %d rows, want all %d", n, len(f.Lines()))
+	}
+	for i := 1; i <= len(f.Lines()); i++ {
+		if !strings.Contains(body, fmt.Sprintf(`data-line-index="%d"`, i)) {
+			t.Fatalf("data-line-index=%d went missing", i)
+		}
 	}
 }

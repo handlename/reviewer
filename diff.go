@@ -1,6 +1,8 @@
 package reviewer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"html"
 	"regexp"
@@ -47,9 +49,15 @@ type Line struct {
 
 // Hunk is one @@ section. Header is the raw @@ line, kept whole because its trailing section
 // heading (a function signature, usually) is the most useful context a diff carries.
+//
+// OldStart and NewStart are the first line the hunk covers on each side, read from the header.
+// They are kept because the header is the only place they appear, and a hunk that starts at
+// line 1 on both sides is the shape a whole-file diff takes.
 type Hunk struct {
-	Header string
-	Lines  []Line
+	Header   string
+	OldStart int
+	NewStart int
+	Lines    []Line
 }
 
 // File is one file's worth of diff. Paths have their a/ and b/ prefixes stripped; a side the
@@ -102,6 +110,172 @@ func (f File) Lines() []Line {
 	var out []Line
 	for _, h := range f.Hunks {
 		out = append(out, h.Lines...)
+	}
+	return out
+}
+
+// Folding a diff down to its changes, and the constants that decide how much it hides.
+const (
+	// blockContext is how many lines of context a Change Block keeps on each side of a change.
+	//
+	// It is 3 so that a Change Block is exactly a `git diff -U3` hunk. git splits two changes
+	// into separate hunks when more than 2*blockContext unchanged lines lie between them, and
+	// two blocks are left with a line between them under precisely the same condition — which
+	// is what lets re-anchoring inside a block behave as it would on the narrow diff.
+	blockContext = 3
+
+	// wideGap is the length of context run that tells the fold it may act at all.
+	//
+	// git merges two hunks only when at most 2U unchanged lines separate them, so a run of
+	// context inside one hunk is never longer than 2U, and the part of it the Change Blocks
+	// leave uncovered never longer than 2U - 2*blockContext. At 40 that arithmetic reaches
+	// U=23, so a hunk holding a run this long cannot have come from `git diff -U<n>` for any
+	// n a person would type: it carries more of the file than a diff normally shows. Finding
+	// one is the licence to fold; without it the hunk renders exactly as it always has.
+	//
+	// The reasoning is about -U alone. `git diff -W` sizes a hunk by the enclosing function
+	// and `--inter-hunk-context` by a figure of its own, so either can produce a run this long
+	// and be folded — a -W diff of a function over about 46 lines is. Nothing is lost when that
+	// happens: every row is still in the document, the Rendered Line Index does not move, and
+	// the run opens in one click. It is only not what the reader of a -W diff would expect.
+	wideGap = 40
+
+	// minCollapsedRun is the longest run the fold leaves alone once it has licence to act.
+	//
+	// It is small because the point of folding is to leave the reader what a `git diff -U3`
+	// would have shown, and -U3 elides every gap over 2*blockContext. Keeping it at the size of
+	// wideGap instead would leave up to 40 lines of untouched context around every change —
+	// the very burying the fold exists to undo. It is not 0 only because hiding a handful of
+	// lines behind a control that is itself a line saves nobody anything.
+	minCollapsedRun = 8
+)
+
+// Block is a run of one hunk's lines, as 0-based inclusive indices into Hunk.Lines.
+type Block struct {
+	Start int
+	End   int
+}
+
+// Len is how many lines the block covers.
+func (b Block) Len() int { return b.End - b.Start + 1 }
+
+// ChangeBlocks returns the runs of lines the hunk shows by default: every changed line, plus
+// blockContext lines of context on each side, with runs that overlap or touch merged into one.
+//
+// Blocks separated by even a single uncovered line stay separate, because that is where git
+// -U3 splits a hunk, and reproducing its geometry exactly is the whole point (see blockContext).
+//
+// A meta line ("\ No newline at end of file") is not a change and cannot anchor a block, but it
+// is meaningless on its own, so it inherits the visibility of the line it annotates: a block
+// ending on that line is stretched to cover it.
+func (h Hunk) ChangeBlocks() []Block {
+	var blocks []Block
+	for i, l := range h.Lines {
+		if l.Kind != LineAdd && l.Kind != LineDelete {
+			continue
+		}
+		b := Block{
+			Start: max(0, i-blockContext),
+			End:   min(len(h.Lines)-1, i+blockContext),
+		}
+		blocks = appendMerged(blocks, b)
+	}
+	for i := range blocks {
+		for blocks[i].End+1 < len(h.Lines) && h.Lines[blocks[i].End+1].Kind == LineMeta {
+			blocks[i].End++
+		}
+	}
+	// Stretching for a meta line can make two blocks touch, so merge once more. Doing it here
+	// rather than inside the loop keeps the -U3 geometry the loop produces intact.
+	var merged []Block
+	for _, b := range blocks {
+		merged = appendMerged(merged, b)
+	}
+	return merged
+}
+
+// appendMerged adds b to blocks, folding it into the last one when they overlap or touch.
+// Blocks arrive in ascending order of Start, which is what makes looking only at the last
+// one enough.
+func appendMerged(blocks []Block, b Block) []Block {
+	if n := len(blocks); n > 0 && b.Start <= blocks[n-1].End+1 {
+		if b.End > blocks[n-1].End {
+			blocks[n-1].End = b.End
+		}
+		return blocks
+	}
+	return append(blocks, b)
+}
+
+// CollapsedRuns returns the runs of lines the fold hides by default.
+//
+// Two things have to hold. The hunk must carry a run longer than wideGap, which is what says it
+// holds more of the file than an ordinary diff would show — the licence to fold at all. Then
+// each run longer than minCollapsedRun is hidden, which leaves the reader roughly what a
+// `git diff -U3` would have shown.
+func (h Hunk) CollapsedRuns() []Block {
+	gaps := h.uncoveredRuns()
+
+	// Nothing folds unless one gap is long enough to prove the hunk carries more of the file
+	// than any ordinary `git diff -U<n>` would have shown. Without that proof the hunk renders
+	// as it always has, however many lines it happens to hold.
+	widest := 0
+	for _, g := range gaps {
+		widest = max(widest, g.Len())
+	}
+	if widest <= wideGap {
+		return nil
+	}
+
+	var runs []Block
+	for _, g := range gaps {
+		if g.Len() > minCollapsedRun {
+			runs = append(runs, g)
+		}
+	}
+	return runs
+}
+
+// uncoveredRuns returns what the Change Blocks leave out, in order. A hunk with no change at
+// all yields nothing: there is no block to fold away from, and hiding the whole hunk would take
+// its @@ header with it and leave the gap unmarked.
+func (h Hunk) uncoveredRuns() []Block {
+	blocks := h.ChangeBlocks()
+	if len(blocks) == 0 {
+		return nil
+	}
+	var gaps []Block
+	prev := -1
+	for _, b := range blocks {
+		if b.Start > prev+1 {
+			gaps = append(gaps, Block{Start: prev + 1, End: b.Start - 1})
+		}
+		prev = b.End
+	}
+	if prev+1 < len(h.Lines) {
+		gaps = append(gaps, Block{Start: prev + 1, End: len(h.Lines) - 1})
+	}
+	return gaps
+}
+
+// IsFoldable reports whether the hunk has anything to fold. Everything that depends on the
+// fold — the expanders, the suppressed @@ header, the cap on how much one comment may select —
+// keys off this rather than off any guess about how the diff was generated.
+func (h Hunk) IsFoldable() bool { return len(h.CollapsedRuns()) > 0 }
+
+// ChangeBlocks returns the file's Change Blocks in the coordinates a comment anchor uses: the
+// 1-based Rendered Line Index, counting every rendered line of every hunk and no headers.
+//
+// Re-anchoring needs them in this form to tell whether a comment sits in a block at all, which
+// is what decides if the narrow-diff search rule may speak for it.
+func (f File) ChangeBlocks() []Block {
+	var out []Block
+	base := 0
+	for _, h := range f.Hunks {
+		for _, b := range h.ChangeBlocks() {
+			out = append(out, Block{Start: base + b.Start + 1, End: base + b.End + 1})
+		}
+		base += len(h.Lines)
 	}
 	return out
 }
@@ -199,7 +373,7 @@ func ParseUnifiedDiff(content []byte) ([]File, error) {
 			m := hunkHeaderRegex.FindStringSubmatch(line)
 			oldNo, _ = strconv.Atoi(m[1])
 			newNo, _ = strconv.Atoi(m[3])
-			cur.Hunks = append(cur.Hunks, Hunk{Header: line})
+			cur.Hunks = append(cur.Hunks, Hunk{Header: line, OldStart: oldNo, NewStart: newNo})
 			hunk = &cur.Hunks[len(cur.Hunks)-1]
 
 		case hunk == nil:
@@ -416,12 +590,28 @@ func renderDiffBody(files []File) string {
 		}
 		index := 0
 		for _, h := range f.Hunks {
-			b.WriteString(`<div class="diff-hunk">` + "\n")
-			b.WriteString(`<div class="diff-hunk-header">` + html.EscapeString(h.Header) + "</div>\n")
+			base := index
+			runs := h.CollapsedRuns()
+			hunkAttrs := ""
+			if len(runs) > 0 {
+				hunkAttrs = " data-foldable"
+			}
+			b.WriteString(`<div class="diff-hunk"` + hunkAttrs + ">\n")
+			// The @@ header is dropped only for a file that is one foldable hunk, where it reads
+			// "@@ -1,500 +1,502 @@" and says nothing. Several hunks mean the diff really does skip
+			// lines between them, and that gap has to stay marked — unmarked, it would read as
+			// something an expander could open.
+			if len(f.Hunks) > 1 || len(runs) == 0 {
+				b.WriteString(`<div class="diff-hunk-header">` + html.EscapeString(h.Header) + "</div>\n")
+			}
 			wsOnly := whitespaceOnlyMask(h.Lines)
+			collapsed := collapsedMask(len(h.Lines), runs)
 			for i, l := range h.Lines {
+				if r, ok := runBeginningAt(runs, i); ok {
+					b.WriteString(renderExpander(path, h, r, base) + "\n")
+				}
 				index++
-				b.WriteString(renderDiffLine(path, index, l, wsOnly[i]) + "\n")
+				b.WriteString(renderDiffLine(path, index, l, wsOnly[i], collapsed[i]) + "\n")
 			}
 			b.WriteString("</div>\n")
 		}
@@ -468,7 +658,7 @@ var lineKindMarker = map[LineKind]string{
 // The single line-number column shows each line's number on its own side — the old file's for a
 // deletion, the new file's otherwise — because a deletion has no number on the new side and a
 // blank there would hide which line the comment is about.
-func renderDiffLine(path string, index int, l Line, wsOnly bool) string {
+func renderDiffLine(path string, index int, l Line, wsOnly, collapsed bool) string {
 	no := ""
 	noClass := "diff-no"
 	switch {
@@ -487,17 +677,101 @@ func renderDiffLine(path string, index int, l Line, wsOnly bool) string {
 		ws = " data-ws-only"
 	}
 
+	// data-collapsed follows the same rule as data-ws-only: the row stays in the DOM and CSS
+	// decides whether it shows, so every data-line-index holds still and the comments anchored
+	// to them survive being folded away and opened again.
+	fold := ""
+	if collapsed {
+		fold = " data-collapsed"
+	}
+
 	return fmt.Sprintf(
-		`<div class="diff-line %s" data-file="%s" data-line-index="%d"%s><span class="%s">%s</span><span class="diff-marker">%s</span><span class="diff-code">%s</span></div>`,
+		`<div class="diff-line %s" data-file="%s" data-line-index="%d"%s%s><span class="%s">%s</span><span class="diff-marker">%s</span><span class="diff-code">%s</span></div>`,
 		lineKindClass[l.Kind],
 		html.EscapeString(path),
 		index,
 		ws,
+		fold,
 		noClass,
 		no,
 		lineKindMarker[l.Kind],
 		html.EscapeString(l.Content),
 	)
+}
+
+// collapsedMask marks, for each line of one hunk, whether it starts out folded away.
+func collapsedMask(n int, runs []Block) []bool {
+	mask := make([]bool, n)
+	for _, r := range runs {
+		for i := r.Start; i <= r.End; i++ {
+			mask[i] = true
+		}
+	}
+	return mask
+}
+
+func runBeginningAt(runs []Block, i int) (Block, bool) {
+	for _, r := range runs {
+		if r.Start == i {
+			return r, true
+		}
+	}
+	return Block{}, false
+}
+
+// renderExpander emits the control that opens a Collapsed Run.
+//
+// One per run, carrying both directions. A run can be opened from its top or from its bottom,
+// but a control at each end would be two bars stacked on top of each other: everything between
+// them is folded away by definition, so the two ends are always adjacent on screen no matter how
+// much of the run is open.
+//
+// The page keeps the bar against the first line still folded. It moves the bar; it never moves a
+// .diff-line, which is what keeps the Rendered Line Index still.
+func renderExpander(path string, h Hunk, r Block, base int) string {
+	attrs := fmt.Sprintf(
+		`class="diff-expander" data-file="%s" data-run-start="%d" data-run-end="%d" data-run-key="%s"`,
+		html.EscapeString(path),
+		base+r.Start+1,
+		base+r.End+1,
+		runKey(path, h, r),
+	)
+	return `<div ` + attrs + `><button type="button" class="diff-expander-button" data-expand="down" aria-label="Show the lines below">&#8595;</button>` +
+		`<button type="button" class="diff-expander-button" data-expand="up" aria-label="Show the lines above">&#8593;</button>` +
+		fmt.Sprintf(`<span class="diff-expander-count">%d hidden lines</span>`, r.Len()) +
+		`<button type="button" class="diff-expander-fold" data-expand="fold" aria-label="Hide these lines again" hidden>` + foldIcon + `</button></div>`
+}
+
+// foldIcon is two chevrons closing on each other, which is what folding the run does. An arrow
+// pointing both ways says "this moves" rather than "this shuts", and read next to the ↓ and ↑
+// that open the run it looked like a third way to open it.
+const foldIcon = `<svg class="diff-expander-icon" viewBox="0 0 14 12" aria-hidden="true">` +
+	`<path d="M2.5 2 L7 4 L11.5 2"/><path d="M2.5 10 L7 8 L11.5 10"/></svg>`
+
+// runKey identifies a Collapsed Run by the text around it rather than by where it falls.
+//
+// Rendered Line Index moves every time the agent regenerates the diff — which is exactly when
+// a reader's expansion has to be restored — so the index cannot name the run. The lines on
+// either side of it can: they are the edges of the Change Blocks the run separates, and they
+// only move if someone edits them. A run at the start or end of a file simply has fewer
+// neighbours, and the missing side counts as empty.
+func runKey(path string, h Hunk, r Block) string {
+	parts := []string{path, strconv.Itoa(r.Len())}
+	for i := r.Start - blockContext; i < r.Start; i++ {
+		parts = append(parts, lineContentAt(h, i))
+	}
+	for i := r.End + 1; i <= r.End+blockContext; i++ {
+		parts = append(parts, lineContentAt(h, i))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:8])
+}
+
+func lineContentAt(h Hunk, i int) string {
+	if i < 0 || i >= len(h.Lines) {
+		return ""
+	}
+	return h.Lines[i].Content
 }
 
 // whitespaceOnlyMask marks, for each line of one hunk, whether its change is whitespace-only —

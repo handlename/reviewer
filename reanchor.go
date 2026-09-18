@@ -50,22 +50,76 @@ func ReAnchor(prevStart, prevEnd int, anchorLines []string, file File) (start, e
 		}
 	}
 
-	// The search never crosses a hunk: lines on either side of a @@ header are far apart in the
-	// real file, so a "match" spanning one would be an accident of rendering, not the same code.
-	var matches []int
-	base := 0
-	for _, h := range file.Hunks {
-		for i := 0; i+len(anchorLines) <= len(h.Lines); i++ {
-			if matchesAt(h.Lines, i, anchorLines) {
-				matches = append(matches, base+i+1) // file-wide, 1-based
-			}
+	// Rule 2a: the Change Blocks alone, which is the same ground a `git diff -U3` of the same
+	// change would have offered. A whole-file diff carries hundreds of lines the narrow diff
+	// never showed, and a short anchor — "}", "return nil" — meets its twin among them and goes
+	// outdated where the narrow diff would have placed it. Searching the blocks first gives that
+	// comment the answer the narrow diff would have given it.
+	//
+	// Only a comment written inside a block gets this. One written on a line the narrow diff
+	// never showed has no such answer to borrow, and preferring the changed region for it would
+	// move it hundreds of lines to code it was never about.
+	if inChangeBlock(file, prevStart, prevEnd) {
+		if matches := searchChangeBlocks(file, anchorLines); len(matches) == 1 {
+			return matches[0], matches[0] + len(anchorLines) - 1, true
 		}
-		base += len(h.Lines)
 	}
+
+	// Rule 2b: the whole file, unchanged. Every match rule 2a can find is a match this finds at
+	// the same place, so a comment that anchors today anchors to the same lines here.
+	matches := searchHunks(file, anchorLines)
 	if len(matches) != 1 {
 		return 0, 0, false
 	}
 	return matches[0], matches[0] + len(anchorLines) - 1, true
+}
+
+// searchHunks returns every place the lines occur, as file-wide 1-based Rendered Line Indices.
+//
+// The search never crosses a hunk: lines on either side of a @@ header are far apart in the
+// real file, so a "match" spanning one would be an accident of rendering, not the same code.
+func searchHunks(file File, want []string) []int {
+	var matches []int
+	base := 0
+	for _, h := range file.Hunks {
+		for i := 0; i+len(want) <= len(h.Lines); i++ {
+			if matchesAt(h.Lines, i, want) {
+				matches = append(matches, base+i+1)
+			}
+		}
+		base += len(h.Lines)
+	}
+	return matches
+}
+
+// searchChangeBlocks is searchHunks restricted to the Change Blocks. A match has to fit inside
+// one block, so what it finds is always a subset of what searchHunks finds, at the same indices.
+func searchChangeBlocks(file File, want []string) []int {
+	var matches []int
+	base := 0
+	for _, h := range file.Hunks {
+		for _, b := range h.ChangeBlocks() {
+			lines := h.Lines[b.Start : b.End+1]
+			for i := 0; i+len(want) <= len(lines); i++ {
+				if matchesAt(lines, i, want) {
+					matches = append(matches, base+b.Start+i+1)
+				}
+			}
+		}
+		base += len(h.Lines)
+	}
+	return matches
+}
+
+// inChangeBlock reports whether a range lies wholly inside one Change Block, which is what
+// decides if the narrow-diff rule may speak for the comment anchored there.
+func inChangeBlock(file File, start, end int) bool {
+	for _, b := range file.ChangeBlocks() {
+		if start >= b.Start && end <= b.End {
+			return true
+		}
+	}
+	return false
 }
 
 // locateInHunk maps a file-wide 1-based range onto the hunk that wholly contains it, returning
@@ -126,16 +180,16 @@ func ResolveQuote(quote string, files []File) (anchor string, lines []string, ok
 		return "", nil, false
 	}
 
+	// Inside one file the Change Blocks are read first: a passage that occurs both in the changed
+	// code and somewhere in the context far from it is almost always quoted for the change. The
+	// files themselves stay in order — searching every file's blocks before any file's context
+	// would move an anchor into a different file, which is not what "the first occurrence" means.
 	for _, f := range files {
-		base := 0
-		for _, h := range f.Hunks {
-			for i := 0; i+len(want) <= len(h.Lines); i++ {
-				if matchesAt(h.Lines, i, want) {
-					start := base + i + 1 // file-wide, 1-based
-					return FormatDiffAnchor(f.DisplayPath(), start, start+len(want)-1), want, true
-				}
+		for _, matches := range [][]int{searchChangeBlocks(f, want), searchHunks(f, want)} {
+			if len(matches) > 0 {
+				start := matches[0]
+				return FormatDiffAnchor(f.DisplayPath(), start, start+len(want)-1), want, true
 			}
-			base += len(h.Lines)
 		}
 	}
 	return "", nil, false
