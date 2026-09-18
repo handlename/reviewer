@@ -11,6 +11,7 @@ reviewer is a spec-to-readable HTML compiler and review server.
 - Compiling Markdown to styled HTML documents
 - Reviewing unified diffs, detected from the file's content — no flag, no separate subcommand
 - Folding away whitespace-only changes in a diff, toggled from the contents rail
+- Folding away the context a whole-file diff carries, with a control to open it a screenful at a time
 - Interactive local review server
 - Gutter commenting on specific block elements, and on line ranges or whole files of a diff
 - Comments that follow their lines into the next round, by content rather than by line number
@@ -32,9 +33,13 @@ Both commands take either a Markdown document or a unified diff; which one it is
 the file's content:
 
 ```console
-$ git diff > /tmp/review.diff
+$ git diff --unified=100000 > /tmp/review.diff
 $ reviewer serve /tmp/review.diff
 ```
+
+`--unified=100000` carries the whole of every changed file, and the page folds the context away
+and offers to open it a screenful at a time. A plain `git diff` works exactly as before; it just
+has no surrounding lines to open.
 
 ## Installation
 
@@ -63,12 +68,13 @@ it, opens the browser, and exposes four tools.
 | `review_reply` | Reply in each comment's thread — asking a question if you need one — open threads of your own, summarise the round, then wait for the next submit and return it. |
 | `review_progress` | Report the agent's current activity, live, on the review page. |
 
-An agent can have its **own change** reviewed the same way: write `git diff` to a temporary file
-and open that. Comments then come back anchored to line ranges (`<path>#<start>-<end>`, positions
+An agent can have its **own change** reviewed the same way: write `git diff --unified=100000` to a
+temporary file and open that. Comments then come back anchored to line ranges (`<path>#<start>-<end>`, positions
 among the rendered diff lines — not source line numbers) or to whole files (`<path>#file`), with
 the exact text of the anchored lines in `anchorLines`, and may carry a ` ```suggestion ` block to
-apply. Regenerate the diff into the same file each round: comments follow their lines by content,
-and only go `outdated` when those lines are gone.
+apply. Regenerate the diff into the same file each round, at the same width: comments follow their
+lines by content, and only go `outdated` when those lines are gone — but changing the width
+between rounds renumbers every rendered line and loses them.
 
 The loop is: `review_start`, then `review_wait`, edit the document, `review_reply` — which
 replies **and waits**, so it hands back the next round and the loop closes on itself. Both waiting

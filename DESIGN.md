@@ -115,6 +115,41 @@ which branches on `SpecMetadata.Mode`.
   follows it, and only when both runs are the same length and every row matches with whitespace
   stripped. Unequal runs fold nothing — the pairing they imply is guesswork, and a wrong fold hides
   a real edit.
+* **The context is folded, not dropped**:
+  A diff written with `--unified=100000` carries every line of every changed file, which is what
+  lets the page offer the lines around a change without reviewer reading the working tree or
+  running git. `ChangeBlocks` derives what to show — each changed line plus three lines either
+  side, merged when they overlap or touch — and `CollapsedRuns` returns what is left over. All the
+  rows are rendered and the page hides them in CSS, for the same reason whitespace-only pairs are
+  marked rather than removed: dropping them would renumber every line after the fold and orphan
+  the comments anchored to them.
+
+  Two separate questions decide what is hidden, and conflating them is what made an early cut of
+  this show far too much. **May this hunk fold at all?** Only if it holds a gap longer than 40
+  lines. git merges two hunks only when at most 2U unchanged lines separate them, so a run of
+  context inside one hunk is never longer than 2U, and the part the Change Blocks leave uncovered
+  never longer than 2U − 6 — 34 at `-U20`, reaching 40 at `-U23`. A gap past that cannot have come
+  from `git diff -U<n>` at any width a person would type, so finding one is proof the hunk carries
+  more of the file than a diff normally shows. Nothing folds at any `-U` width through `-U23`, and
+  that is arithmetic rather than a guess about how the diff was made — which also leaves nothing
+  to detect and no flag to pass.
+
+  **Then which of its gaps fold?** Every one longer than 8 lines, which leaves the reader roughly
+  what a `git diff -U3` would have shown. Using 40 for this second question as well — as the first
+  cut did — leaves up to 40 lines of untouched context around every change, which is the burying
+  the fold exists to undo.
+
+  The reasoning covers `-U` and nothing else. `git diff -W` sizes a hunk by the enclosing function
+  and `--inter-hunk-context` by a figure of its own, so either can produce a gap past 40 and be
+  folded: a `-W` diff of a function longer than about 46 lines is. Nothing breaks when it does —
+  every row is still in the document, no Rendered Line Index moves, and the run opens in one
+  click — but it is not what the reader of a `-W` diff would expect, so it is written down rather
+  than guarded against.
+
+  The `@@` header is dropped only for a file that is a single foldable hunk, where it reads
+  `@@ -1,500 +1,502 @@` and carries nothing. Several hunks mean the diff really does skip lines
+  between them, and that gap has to stay marked or it reads as something an expander could open.
+
 * **Own parser, kept swappable**:
   The display-oriented shape a review page needs (line kind, both-side numbers, file boundaries,
   a stable per-file line index) ends up hand-written whichever library is used. It is plain
@@ -550,8 +585,10 @@ lines change kind as fixes land elsewhere. Comments are therefore located again 
 
 1. **Short circuit** — if the recorded range still holds exactly that content, keep it and do not
    search.
-2. **Search** — otherwise scan the file. Exactly one match moves the comment; zero or several
-   leave it `outdated`.
+2. **Search the Change Blocks** — for a comment whose anchor lies inside one, scan the Change
+   Blocks alone. Exactly one match moves it.
+3. **Search the file** — otherwise scan the whole file. Exactly one match moves the comment; zero
+   or several leave it `outdated`.
 
 Matching compares `Line.Content` only, never `Line.Kind`: a line that was `+foo` in one round and
 ` foo` in the next — which happens constantly as a side effect of the agent fixing something
@@ -559,6 +596,17 @@ upstream — is the same line to the reader, and to the comment. The search neve
 and rule 1 checks inside the hunk too, so both obey the same boundary. A whole-file anchor has no
 lines to match and follows the file itself: it survives any amount of editing and goes outdated
 only when the file leaves the diff.
+
+**Rule 2 is staged because a whole-file diff is a wider haystack.** It hands the search hundreds of
+lines the narrow diff never showed, so `}` finds its twin among them and the comment goes outdated
+where a `git diff -U3` would have placed it. A Change Block *is* a `-U3` hunk — that is what
+`blockContext = 3` buys — so searching the blocks first returns what the narrow diff would have
+returned, rather than a guess. It is offered only to a comment whose anchor lies inside a block: one
+written on a folded line has no narrow-diff answer to borrow, and preferring the changed region for
+it would walk it hundreds of lines to code it was never about, quietly, and for keeps once the page
+posts the result back. Because a match must fit inside the range being searched, and a block is part
+of a hunk, every match the block search finds the file search finds at the same place — so nothing
+that anchors today stops anchoring.
 
 **Rule 1 is not an optimisation.** Searching by content alone would send most single-line comments
 outdated on the very first reload with the diff byte-for-byte unchanged: `}`, a blank line,
