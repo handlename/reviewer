@@ -483,6 +483,31 @@
             transition: border-color 0.18s;
         }
         .composer:focus-within { border-color: var(--accent-color); }
+        /* The composer is a card in the list, so it must not be squashed by the flex column the
+           way a card with less content can be. Hidden by class rather than an inline style: a
+           layout state written inline would outrank the stylesheet (AGENTS.md §9). */
+        .composer-block { flex-shrink: 0; }
+        .composer-block.is-idle { display: none; }
+        /* A control of the Reply Control's kind (§5.7): text-weight until wanted, so a panel with
+           nothing being written carries no input and no button that looks like one. */
+        .document-comment-btn {
+            display: block;
+            width: 100%;
+            margin-bottom: 0.85rem;
+            padding: 0.2rem 0;
+            background: none;
+            border: none;
+            text-align: left;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.66rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            transition: color 0.18s;
+        }
+        .document-comment-btn:hover { color: var(--text-secondary); }
+        .document-comment-btn.is-hidden { display: none; }
         .composer textarea {
             width: 100%;
             background: transparent;
@@ -494,8 +519,9 @@
             line-height: 1.5;
             outline: none;
             min-height: 96px;
-            /* Grown to fit its content from JS. The ceiling keeps the buttons below it
-               on screen; past it the textarea scrolls instead of pushing them off. */
+            /* Grown to fit its content from JS. The ceiling keeps the composer from filling
+               the panel now that it sits inside the scrolling comment list; past it the
+               textarea scrolls instead of pushing the cards around it out of reach. */
             max-height: 50vh;
             overflow-y: auto;
         }
@@ -1791,21 +1817,25 @@
 
             <button type="button" class="pending-questions" id="pendingQuestions" style="display: none;"></button>
 
-            <div id="commentContextContainer" style="display: none; font-size: 0.8rem; background: var(--bg-primary); padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 0.5rem;">
-                <span style="font-weight: 600; color: var(--accent-color);">Target:</span>
-                <span id="commentContextText" style="color: var(--text-primary); margin-left: 0.25rem; display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;"></span>
-                <span id="clearContextBtn" style="float: right; cursor: pointer; color: var(--badge-must); font-weight: bold; font-size: 1.1rem; line-height: 1;" title="Clear targeting">&times;</span>
-            </div>
-            <div class="composer">
-                <textarea id="composerInput" placeholder="Type a comment or request changes..."></textarea>
-            </div>
-            <div id="suggestionActions" style="display: none;">
-                <button class="btn-sm btn-cancel" id="quoteLinesBtn" title="Insert the selected lines as a ```suggestion block">Quote lines as suggestion</button>
-            </div>
-            <button class="btn" id="addCommentBtn">Add Comment</button>
+            <button type="button" class="document-comment-btn" id="documentCommentBtn">Comment on this document</button>
             
             <div id="commentsList" style="margin-top: 1rem; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
                 <!-- Comments appear here -->
+            </div>
+
+            <!-- The composer is a card in the panel's order rather than a fixture of the panel:
+                 renderComments moves this node to the slot the Comment Card it produces will
+                 take, and parks it back here, hidden, whenever nothing is being composed. It is
+                 parked OUTSIDE the list because a hidden node inside it would shift the child
+                 indices the order is read from. -->
+            <div id="composerBlock" class="composer-block is-idle">
+                <div class="composer">
+                    <textarea id="composerInput" placeholder="Type a comment or request changes..."></textarea>
+                </div>
+                <div id="suggestionActions" style="display: none;">
+                    <button class="btn-sm btn-cancel" id="quoteLinesBtn" title="Insert the selected lines as a ```suggestion block">Quote lines as suggestion</button>
+                </div>
+                <button class="btn" id="addCommentBtn">Add Comment</button>
             </div>
             
             <div class="agent-activity" id="agentActivity" style="display: none;">
@@ -1832,6 +1862,11 @@
             // narrow-viewport media query has to be able to hide it again, and an inline
             // display would outrank it.
             document.body.classList.add("is-served");
+            const docBtn = document.getElementById("documentCommentBtn");
+            if (docBtn) {
+                docBtn.textContent = document.body.classList.contains("diff-review")
+                    ? "Comment on this diff" : "Comment on this document";
+            }
         }
 
         let comments = [];
@@ -1847,6 +1882,18 @@
         // Which turn of which thread is being edited, as {idx, mi} — a message needs both
         // coordinates, so it cannot ride the single index the head comment uses.
         let editingMsg = null;
+        // A comment about the document or the diff as a whole is being written. Separate from
+        // activeAnchor, which names a target: this one is the state of having none on purpose.
+        let documentComposing = false;
+        // The composer's target does not resolve in the document any more, so it sorts to the end
+        // and says so, the way a card that lost its anchor does.
+        let composerUnplaced = false;
+        // Focus belongs to the action that opened an input, not to the render. Set by startReply
+        // and the two edit starters, consumed by the claimant whose own claim it is, and expired
+        // at the end of the render's tick so an unconsumed claim cannot leak into the next one.
+        // Without an owner the three deferred claimants take focus one tick after the render has
+        // restored it, pulling the caret out of a draft the reader is still typing into.
+        let pendingFocusClaim = null;
         let activeAnchor = "";
         let activeContext = "";
         // Diff mode only: the exact content of the lines being commented on. It travels with the
@@ -1864,8 +1911,18 @@
         // growth, so the height is only ever set up to that ceiling.
         function autoGrowTextarea(el) {
             if (!el) return;
+            // A box that is not rendered measures zero, and writing that zero back leaves an
+            // inline height: 0 on it for the next time it is shown. The composer is hidden
+            // whenever nothing is being composed, so this is reached on every idle render.
+            if (el.offsetParent === null) return;
             el.style.height = "auto";
             el.style.height = el.scrollHeight + "px";
+            // Growing a box in the panel moves every card below it, and the connector line has to
+            // follow. This lives here rather than on the input handler because two of the ways a
+            // box grows never reach one: quoteLines inserts a fence without dispatching an input
+            // event, and the deferred grows run after the render has already reconciled. The
+            // refresh is rAF-coalesced, so a keystroke costs at most one frame.
+            scheduleConnectorRefresh();
         }
 
         // Tag commentable elements on load
@@ -2057,9 +2114,10 @@
         // of which is then carried in the sidecar and handed to the agent.
         const SELECTION_CAP = 200;
 
-        // Returns whether the target was taken. It can refuse, and the callers have to look:
-        // refusing while they go on to focus the composer would leave the previous target armed
-        // and file the next comment against lines the reader never chose.
+        // Returns whether the target was taken. A refusal changes nothing: it returns before
+        // activeAnchor is touched and before the composer is opened, so the previous target
+        // survives intact. The caller still has to look, because only a line the page actually
+        // took may arm targetFrom for the next Shift+click.
         function setDiffCommentTarget(fromEl, toEl) {
             if (fromEl.parentElement !== toEl.parentElement) return false;
 
@@ -2084,6 +2142,7 @@
             clearRangeSelection();
             els.forEach(el => el.classList.add("range-selected"));
 
+            setDocumentComposing(false);
             activeAnchor = formatDiffAnchor(path, start, end);
             activeAnchorLines = els.map(lineCode);
             activeContext = diffContextPreview(path, start, end, activeAnchorLines[0] || "");
@@ -2091,14 +2150,9 @@
             applyDiffAnchors();
             els.forEach(el => el.classList.add("active-comment-target"));
 
-            document.getElementById("commentContextText").textContent = activeContext;
-            document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("suggestionActions").style.display = "block";
 
-            clearConnectorMarks();
-            connector = { kind: "compose", anchor: activeAnchor };
-            hoverAnchor = null;
-            drawConnector(connector, true);
+            openComposer(activeAnchor);
             return true;
         }
 
@@ -2132,6 +2186,7 @@
             document.querySelectorAll(".active-comment-target").forEach(el => el.classList.remove("active-comment-target"));
             clearRangeSelection();
 
+            setDocumentComposing(false);
             activeAnchor = formatDiffFileAnchor(path);
             activeAnchorLines = [];
             activeContext = path.length > 60 ? path.substring(0, 57) + "..." : path;
@@ -2139,14 +2194,9 @@
             applyDiffAnchors();
             header.classList.add("active-comment-target");
 
-            document.getElementById("commentContextText").textContent = activeContext;
-            document.getElementById("commentContextContainer").style.display = "block";
             document.getElementById("suggestionActions").style.display = "none";
 
-            clearConnectorMarks();
-            connector = { kind: "compose", anchor: activeAnchor };
-            hoverAnchor = null;
-            drawConnector(connector, true);
+            openComposer(activeAnchor);
         }
 
         function diffContextPreview(path, start, end, firstLine) {
@@ -2437,11 +2487,10 @@
                 // over on the way is not what was asked for: drop it and take the range.
                 if (e.shiftKey && line && targetFrom && targetFrom.parentElement === line.parentElement) {
                     window.getSelection().removeAllRanges();
-                    // Only focus the composer if the range was actually taken. The text selection
-                    // is already gone by now, so going on regardless would leave the composer
-                    // armed with whatever single line was targeted before — and the comment the
-                    // reader then writes would be filed against that instead.
-                    if (setDiffCommentTarget(targetFrom, line)) focusComposer();
+                    // A refused range opens nothing: setDiffCommentTarget returns before it
+                    // reaches the composer, so the previous target is left exactly as it was
+                    // rather than being armed with a range the reader never got.
+                    setDiffCommentTarget(targetFrom, line);
                     return;
                 }
 
@@ -2451,7 +2500,6 @@
                 const header = e.target.closest(".diff-file-header");
                 if (header) {
                     setDiffFileCommentTarget(header);
-                    focusComposer();
                     return;
                 }
 
@@ -2464,10 +2512,7 @@
 
                 // Only a line the page actually took can anchor the next Shift+click. Arming it
                 // from a refused one would extend a range out of a line the reader never chose.
-                if (setDiffCommentTarget(line, line)) {
-                    targetFrom = line;
-                    focusComposer();
-                }
+                if (setDiffCommentTarget(line, line)) targetFrom = line;
             });
 
             // Hovering a commented line previews its connector, the same way hovering a Markdown
@@ -2489,12 +2534,6 @@
             });
             container.addEventListener("mouseleave", () => { if (hoverAnchor) unhoverConnector(); });
 
-            // preventScroll keeps the panel from jumping the page while the eye is still on the
-            // line that was just picked.
-            function focusComposer() {
-                if (!activeAnchor) return;
-                document.getElementById("composerInput").focus({ preventScroll: true });
-            }
         }
 
         // Quote the selected lines into the comment box as a ```suggestion fence. Only ever on
@@ -2523,6 +2562,7 @@
                 el.classList.remove('active-comment-target');
             });
 
+            setDocumentComposing(false);
             activeAnchor = anchorId;
             // Shorten context snippet and collapse consecutive whitespaces/newlines to a single space
             activeContext = text.trim().replace(/\s+/g, ' ');
@@ -2535,16 +2575,7 @@
                 targetEl.classList.add('active-comment-target');
             }
 
-            const contextText = document.getElementById("commentContextText");
-            contextText.textContent = activeContext;
-            document.getElementById("commentContextContainer").style.display = "block";
-            document.getElementById("composerInput").focus();
-
-            // Draw a connector from the targeted element to the comment input box.
-            clearConnectorMarks();
-            connector = { kind: "compose", anchor: anchorId };
-            hoverAnchor = null;
-            drawConnector(connector, true);
+            openComposer(anchorId);
         }
 
         // Clear active target
@@ -2555,19 +2586,38 @@
             activeAnchor = "";
             activeContext = "";
             activeAnchorLines = [];
+            setDocumentComposing(false);
             clearRangeSelection();
             applyDiffAnchors();
             const suggestionActions = document.getElementById("suggestionActions");
             if (suggestionActions) suggestionActions.style.display = "none";
-            document.getElementById("commentContextContainer").style.display = "none";
 
             if (connector && connector.kind === "compose") {
                 connector = null;
                 clearConnectorSvg();
             }
+
+            // The composer only leaves the screen when the panel is redrawn, so clearing the
+            // target has to ask for that redraw: otherwise an empty box stays sitting among the
+            // cards, in the slot of a comment nobody is writing any more.
+            renderComments();
         }
 
-        document.getElementById("clearContextBtn").addEventListener("click", clearCommentTarget);
+        function setDocumentComposing(on) {
+            documentComposing = on;
+            const btn = document.getElementById("documentCommentBtn");
+            if (btn) btn.classList.toggle("is-hidden", on);
+        }
+
+        // A comment about the document as a whole. The target is cleared FIRST and deliberately:
+        // the submit handler reads activeAnchor, not this flag, so a block clicked a moment ago
+        // would otherwise file an "About this document" comment under that block's anchor.
+        document.getElementById("documentCommentBtn").addEventListener("click", () => {
+            clearCommentTarget();
+            setDocumentComposing(true);
+            openComposer();
+        });
+
         document.getElementById("quoteLinesBtn").addEventListener("click", quoteLines);
 
         // Fetch existing comments on load. The server returns {comments, summary}.
@@ -2974,7 +3024,12 @@
                 dropConnector();
                 return;
             }
-            clearCommentTarget();       // drop any compose state / line first
+            // Drop the compose state only when there is nothing to lose. A card click used to
+            // clear the target outright, which was harmless while the composer was a fixture with
+            // its text still on screen; now it would hide a half-written comment. The draft, its
+            // target and its place in the panel all stay, and the selection simply takes the
+            // overlay for as long as it is up.
+            if (!composerHasDraft()) clearCommentTarget();
             clearConnectorMarks();
             connector = { kind: "selected", anchor, idx };
             hoverAnchor = null;
@@ -2990,10 +3045,23 @@
             }
         }
 
+        function composerHasDraft() {
+            const input = document.getElementById("composerInput");
+            return !!input && input.value.trim() !== "";
+        }
+
+        // Dropping a selection is a transition, not just a teardown: if a comment is still being
+        // written against a target, the line goes back to saying so. Guarded on activeAnchor
+        // rather than on composing at all, because a document-level draft has no line to draw and
+        // a connector standing for no line would suppress every hover preview for nothing.
         function dropConnector() {
             connector = null;
             clearConnectorMarks();
             clearConnectorSvg();
+            if (activeAnchor) {
+                connector = { kind: "compose", anchor: activeAnchor };
+                drawConnector(connector, false);
+            }
         }
 
         // A preview is drawn only while nothing is selected AND nothing is being composed. The
@@ -3012,7 +3080,7 @@
                 // dropped only when nothing it pointed at is left.
                 const cards = selectedCards(connector);
                 const els = anchorElements(connector.anchor);
-                if (!cards.length || !els.length) { dropConnector(); return; }
+                if (!cards.length || !els.length) { dropConnector(); refreshConnector(); return; }
                 clearConnectorMarks();
                 cards.forEach(card => card.classList.add("selected"));
                 els.forEach(el => el.classList.add("selected-target"));
@@ -3028,13 +3096,27 @@
         }
         window.addEventListener("scroll", scheduleConnectorRefresh, true);
         window.addEventListener("resize", scheduleConnectorRefresh);
-        document.addEventListener("keydown", (e) => { if (e.key === "Escape") { dropConnector(); clearCommentTarget(); } });
+        document.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape") return;
+            // An Escape aimed at a reply box or an inline edit belongs to that box. Neither stops
+            // propagation, so without this the composer's state would be torn down from under a
+            // draft nobody asked to discard — and, hidden rather than emptied, that draft would
+            // go on holding the reload prompt open for text nothing on screen explains.
+            if (e.target && e.target.closest && e.target.closest(".thread-reply, .edit-textarea")) return;
+            // Escape closes the composer, and closing it now takes the draft off the screen, so
+            // the one case where that loses work asks first.
+            if (composerHasDraft() && !confirm("Discard this comment?")) return;
+            const input = document.getElementById("composerInput");
+            if (input) { input.value = ""; autoGrowTextarea(input); }
+            dropConnector();
+            clearCommentTarget();
+        });
         // Click on empty space (not a comment / element / composer) deselects.
         // .diff-line belongs in this list for the same reason .commentable-element does: it is a
         // comment target, and without it selecting a diff comment is undone by the very click
         // that made it, connector line included.
         document.addEventListener("click", (e) => {
-            if (e.target.closest(".comment-card, .commentable-element, .diff-line, .diff-file-header, .composer, #commentContextContainer")) return;
+            if (e.target.closest(".comment-card, .commentable-element, .diff-line, .diff-file-header, #composerBlock, .document-comment-btn")) return;
             if (connector && connector.kind === "selected") dropConnector();
         });
 
@@ -3080,7 +3162,7 @@
         // original array index travels with each entry so the idx-based handlers stay valid.
         const UNPLACED_RANK = Number.MAX_SAFE_INTEGER;
         const DOCUMENT_RANK = -1;
-        function commentsInAppearanceOrder() {
+        function commentsInAppearanceOrder(synthetic) {
             const order = new Map();
             document.querySelectorAll('.document-column [data-anchor]').forEach((el, i) => {
                 order.set(el.getAttribute('data-anchor'), i);
@@ -3097,9 +3179,18 @@
             // document order among the rest of the resolved, so that the panel reads as the work
             // still outstanding followed by the work just closed.
             const resolvedRank = c => (c.status === "resolved" ? 1 : 0);
+            // Whether the composer's own target still resolves. Computed here, before the sort,
+            // and never inside rank(): the comparator short-circuits on resolvedRank, and for a
+            // one-element list it is not called at all, so a flag set in there would be missed in
+            // exactly the cases that need it.
+            composerUnplaced = activeAnchor !== "" && !order.has(activeAnchor);
+            const entries = comments.map((c, idx) => ({ c, idx }));
+            // The composer sorts as the comment it is about to become. Appended last so that the
+            // stable sort lands it after everything sharing its rank — which is exactly where
+            // comments.push puts the comment on submit, and what makes the two the same place.
+            if (synthetic) entries.push(synthetic);
             // sort is stable, so comments sharing a rank (same block, or both unplaced) stay in creation order.
-            return comments
-                .map((c, idx) => ({ c, idx }))
+            return entries
                 .sort((a, b) => (resolvedRank(a.c) - resolvedRank(b.c)) || (rank(a.c) - rank(b.c)));
         }
 
@@ -3444,6 +3535,7 @@
 
             const textarea = document.createElement("textarea");
             textarea.className = "edit-textarea";
+            textarea.dataset.inputRole = `msg:${idx}:${mi}`;
             textarea.value = m.text || "";
             textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
             textarea.addEventListener("keydown", (e) => {
@@ -3469,7 +3561,11 @@
 
             wrap.appendChild(textarea);
             wrap.appendChild(actions);
-            setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
+            setTimeout(() => {
+                autoGrowTextarea(textarea);
+                // Only the action that opened this box claims focus (see pendingFocusClaim).
+                if (pendingFocusClaim === `msg:${idx}:${mi}`) { pendingFocusClaim = null; textarea.focus(); }
+            }, 0);
             return wrap;
         }
 
@@ -3503,6 +3599,7 @@
 
             const textarea = document.createElement("textarea");
             textarea.className = "edit-textarea";
+            textarea.dataset.inputRole = `reply:${idx}`;
             textarea.placeholder = "Reply to this thread…";
             textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
             textarea.addEventListener("keydown", (e) => {
@@ -3529,15 +3626,140 @@
             box.appendChild(textarea);
             box.appendChild(actions);
             item.appendChild(box);
-            setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
+            setTimeout(() => {
+                autoGrowTextarea(textarea);
+                // Only the action that opened this box claims focus (see pendingFocusClaim).
+                if (pendingFocusClaim === `reply:${idx}`) { pendingFocusClaim = null; textarea.focus(); }
+            }, 0);
+        }
+
+        // ---------- The composer as a card in the panel ----------
+
+        // Parked outside the list, and hidden. Outside because a hidden node among the cards would
+        // shift the child indices the panel's order is read from; still in the document because
+        // hasUnsentEdits and quoteLines reach the textarea by id at any time.
+        function parkComposer(block) {
+            if (!block) return;
+            block.classList.add("is-idle");
+            const list = document.getElementById("commentsList");
+            if (list && list.parentElement) list.parentElement.insertBefore(block, list.nextSibling);
+        }
+
+        // The same note a Comment Card carries when its quote is gone. Created once and toggled,
+        // never appended: this node is the one thing in the panel that is not rebuilt between
+        // renders, so appending would stack a tag per render until the block was a column of them.
+        function markComposerUnplaced(block) {
+            if (!block) return;
+            let tag = block.querySelector(".outdated-tag");
+            if (!composerUnplaced) {
+                if (tag) tag.remove();
+                return;
+            }
+            if (!tag) {
+                tag = document.createElement("div");
+                tag.className = "outdated-tag";
+                tag.textContent = "Target no longer in the document";
+                block.insertBefore(tag, block.firstChild);
+            }
+        }
+
+        // Everything the reader has typed into the panel, carried across the rebuild. The composer
+        // keeps its own value because it is the same node every round — only its caret and focus
+        // need restoring. Every other box here is built fresh, so without this a render started by
+        // anything at all, including clicking a block, would eat a half-written reply.
+        function captureInputs(container) {
+            const active = document.activeElement;
+            const state = { boxes: [], activeRole: null, composer: null };
+            container.querySelectorAll("textarea[data-input-role]").forEach(el => {
+                const role = el.dataset.inputRole;
+                state.boxes.push({ role, value: el.value, start: el.selectionStart, end: el.selectionEnd,
+                                   scrollTop: el.scrollTop });
+                if (el === active) state.activeRole = role;
+            });
+            const input = document.getElementById("composerInput");
+            if (input) {
+                // scrollTop as well as the caret: a long draft is detached on every render, and a
+                // box that silently jumps back to its first line is a draft the reader has to find
+                // their place in again.
+                state.composer = { start: input.selectionStart, end: input.selectionEnd,
+                                   scrollTop: input.scrollTop };
+                if (input === active) state.activeRole = "composer";
+            }
+            return state;
+        }
+
+        function restoreInputs(state) {
+            const find = role => document.querySelector(`#commentsList textarea[data-input-role="${role}"]`);
+            state.boxes.forEach(box => {
+                const el = find(box.role);
+                // A box whose thread has just folded is not rebuilt, and its draft goes with it.
+                // Folding takes resolving, which is a deliberate act, so it is not silent.
+                if (!el) return;
+                el.value = box.value;
+                autoGrowTextarea(el);
+                setRange(el, box.start, box.end);
+                el.scrollTop = box.scrollTop;
+            });
+            const input = document.getElementById("composerInput");
+            if (input && state.composer) input.scrollTop = state.composer.scrollTop;
+            // The action that opened an input owns focus for this tick; the render only puts back
+            // what was there before it.
+            if (pendingFocusClaim || !state.activeRole) return;
+            if (state.activeRole === "composer") {
+                if (input && input.offsetParent !== null) {
+                    input.focus({ preventScroll: true });
+                    setRange(input, state.composer.start, state.composer.end);
+                }
+                return;
+            }
+            const el = find(state.activeRole);
+            if (el) el.focus({ preventScroll: true });
+        }
+
+        function setRange(el, start, end) {
+            if (start == null || end == null) return;
+            try { el.setSelectionRange(start, end); } catch (e) { /* detached or unsupported */ }
+        }
+
+        // The one way the composer opens, in both review modes and in one order: let the render
+        // decide where it goes, bring it inside the panel's scrollport, point the line at the
+        // target, line the two up, and only then take focus — preventScroll, so the focus cannot
+        // undo the alignment that was just performed.
+        function openComposer(anchorId) {
+            renderComments();
+            const block = document.getElementById("composerBlock");
+            if (!block) return;
+            block.scrollIntoView({ block: "nearest" });
+            const targetEl = anchorId ? anchorElement(anchorId) : null;
+            if (targetEl) {
+                clearConnectorMarks();
+                hoverAnchor = null;
+                connector = { kind: "compose", anchor: anchorId };
+                // .composer, not the whole block: the line ends at the textarea's centre, so
+                // centring a block whose lower half is the suggestion and submit controls would
+                // tilt it, by a different amount for every way of opening it.
+                alignAndDraw(targetEl, block.querySelector(".composer"));
+            }
+            const input = document.getElementById("composerInput");
+            if (input) input.focus({ preventScroll: true });
         }
 
         function renderComments() {
             const container = document.getElementById("commentsList");
+            // Held before the container is cleared: the node survives being detached, and with it
+            // the draft, the selection and the listeners bound to it at load.
+            const block = document.getElementById("composerBlock");
+            const typed = captureInputs(container);
             container.innerHTML = "";
             resolveQuoteAnchors();
 
-            const ordered = commentsInAppearanceOrder();
+            const composing = activeAnchor !== "" || documentComposing;
+            const ordered = commentsInAppearanceOrder(composing
+                ? { c: { anchor: activeAnchor, status: "open" }, idx: -1, isComposerEntry: true }
+                : null);
+            // commentsInAppearanceOrder decided this on its way past; the note and the position
+            // are the same fact told twice.
+            markComposerUnplaced(block);
             // Threads with no target — a question about the document as a whole, or one whose
             // quoted passage is no longer there — are gathered under a heading of their own rather
             // than left looking like comments on whatever they happen to sit next to. The rest
@@ -3553,8 +3775,14 @@
             const firstAnchored = ordered.findIndex(({ c }) => !!c.anchor);
             if (documentLevel) sectionLabel("About this document");
 
-            ordered.forEach(({ c, idx }, pos) => {
+            ordered.forEach((entry, pos) => {
                 if (documentLevel && pos === firstAnchored) sectionLabel("On the text");
+                if (entry.isComposerEntry) {
+                    block.classList.remove("is-idle");
+                    container.appendChild(block);
+                    return;
+                }
+                const { c, idx } = entry;
                 const item = document.createElement("div");
                 item.className = "comment-card";
                 // The panel renders in the document's order, not the array's, so the card carries
@@ -3583,6 +3811,7 @@
                     // Textarea for editing
                     const textarea = document.createElement("textarea");
                     textarea.className = "edit-textarea";
+                    textarea.dataset.inputRole = `edit:${idx}`;
                     textarea.value = c.text;
                     textarea.addEventListener("input", (e) => autoGrowTextarea(e.target));
                     textarea.addEventListener("keydown", (e) => {
@@ -3615,7 +3844,11 @@
 
                     container.appendChild(item);
                     // Auto-focus the textarea, sized to the comment it already holds.
-                    setTimeout(() => { autoGrowTextarea(textarea); textarea.focus(); }, 0);
+                    setTimeout(() => {
+                        autoGrowTextarea(textarea);
+                        // Only the action that opened this box claims focus (see pendingFocusClaim).
+                        if (pendingFocusClaim === `edit:${idx}`) { pendingFocusClaim = null; textarea.focus(); }
+                    }, 0);
                 } else {
                     const deleteBtn = document.createElement("span");
                     deleteBtn.className = "delete-btn";
@@ -3788,8 +4021,15 @@
                     container.appendChild(item);
                 }
             });
+            if (!composing) parkComposer(block);
+            restoreInputs(typed);
             renderPendingQuestions();
             reconcileConnector();
+            // The claim expires with this tick. The three claimants queue their focus inside the
+            // loop above, so this runs after them; without it a claim whose claimant was never
+            // reached — a folded resolved thread returns early — would never clear, and the
+            // composer would never be given its focus back again.
+            setTimeout(() => { pendingFocusClaim = null; }, 0);
         }
 
         // The count takes you to the first thread that is waiting, and opens its composer — the
@@ -3804,11 +4044,13 @@
 
         window.startEdit = function(idx) {
             editingIdx = idx;
+            pendingFocusClaim = `edit:${idx}`;
             renderComments();
         };
 
         window.startEditMessage = function(idx, mi) {
             editingMsg = { idx, mi };
+            pendingFocusClaim = `msg:${idx}:${mi}`;
             renderComments();
         };
 
@@ -3834,6 +4076,7 @@
 
         window.startReply = function(idx) {
             replyingIdx = idx;
+            pendingFocusClaim = `reply:${idx}`;
             renderComments();
         };
 
@@ -3957,7 +4200,8 @@
         // Live reload over SSE: the server pushes "reload" when the agent edits the
         // document or writes replies. Defer the reload if the user has unsent edits.
         function hasUnsentEdits() {
-            return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || document.getElementById("composerInput").value.trim() !== "";
+            const input = document.getElementById("composerInput");
+            return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || (!!input && input.value.trim() !== "");
         }
 
         function connectLiveReload() {

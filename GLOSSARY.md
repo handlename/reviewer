@@ -100,7 +100,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Question (`needsAnswer`)
 * **Description**: An agent message the human is expected to answer.
-* **Behavior**: Opt-in per reply, so an ordinary report of what changed is not one. A thread has a **pending question** while no human message follows its last flagged one — any reply answers, which is why answering needs no control of its own. The page marks such threads with a **Thread Tag**, counts them in the **Pending Questions Button** above the **Composer**, and asks before they are resolved or submitted past.
+* **Behavior**: Opt-in per reply, so an ordinary report of what changed is not one. A thread has a **pending question** while no human message follows its last flagged one — any reply answers, which is why answering needs no control of its own. The page marks such threads with a **Thread Tag**, counts them in the **Pending Questions Button** at the top of the **Feedback Panel**, and asks before they are resolved or submitted past.
 
 ### Declined
 * **Description**: The record that the human closed a thread without answering its question.
@@ -238,9 +238,9 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Implementation**: `.document-column`, `--document-min-width`, `documentScroller()`.
 
 ### Feedback Panel
-* **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Composer**, and one **Comment Card** per **Thread**.
+* **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Document Comment Control**, and one **Comment Card** per **Thread**. The **Composer** is not a fixture here: it takes its place among the cards only while a comment is being written.
 * **Aliases**: comment panel (what `UI_DESIGN.md` called it before this section), Review Comments (the heading label before it was named for the **Feedback** it shows).
-* **Behavior**: Its width is draggable, defaults to 520px and is remembered in `localStorage`, because the review loop reloads the page every round. Cards read top-down in the appearance order of their targets.
+* **Behavior**: Its width is draggable, defaults to 520px and is remembered in `localStorage`, because the review loop reloads the page every round. Cards read top-down in the appearance order of their targets, and the **Composer** sorts among them as the card it is about to become.
 * **Implementation**: `#feedbackPanel`, `--feedback-panel-width`.
 
 ### Panel Resize Handle
@@ -264,9 +264,9 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Implementation**: `.comment-indicator`, `.comment-indicator.resolved`, `updateCommentIndicators()`.
 
 ### Composer
-* **Description**: The text area at the top of the **Feedback Panel** where a comment is written, with its **Comment Context** above it and the Add Comment button below.
-* **Behavior**: Grows to fit its content up to `50vh`, then scrolls, so that a long **Suggestion** does not push Submit Review and End Review off the screen. Inline editing of a comment, and the **Reply Control**, both open a composer of the same kind.
-* **Implementation**: `#composerInput`, `#addCommentBtn`, `.composer`.
+* **Description**: The text area where a comment is written, carrying the **Quote Lines Button** and the Add Comment button with it. It is not a fixture of the **Feedback Panel**: it opens in the place the **Comment Card** it produces will occupy, and it is absent from the panel whenever nothing is being composed.
+* **Behavior**: For a targeted comment it opens in that target's slot in the panel's order — after every **Comment Card** already on the same **Anchor**, which is where the new card sorts. For a comment with no target it opens at the top, under **About this document**, reached by the **Document Comment Control**. It grows to fit its content up to `50vh`, then scrolls, so that a long **Suggestion** cannot push the rest of the panel out of reach. It closes on submit, on Escape, or when its target is cleared, and on nothing else: selecting a **Comment Card** leaves a draft standing, and Escape over a draft asks before discarding it. A draft whose **Anchor** no longer resolves sorts to the end and says so, the way a card that lost its target does. Inline editing of a comment, and the **Reply Control**, both open a composer of the same kind.
+* **Implementation**: `#composerBlock`, `.composer-block`, `.is-idle`, `#composerInput`, `#addCommentBtn`, `.composer`, `openComposer()`, `isComposerEntry`, `composerUnplaced`, `captureInputs()`, `restoreInputs()`, `pendingFocusClaim`.
 
 ### Comment Card
 * **Description**: One **Thread** as it appears in the **Feedback Panel**: the human's head comment, then every message after it, attributed and timestamped, with its **Reply Control** and **Resolve Toggle**.
@@ -274,10 +274,6 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Folded**: a card whose thread is **Resolve**d renders as a single line — a `✓` and the comment's own opening words, truncated — and sorts below every open card, keeping document order among the other resolved. Clicking the folded line **opens it and nothing else**: a finished thread has nothing left to point at, so no **Connector Line** is drawn and the **Document Column** does not move. This is the one exception to the panel's click-a-card-to-select rule. Truncation is left to CSS because the panel's width is dragged by the reader.
 * **Which threads are open again** is held for the life of the page only: a resolved thread is pruned on the submit after this one, so there is nothing for a reload to remember.
 * **Implementation**: `.comment-card`, `commentCard()`, `scrollToCommentCard()`, `.thread-message`; folded: `.comment-card.folded`, `.resolved-summary`, `.resolved-summary-mark` / `-text` / `-chevron`, `resolvedSummary()`, `headLine()`, `expandedResolved`, `resolvedRank`; moved-card reveal: `flashCard()`, `revealCommentCard()`.
-
-### Comment Context
-* **Description**: The line above the **Composer** naming what the comment being written is about, with a control to clear it.
-* **Implementation**: `#commentContextContainer`, `#commentContextText`, `#clearContextBtn` (`title="Clear targeting"`).
 
 ### Panel Prose
 * **Description**: The authored text of the **Feedback Panel** — a **Comment Card**'s head comment, each message after it in the **Thread**, and the **Change Summary** — rendered as the Markdown it is written in.
@@ -328,6 +324,11 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Behavior**: Text-weight until pressed, so a thread at rest stays quiet. A reply posts nothing by itself: it travels on the next submit, keeping one submit to one round.
 * **Implementation**: `.thread-reply-btn`, `.thread-reply`.
 
+### Document Comment Control
+* **Description**: The control at the top of the **Feedback Panel** that opens a **Composer** for a comment about the document or the diff as a whole.
+* **Behavior**: Text-weight until pressed, like the **Reply Control**, so a panel with nothing being written carries no input at all. Pressing it clears any target first, so that what it opens is genuinely untargeted, and hides itself until that composer closes.
+* **Implementation**: `#documentCommentBtn`, `.is-hidden`, `documentComposing`.
+
 ### Quote Lines Button
 * **Description**: The control that inserts the selected diff lines into the **Composer** as a `suggestion` fence.
 * **Behavior**: The only way a fence is ever inserted — never automatically, because most comments are questions.
@@ -360,7 +361,7 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 * **Implementation**: `#changeSummary`, `#changeSummaryBody`, `.change-summary-label`.
 
 ### Pending Questions Button
-* **Description**: The count of threads with a pending **Question**, above the **Composer**. Pressing it scrolls to the first such card and opens its composer.
+* **Description**: The count of threads with a pending **Question**, at the top of the **Feedback Panel**. It stays there whatever the panel is doing: it reports the panel's state, not the state of the comment being written, which is why it did not travel with the **Composer**. Pressing it scrolls to the first such card and opens its composer.
 * **Why a button**: it is the only affordance on the page that says *something is blocked on you*, and anything actionable has to be reachable by keyboard.
 * **Implementation**: `#pendingQuestions`, `.pending-questions`.
 
