@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.8.0](https://github.com/handlename/reviewer/compare/v0.7.0...v0.8.0) - 2026-09-19
+- feat: fold a whole-file diff down to its changes by @handlename in https://github.com/handlename/reviewer/pull/73
+- feat: open the composer where its card will land by @handlename in https://github.com/handlename/reviewer/pull/75
+
 ## [v0.7.0](https://github.com/handlename/reviewer/compare/v0.6.0...v0.7.0) - 2026-08-30
 - feat: fold resolved comment cards in the panel by @handlename in https://github.com/handlename/reviewer/pull/63
 - docs: use GLOSSARY terms verbatim in sessions by @handlename in https://github.com/handlename/reviewer/pull/65
