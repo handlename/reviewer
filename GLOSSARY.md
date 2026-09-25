@@ -33,6 +33,12 @@ This document defines the core domain terms used within the `reviewer` codebase 
 * **Role**: It hosts the compiled spec (re-rendered on demand), launches the default web browser, and exposes endpoints for the loop: `/api/feedback` (GET/POST comments), `/api/wait` (long-poll for submits), `/api/close` (End Review), and `/api/events` (SSE live-reload). It stays running across review rounds — submitting no longer shuts it down.
 * **Relevant Modules**: `StartReviewServer` function in `server.go`.
 
+### Agent Session Name
+* **Description**: The name of the *agent* session that started the review, handed to `review_start` by the caller. It is named for the agent because **session** on its own already means the `ReviewSession` everywhere else here — the thing the **Review Server** runs. reviewer never derives it — it reads no environment variable and parses no host's transcript — so a review started without one renders exactly as it always has.
+* **Behavior**: Trimmed and HTML-escaped once on the way in; a name that is empty or only whitespace counts as no name. It reaches the page as the first half of the **Page Title** and nowhere else: the **Contents Rail** header still shows the document's own title.
+* **One stem, no exception**: §11's wire-format exception protects names that have *already* been published. This one is new, so the term governs the wire too and every identifier is spelled from the same stem, the MCP JSON key included. `SpecMetadata` is never serialised and is not a wire format.
+* **Implementation**: `agentSessionName` — the `ReviewSession` field, and the parameter on `Render`, `RenderSpec`, `RenderDiff` and `StartSession`; `AgentSessionName` — the `startInput` and `SpecMetadata` fields; `normalizeAgentSessionName` in `render.go`; `{{.AgentSessionName}}` in `references/template.html`; the `agentSessionName` JSON key on `review_start`.
+
 ---
 
 ## 2. Syntax & Decoration
@@ -224,13 +230,18 @@ The two figures below name the parts. Each label carries the term and the identi
 
 ![Diff review: the parts a diff adds](docs/images/screen-anatomy-diff.png)
 
-The figures show the light theme, and only what is on the page at rest. Missing from them by nature: the **Quote Lines Button**, which exists only while a range is selected and is therefore gone by the time the comment it wrote is on the page; the **Reload Prompt**, **Agent Activity Panel**, **Status Message** and the **Outdated** tag, each of which appears only in the moment it reports; the **Selection Notice**, which is shown only when a range is refused; and the **Expander**, which needs a diff carrying whole files and so cannot appear over the ordinary diff the second figure is shot from.
+The figures show the light theme, and only what is on the page at rest. Missing from them by nature: the **Quote Lines Button**, which exists only while a range is selected and is therefore gone by the time the comment it wrote is on the page; the **Reload Prompt**, **Agent Activity Panel**, **Status Message** and the **Outdated** tag, each of which appears only in the moment it reports; the **Selection Notice**, which is shown only when a range is refused; and the **Expander**, which needs a diff carrying whole files and so cannot appear over the ordinary diff the second figure is shot from. The **Page Title** is missing for a different reason: it is in the browser's tab rather than on the page, so no screenshot of the page can show it.
 
 ### Contents Rail
 * **Description**: The left column: the document's title, and its navigation — headings for a **Spec**, the file list for a **Diff**.
 * **Aliases**: sidebar (the id), file list (its contents in diff review), TOC.
 * **Behavior**: Folds away with the **Rail Toggle**, and the folded state survives a reload. A diff is read across rather than down, so this is the first column worth trading for width.
 * **Implementation**: `#contentsRail`, `.contents-rail`, `#railToc`, `.rail-toc-item`, `.rail-toggle`, body class `rail-collapsed`.
+
+### Page Title
+* **Description**: What the browser tab shows: the **Agent Session Name**, an em dash, and the document's title — or the document's title alone when the review was started without a name.
+* **Why**: several reviews are often open at once, and a tab is read from its first characters, so the name that tells them apart goes first. It is the one place the **Agent Session Name** appears; putting it in the **Contents Rail** header instead would cost the document's own title, which is what that header is for.
+* **Implementation**: `<title>` in `references/template.html`.
 
 ### Document Column
 * **Description**: The middle column, holding the rendered review target. It leads: the two rails recede so that this column reads as the page.

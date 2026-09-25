@@ -23,7 +23,7 @@ func (s *Serve) Run(c *Context) error {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
 
-	htmlContent, err := reviewer.Render(content)
+	htmlContent, err := reviewer.Render(content, "")
 	if err != nil {
 		return fmt.Errorf("failed to render document: %w", err)
 	}

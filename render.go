@@ -22,6 +22,11 @@ type SpecMetadata struct {
 	Date    string
 	Body    string
 
+	// AgentSessionName prefixes the Page Title — the browser tab — and nothing else; the
+	// Contents Rail header keeps showing Title alone. Empty when the review was started
+	// without a name, which is what makes the page identical to what it was before.
+	AgentSessionName string
+
 	// Mode tells the page which review it is running: "markdown" or "diff". The template
 	// branches on it because the two have different comment targets — a document block for
 	// Markdown, a line range for a diff — and the wrong initializer silently comments nothing.
@@ -58,19 +63,31 @@ var precompiledBadges = []badgeRegex{
 // Render compiles a review target — a Markdown document or a unified diff — into the review
 // page. The kind is decided from the content, so every entry point (serve, build, GET /) feeds
 // the same bytes in and gets the right renderer without knowing which it asked for.
-func Render(content []byte) ([]byte, error) {
+//
+// agentSessionName is passed through untouched: normalizing here as well as in the renderer it
+// dispatches to would escape a name containing & twice.
+func Render(content []byte, agentSessionName string) ([]byte, error) {
 	if DetectKind(content) == KindDiff {
 		files, err := ParseUnifiedDiff(content)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse diff: %w", err)
 		}
-		return RenderDiff(files)
+		return RenderDiff(files, agentSessionName)
 	}
-	return RenderSpec(content)
+	return RenderSpec(content, agentSessionName)
+}
+
+// normalizeAgentSessionName exists in one place because both renderers need it and the page
+// template is text/template: a name that skipped the escape on either path would be injected
+// into the page verbatim.
+//
+// Trimming to empty is what makes "no name given" and "a name of spaces" render the same page.
+func normalizeAgentSessionName(name string) string {
+	return html.EscapeString(strings.TrimSpace(name))
 }
 
 // RenderSpec compiles markdown to fully designed interactive HTML
-func RenderSpec(mdContent []byte) ([]byte, error) {
+func RenderSpec(mdContent []byte, agentSessionName string) ([]byte, error) {
 	markdown := newMarkdown()
 
 	var buf bytes.Buffer
@@ -97,11 +114,12 @@ func RenderSpec(mdContent []byte) ([]byte, error) {
 
 	// Escape strings to prevent potential XSS injection through text/template
 	specMeta := SpecMetadata{
-		Title:   html.EscapeString(title),
-		Version: html.EscapeString(version),
-		Date:    html.EscapeString(date),
-		Body:    htmlBody,
-		Mode:    string(KindMarkdown),
+		Title:            html.EscapeString(title),
+		Version:          html.EscapeString(version),
+		Date:             html.EscapeString(date),
+		Body:             htmlBody,
+		Mode:             string(KindMarkdown),
+		AgentSessionName: normalizeAgentSessionName(agentSessionName),
 	}
 
 	return executeTemplate(specMeta)

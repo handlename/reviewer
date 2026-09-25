@@ -462,7 +462,7 @@ func TestSidecars_AreNotWrittenBesideTheDocument(t *testing.T) {
 	inputPath := filepath.Join(tempDir, "spec.md")
 	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
 
-	s, err := StartSession(ctx, inputPath, 0, true)
+	s, err := StartSession(ctx, inputPath, 0, true, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestStartReviewServer_AgentStatus(t *testing.T) {
 	// Driven through the session rather than by writing the sidecar directly: the agent no
 	// longer touches these files, so the session is their only writer and broadcasts the
 	// event itself instead of watching for its own write to come back.
-	s, err := StartSession(ctx, inputPath, 0, true)
+	s, err := StartSession(ctx, inputPath, 0, true, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}

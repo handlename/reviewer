@@ -94,6 +94,12 @@ graph TD
 `ParseUnifiedDiff` + `RenderDiff`. Both produce a body and hand it to the same page template,
 which branches on `SpecMetadata.Mode`.
 
+It takes one input besides the content: the **Agent Session Name**, which `review_start` may carry
+and `build` / `serve` never can. `Render` forwards it untouched and each renderer normalises it
+once — trimmed, then escaped — because normalising in both places would escape a name containing
+`&` twice. It reaches only the **Page Title**; the Contents Rail header keeps showing the
+document's own title.
+
 * **Content-based detection**:
   The kind comes from the bytes, never from the file name or a flag. An agent writes its diff to
   a temp file whose name says nothing, and a flag would have to be threaded through every entry

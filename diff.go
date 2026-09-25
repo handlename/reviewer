@@ -529,12 +529,13 @@ func ParseDiffFileAnchor(anchor string) (path string, ok bool) {
 // postProcessHTML is deliberately not run here: its badge and callout rewriting would corrupt
 // code, and there is no Markdown to enhance. Every diff-derived string is escaped instead —
 // nothing on this path has been through a HTML-producing renderer.
-func RenderDiff(files []File) ([]byte, error) {
+func RenderDiff(files []File, agentSessionName string) ([]byte, error) {
 	meta := SpecMetadata{
-		Mode:  string(KindDiff),
-		Title: diffTitle(files),
-		Stats: diffStats(files),
-		Body:  renderDiffBody(files),
+		Mode:             string(KindDiff),
+		Title:            diffTitle(files),
+		Stats:            diffStats(files),
+		Body:             renderDiffBody(files),
+		AgentSessionName: normalizeAgentSessionName(agentSessionName),
 	}
 	return executeTemplate(meta)
 }
