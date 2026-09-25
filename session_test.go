@@ -456,12 +456,12 @@ func TestSessionReply_IsOneReloadForTheWholeRound(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	reloads := make(chan struct{}, 8)
+	reloads := make(chan string, 8)
 	go func() {
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			if line := scanner.Text(); strings.HasPrefix(line, "data:") && strings.Contains(line, `"kind":"reload"`) {
-				reloads <- struct{}{}
+				reloads <- line
 			}
 		}
 	}()
@@ -477,7 +477,12 @@ func TestSessionReply_IsOneReloadForTheWholeRound(t *testing.T) {
 	}
 
 	select {
-	case <-reloads:
+	case line := <-reloads:
+		// The Reply Notification is raised off this reason alone, so a round that lands without
+		// it is a round the page cannot announce.
+		if !strings.Contains(line, `"reason":"reply"`) {
+			t.Errorf("the round's reload did not name the Agent Reply as its reason: %s", line)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no reload was pushed for the round")
 	}

@@ -244,13 +244,13 @@ func TestStartReviewServer_SSEReloadOnEdit(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	reloaded := make(chan bool, 1)
+	reloaded := make(chan string, 1)
 	go func() {
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.HasPrefix(line, "data:") && strings.Contains(line, `"kind":"reload"`) {
-				reloaded <- true
+				reloaded <- line
 				return
 			}
 		}
@@ -261,9 +261,31 @@ func TestStartReviewServer_SSEReloadOnEdit(t *testing.T) {
 	writeMarkdown(t, inputPath, "# Spec\n\nAfter.\n")
 
 	select {
-	case <-reloaded:
+	case line := <-reloaded:
+		// The page tells this apart from a reply by the reason alone, so the reason is the
+		// assertion: a document edit must never look like an Agent Reply.
+		if !strings.Contains(line, `"reason":"reviewTarget"`) {
+			t.Errorf("reload for a document edit carried the wrong reason: %s", line)
+		}
 	case <-time.After(3 * time.Second):
 		t.Error("did not receive SSE reload event after editing the document")
+	}
+}
+
+// Every reload broadcast names its cause, and the three causes are spelled the way the page and
+// any other reader of the wire format expect.
+func TestReloadPayload_NamesItsReason(t *testing.T) {
+	for _, tc := range []struct {
+		reason reloadReason
+		want   string
+	}{
+		{reloadReasonReply, `{"kind":"reload","reason":"reply"}`},
+		{reloadReasonSubmit, `{"kind":"reload","reason":"submit"}`},
+		{reloadReasonReviewTarget, `{"kind":"reload","reason":"reviewTarget"}`},
+	} {
+		if got := reloadPayload(tc.reason); got != tc.want {
+			t.Errorf("reloadPayload(%q) = %s, want %s", tc.reason, got, tc.want)
+		}
 	}
 }
 

@@ -296,6 +296,16 @@ Everything authored in the panel — a comment, each message after it in the thr
 
 **Only the rendering changes.** The comment array and the feedback file keep the author's raw text exactly as typed, so editing reopens the source that was written and the agent receives what the human wrote, not what the panel drew.
 
+### 5.10 The page speaks up only when nobody is watching it
+
+The reviewer who has submitted a round has nothing to do until the agent answers, and the answer can be minutes away. The page already reloads itself when it arrives, which is enough for someone looking at it — and useless for someone who has gone elsewhere, which is the ordinary case. So an **Agent Reply** that lands while `document.hasFocus()` is false raises a **Reply Notification**, and one that lands while the page is focused raises nothing. A notification that repeats what the reader just watched happen is a notification they learn to dismiss without reading.
+
+**Only the reply.** A **Live Reload** is also pushed when the reviewed file changes on disk and when another tab submits; neither is news the reviewer walked away to wait for, so the page tells the three apart by **Reload Reason** and announces only the reply.
+
+**Permission is asked for at the first Submit, never on load.** A permission prompt on load arrives with no context to justify it and is refused more often, and a refusal cannot be undone from the page — only from browser settings. The **Submit Review Button** is where the waiting starts and is a gesture the browser weighs in the request's favour, so that is where the page asks. Refusal is not an error state: nothing is raised, nothing is logged, and the rest of the page behaves exactly as it did.
+
+**No fallback was built for a refusal.** Title flashing and a favicon badge were considered and rejected: a reviewer who has declined notifications has said what they want, and the page reloading itself already tells anyone who is looking.
+
 ---
 
 ## 6. Rendering a diff
