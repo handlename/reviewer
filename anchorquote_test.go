@@ -78,7 +78,7 @@ func TestNormalizeAnchorQuoteMatchesRenderedText(t *testing.T) {
 func TestFeedbackForDisplay_CarriesTheQuoteAsRenderedText(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true)
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestFeedbackForDisplay_DerivesNoQuoteTextForADiff(t *testing.T) {
 		t.Fatalf("failed to write temp diff: %v", err)
 	}
 
-	s, err := StartSession(ctx, path, 0, true)
+	s, err := StartSession(ctx, path, 0, true, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}

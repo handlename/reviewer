@@ -58,6 +58,21 @@ declare.
 Call `review_start` with the path. Tell the user the returned URL is open and they can start
 commenting.
 
+`agentSessionName` is optional and names **your own** session. It prefixes the browser tab title,
+which is what tells several open reviews apart; omit it and the tab reads as it always has.
+
+On Claude Code the name is the last `custom-title` record in this session's transcript:
+
+```console
+$ grep '"type":"custom-title"' ~/.claude/projects/*/"$CLAUDE_CODE_SESSION_ID".jsonl | tail -1
+```
+
+Read `customTitle` out of that line. The glob is deliberate — it saves deriving the project
+directory's name from the working directory. **Omit the parameter** if `$CLAUDE_CODE_SESSION_ID` is
+unset, if no file matches, or if no line matches: a session that was never named does not have one,
+and the tab title is then what it has always been. On another host, pass whatever name identifies
+your session, or omit it.
+
 ### 3. Wait for a submit
 Call `review_wait`. It returns one of three outcomes:
 

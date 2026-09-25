@@ -471,7 +471,7 @@ func TestRenderDispatchesOnContent(t *testing.T) {
 @@ -1 +1 @@
 -old
 +new
-`))
+`), "")
 	if err != nil {
 		t.Fatalf("Render(diff) error = %v", err)
 	}
@@ -482,7 +482,7 @@ func TestRenderDispatchesOnContent(t *testing.T) {
 		t.Error("diff mode must not run the Markdown block-comment initializer")
 	}
 
-	mdHTML, err := Render([]byte("# Heading\n\nProse.\n"))
+	mdHTML, err := Render([]byte("# Heading\n\nProse.\n"), "")
 	if err != nil {
 		t.Fatalf("Render(markdown) error = %v", err)
 	}
@@ -1426,5 +1426,59 @@ func TestFunctionContextCanFold(t *testing.T) {
 		if !strings.Contains(body, fmt.Sprintf(`data-line-index="%d"`, i)) {
 			t.Fatalf("data-line-index=%d went missing", i)
 		}
+	}
+}
+
+// The diff path builds its own title — a path for one file, "Diff review" for several — and does
+// not go through postProcessHTML, so it composes the Page Title from its own SpecMetadata.
+func TestRenderDiffPageTitle(t *testing.T) {
+	const oneFile = `diff --git a/diff.go b/diff.go
+--- a/diff.go
++++ b/diff.go
+@@ -1 +1 @@
+-old
++new
+`
+	const twoFiles = oneFile + `diff --git a/render.go b/render.go
+--- a/render.go
++++ b/render.go
+@@ -1 +1 @@
+-old
++new
+`
+
+	tests := []struct {
+		name             string
+		diff             string
+		agentSessionName string
+		wantTitle        string
+		wantRailHeader   string
+	}{
+		{"one file, no name", oneFile, "", "<title>diff.go</title>", "<h2>diff.go</h2>"},
+		{"one file, a name", oneFile, "demo", "<title>demo — diff.go</title>", "<h2>diff.go</h2>"},
+		{"several files, no name", twoFiles, "", "<title>Diff review</title>", "<h2>Diff review</h2>"},
+		{"several files, a name", twoFiles, "demo", "<title>demo — Diff review</title>", "<h2>Diff review</h2>"},
+		{"whitespace only", oneFile, "   ", "<title>diff.go</title>", "<h2>diff.go</h2>"},
+		{"a name is escaped", oneFile, `a<b&c"d`, "<title>a&lt;b&amp;c&#34;d — diff.go</title>", "<h2>diff.go</h2>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files, err := ParseUnifiedDiff([]byte(tt.diff))
+			if err != nil {
+				t.Fatalf("ParseUnifiedDiff() error = %v", err)
+			}
+			output, err := RenderDiff(files, tt.agentSessionName)
+			if err != nil {
+				t.Fatalf("RenderDiff() error = %v", err)
+			}
+			got := string(output)
+			if !strings.Contains(got, tt.wantTitle) {
+				t.Errorf("Page Title missing %q", tt.wantTitle)
+			}
+			if !strings.Contains(got, tt.wantRailHeader) {
+				t.Errorf("Contents Rail header missing %q", tt.wantRailHeader)
+			}
+		})
 	}
 }

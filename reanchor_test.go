@@ -403,7 +403,7 @@ func TestReplyReachesAnOutdatedComment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s, err := StartSession(t.Context(), diffPath, 0, true)
+	s, err := StartSession(t.Context(), diffPath, 0, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}

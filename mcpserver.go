@@ -64,7 +64,8 @@ func (h *sessionHolder) closeCurrent() {
 }
 
 type startInput struct {
-	Path string `json:"path" jsonschema:"path to the file to review: a Markdown document, or a unified diff written out to a temporary file"`
+	Path             string `json:"path" jsonschema:"path to the file to review: a Markdown document, or a unified diff written out to a temporary file"`
+	AgentSessionName string `json:"agentSessionName,omitempty" jsonschema:"optional name of your own agent session; it prefixes the browser tab title so several open reviews can be told apart. Omit it if you have no name for your session"`
 }
 
 type startOutput struct {
@@ -94,7 +95,7 @@ func (h *sessionHolder) start(in startInput, opts MCPOptions) (startOutput, erro
 		return startOutput{}, fmt.Errorf("cannot review %s: it is a directory, not a document", in.Path)
 	}
 
-	s, err := StartSession(h.baseCtx, in.Path, opts.Port, opts.NoOpen)
+	s, err := StartSession(h.baseCtx, in.Path, opts.Port, opts.NoOpen, in.AgentSessionName)
 	if err != nil {
 		return startOutput{}, fmt.Errorf("failed to start review of %s: %w", in.Path, err)
 	}
@@ -199,7 +200,8 @@ func newMCPServer(holder *sessionHolder, opts MCPOptions) *mcp.Server {
 				"Use the comment's anchorLines, which hold the exact text of those lines, to locate the code. " +
 				"An anchor of \"<path>#file\" is a comment about the change to that file as a whole, not about any line in it; it carries no anchorLines. " +
 				"A comment is a thread: its text is the first message and \"messages\" holds everything said after it, each with an author of \"human\" or \"agent\". " +
-				"A message with \"needsAnswer\": true is a question you asked and the human has not answered yet; \"declined\": true means the human closed the thread without answering it.",
+				"A message with \"needsAnswer\": true is a question you asked and the human has not answered yet; \"declined\": true means the human closed the thread without answering it. " +
+				"agentSessionName is optional: pass the name of your own session and it prefixes the browser tab title, which is what tells several open reviews apart. Omit it and the tab reads as it always has.",
 		},
 		func(_ context.Context, _ *mcp.CallToolRequest, in startInput) (*mcp.CallToolResult, startOutput, error) {
 			// The request context is deliberately unused: the session outlives this call.

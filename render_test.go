@@ -35,7 +35,7 @@ graph TD
   A -> B
 ` + "```"
 
-	output, err := RenderSpec([]byte(mdContent))
+	output, err := RenderSpec([]byte(mdContent), "")
 	if err != nil {
 		t.Fatalf("failed to render: %v", err)
 	}
@@ -80,5 +80,58 @@ graph TD
 	}
 	if !strings.Contains(html, `<code class="language-go">package payment`) {
 		t.Errorf("expected syntax highlighted go class class=\"language-go\", got missing or mismatched formatting")
+	}
+}
+
+// The Page Title is the only place an Agent Session Name appears. The Contents Rail header shows
+// the document's own title, so a test that only looked for the name somewhere in the page would
+// pass even if the two had been swapped.
+func TestRenderSpecPageTitle(t *testing.T) {
+	const mdContent = "---\ntitle: Spec\n---\n\n# Spec\n\nBody.\n"
+
+	tests := []struct {
+		name             string
+		agentSessionName string
+		wantTitle        string
+	}{
+		{"no name renders today's title", "", "<title>Spec</title>"},
+		{"a name prefixes it", "demo", "<title>demo — Spec</title>"},
+		{"whitespace only counts as no name", "   ", "<title>Spec</title>"},
+		{"a name is escaped", `a<b&c"d`, "<title>a&lt;b&amp;c&#34;d — Spec</title>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := RenderSpec([]byte(mdContent), tt.agentSessionName)
+			if err != nil {
+				t.Fatalf("RenderSpec failed: %v", err)
+			}
+			got := string(output)
+			if !strings.Contains(got, tt.wantTitle) {
+				t.Errorf("Page Title missing %q", tt.wantTitle)
+			}
+			if !strings.Contains(got, "<h2>Spec</h2>") {
+				t.Error("the Contents Rail header must keep showing the document title")
+			}
+		})
+	}
+}
+
+// A name arrives from an agent, and the page shell is text/template: nothing downstream escapes.
+func TestNormalizeAgentSessionName(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"   ", ""},
+		{"\t\n ", ""},
+		{"demo", "demo"},
+		{"  demo  ", "demo"},
+		{`a<b&c"d`, "a&lt;b&amp;c&#34;d"},
+	}
+	for _, tt := range tests {
+		if got := normalizeAgentSessionName(tt.in); got != tt.want {
+			t.Errorf("normalizeAgentSessionName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }

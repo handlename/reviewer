@@ -338,7 +338,7 @@ func (h *sseHub) broadcast(msg string) {
 //
 // readyChan, when non-nil, receives the running server's URL once the port is bound.
 func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen bool, readyChan chan<- string) error {
-	s, err := StartSession(ctx, inputPath, port, noOpen)
+	s, err := StartSession(ctx, inputPath, port, noOpen, "")
 	if err != nil {
 		return err
 	}
