@@ -141,6 +141,11 @@ This document defines the core domain terms used within the `reviewer` codebase 
 * **Note**: a `granted` permission does not promise a banner. The operating system can suppress notifications for the browser itself, and the page cannot tell: `Notification.permission` still reads `granted` and the constructor still succeeds. When a notification does not appear, check the OS notification settings for the browser before suspecting this code.
 * **Implementation**: `replyNotification` is the identifier stem — `replyNotificationGranted`, `requestReplyNotificationPermission`, `armReplyNotification`, `raiseReplyNotification`, `raiseArmedReplyNotification`, `replyNotificationPendingKey`, `replyNotificationAsked` and `lastReplyNotification` in `references/template.html`, and the `sessionStorage` key `reviewer.replyNotificationPending`, which carries the intent across the reload that the reply itself triggers. The notification's `tag` is `replyNotification`, so background tabs collapse onto one notification rather than one each.
 
+### Unload Guard
+* **Description**: The confirmation raised when the reader leaves the page — an address-bar reload, a closed tab, a browser back — while they have unsent edits.
+* **Behavior**: It runs off the same `hasUnsentEdits()` that defers **Live Reload**: what is worth deferring a reload for is worth a question before leaving. The wording is the browser's own, because `beforeunload` ignores any message the page supplies. The two controls that leave on purpose set `leavingOnPurpose` and so are not asked twice — the **Reload Prompt**'s Reload and the **End Review Button** each confirm in their own words first.
+* **Implementation**: `leavingOnPurpose`, the `beforeunload` listener, `hasUnsentEdits()`.
+
 ### Submit Long-poll (`/api/wait`)
 * **Description**: The agent-facing counterpart to Live Reload: a long-poll endpoint the agent uses to detect a human submit with near-zero latency, replacing log-string polling.
 * **Behavior**: `GET /api/wait` blocks until the next `POST /api/feedback`, then returns `200` with the current feedback JSON; an idle wait returns `204` after ~25s so the agent re-polls. A `submitNotifier` (a signal-only sibling of the SSE hub) fans one submit out to every concurrent waiter, and the session ending releases blocked waiters.
@@ -367,6 +372,7 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 
 ### Reload Prompt
 * **Description**: The bar offering a manual reload, shown instead of reloading when the reader has unsent edits.
+* **Behavior**: Its Reload confirms before it acts — the bar reports that the document changed, which is not a warning that reloading discards a draft. Cancelling leaves the page and the bar as they were; a submit in the meantime leaves nothing to lose and nothing is asked. The **Unload Guard** does not ask again on top of it.
 * **Implementation**: `#reloadPrompt`, `#reloadNowBtn`.
 
 ### Agent Activity Panel

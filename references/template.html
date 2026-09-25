@@ -1915,6 +1915,9 @@
         // discard an in-progress comment when the agent updates the document.
         let dirty = false;
         let pendingReload = false;
+        // Set by the controls that leave the page on purpose, so the unload guard does not ask
+        // again about a departure the reader has already confirmed.
+        let leavingOnPurpose = false;
 
         function markDirty() { dirty = true; }
 
@@ -4204,6 +4207,9 @@
         // End Review — stop the live session (separate from Submit).
         document.getElementById("endReviewBtn").addEventListener("click", () => {
             if (!confirm("End this review session? The review server will stop.")) return;
+            // Left set even when window.close() no-ops on a tab the script did not open: the
+            // server is stopping, so there is nothing left to submit to and nothing to warn about.
+            leavingOnPurpose = true;
             const finish = () => {
                 const status = document.getElementById("statusMsg");
                 status.textContent = "Review ended. You can close this tab.";
@@ -4219,6 +4225,16 @@
             const input = document.getElementById("composerInput");
             return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || (!!input && input.value.trim() !== "");
         }
+
+        // The deferral above only catches the agent's own reloads. A stray Cmd-R, a closed tab or a
+        // browser back takes the same unsent work with it, so the guard runs off the same predicate:
+        // what is worth deferring a reload for is worth a question before leaving. The wording is
+        // the browser's own — assigning returnValue is what asks at all, not what it says.
+        window.addEventListener("beforeunload", (e) => {
+            if (leavingOnPurpose || !hasUnsentEdits()) return;
+            e.preventDefault();
+            e.returnValue = "";
+        });
 
         // Reply Notification. An Agent Reply that lands while the page is elsewhere is the one
         // event the reviewer walked away from, so it is announced through the desktop.
@@ -4310,7 +4326,15 @@
             };
         }
 
-        document.getElementById("reloadNowBtn").addEventListener("click", () => window.location.reload());
+        document.getElementById("reloadNowBtn").addEventListener("click", () => {
+            // The Reload Prompt says only that the document changed, not that reloading throws
+            // away what the reader has not sent, so this is where that is asked — the same rule
+            // as Escape over a draft. A submit after the prompt appeared leaves nothing to lose,
+            // and then it is not asked.
+            if (hasUnsentEdits() && !confirm("Reloading will discard your unsent comments. Reload anyway?")) return;
+            leavingOnPurpose = true;
+            window.location.reload();
+        });
 
         let isProgrammaticScroll = false; // Flag to prevent scroll-spy hijacking during clicks
         let programmaticScrollTimeout = null;
