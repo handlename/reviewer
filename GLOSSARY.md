@@ -177,7 +177,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### File Status
 * **Description**: What happened to a file in this diff: added, deleted, renamed, or modified.
-* **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the file header, where there is room to say "renamed from …" in full.
+* **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the **File Header**, where there is room to say "renamed from …" in full.
 * **Implementation**: `.file-status`, `.file-status-added` / `-deleted` / `-renamed` / `-modified`; the name beside it is `.rail-toc-file-name`.
 
 ### Change Block
@@ -235,7 +235,8 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Document Column
 * **Description**: The middle column, holding the rendered review target. It leads: the two rails recede so that this column reads as the page.
 * **Behavior**: Uncapped in both modes: it takes whatever the two rails leave. A diff is floored at `--document-min-width`; a spec is not, because prose reflows. Takes focus on load, because it — not the page — is what scrolls.
-* **Implementation**: `.document-column`, `--document-min-width`, `documentScroller()`.
+* **In diff review** its vertical padding rides on the diff body (`.diff-view`) rather than on the column, because the column is the **Scrollport** and a scrollport's padding is inside it: left on the column, it would hold every **File Header** that distance below the top and leave a strip for diff lines to scroll through above them.
+* **Implementation**: `.document-column`, `.diff-view`, `--document-min-width`, `documentScroller()`.
 
 ### Feedback Panel
 * **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Document Comment Control**, and one **Comment Card** per **Thread**. The **Composer** is not a fixture here: it takes its place among the cards only while a comment is being written.
@@ -256,6 +257,11 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Scrollport
 * **Description**: A column that scrolls its own content. All three columns are one; the page itself does not scroll.
 * **Behavior**: JavaScript never assumes which element scrolls — it reads the column's computed `overflow-y`, because the narrow-viewport layout hands scrolling back to the page.
+
+### File Header
+* **Description**: The bar at the top of each file of a **Diff**, carrying the **Display Path** and, where there is one, the **File Status** in words. It is a comment target in its own right — the **Anchor** form `<path>#file` — for a remark about the change to the file rather than to any line of it.
+* **Behavior**: It stays at the top of the **Document Column**'s **Scrollport** while its own file's hunks scroll past, and is pushed out by the next file's header when its file ends; it looks the same pinned as it does at rest. Its **Comment Indicator** sits inside it rather than out in the **Comment Gutter**, because the file card clips what overhangs its edge.
+* **Implementation**: `.diff-file-header`, `.diff-file-note`, `data-file`, `data-status`; the card it heads is `.diff-file`. `renderDiffBody` in `diff.go` emits it.
 
 ### Comment Indicator
 * **Description**: The chip in the right **Comment Gutter** of a block that has comments — a speech-bubble glyph and the thread count. Clicking it selects **all** of them, drawing one **Connector Line** per thread; clicking it again drops the selection. It cannot name a single thread — it is one chip for all of them — so picking one out is the **Comment Card**'s job.

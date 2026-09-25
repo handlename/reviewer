@@ -1382,13 +1382,25 @@
            the same reason. */
         .document-column.diff-mode {
             min-width: var(--document-min-width);
-            padding: calc(var(--u) * 4) calc(var(--u) * 3);
+            padding: 0 calc(var(--u) * 3);
         }
+        /* The column's vertical padding rides here rather than on the column, because the column
+           is the scrollport and a scrollport's padding is inside it: the file header sticks below
+           that band, and diff lines scroll through the strip left above it. Held by the content,
+           the same gap costs the header nothing — it pins flush with the top of the column. */
+        .diff-view {
+            padding: calc(var(--u) * 4) 0;
+        }
+        /* clip, not hidden: both round the card's corners onto its children, but `hidden` is a
+           scroll container, and a scroll container captures the sticky file header below —
+           .diff-file never scrolls, so the header stayed put relative to a box that was itself
+           travelling up the column. `clip` clips without scrolling, which hands the header back
+           to .document-column's scrollport. */
         .diff-file {
             border: 1px solid var(--border-color);
             border-radius: var(--radius);
             margin-bottom: calc(var(--u) * 3);
-            overflow: hidden;
+            overflow: clip;
             background: var(--bg-primary);
         }
         .document-column.diff-mode h2.diff-file-header {
