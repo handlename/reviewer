@@ -211,6 +211,12 @@ A single SVG overlay draws the lines between the selected comment cards and thei
 
 **Rejected:** dropping the compose-time line entirely and letting position speak for itself — it reads well until the two columns are scrolled apart, which is most of the time; and discarding the draft silently on Escape, which matches the **Reply Control**'s Escape but loses work the reader can no longer see to rescue.
 
+**Leaving the page asks too, and the two in-page exits ask in their own words.** Escape is not the only way words leave the screen: an address-bar reload, a closed tab or a browser back takes the whole page with them, and nothing stood between those and a comment that was never sent. The **Unload Guard** runs off `hasUnsentEdits` — the same predicate that defers **Live Reload** — so the question "is this worth interrupting the reader for" is answered once and used twice. The **Reload Prompt**'s Reload and the **End Review Button** each confirm in their own words and then suppress the browser's, because two dialogs for one departure is the same question asked twice.
+
+**Why:** the browser's wording cannot be set — `beforeunload` ignores any message the page supplies — so on that path the guard can only ask, never say what is at stake. The **Reload Prompt** is where that mattered: its bar reports that the document changed, which is not a warning, and its button sits one click from work the reader cannot get back.
+
+**Rejected:** exempting the **Reload Prompt** on the reading that a bar the reader chose to act on is already a confirmation — it is a notice, and its wording never mentioned the draft; and letting the browser's own dialog cover that button, which asks but cannot say what is lost.
+
 **A resolved thread in a bunch keeps its line, drawn faint.** The indicator's count is every thread on the anchor, so a bunch that dropped the resolved ones would show fewer lines than the number on the chip. Dimming keeps the count honest while leaving the open threads the ones the eye lands on. The dimming is opacity on the same accent, never a second hue (§2.1).
 
 **Rejected:** cycling the indicator through the threads one click at a time, which needs no new UI but never tells you what is coming next; a popover listing the threads, which is a new component and a new place for state to live; and dropping resolved threads from the bunch, which silently disagrees with the chip.
