@@ -1,6 +1,7 @@
 package reviewer
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -80,5 +81,26 @@ graph TD
 	}
 	if !strings.Contains(html, `<code class="language-go">package payment`) {
 		t.Errorf("expected syntax highlighted go class class=\"language-go\", got missing or mismatched formatting")
+	}
+}
+
+// The Reply Notification is experimental: the page raises nothing unless the process asked for
+// it, and both renderers must carry the choice through, since a review target is either kind.
+func TestRender_ReplyNotificationGate(t *testing.T) {
+	inputs := map[string][]byte{
+		"markdown": []byte("# Heading\n\nProse.\n"),
+		"diff":     []byte("diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-old\n+new\n"),
+	}
+	for name, content := range inputs {
+		for _, enabled := range []bool{false, true} {
+			out, err := Render(content, enabled)
+			if err != nil {
+				t.Fatalf("%s: Render error = %v", name, err)
+			}
+			want := fmt.Sprintf("const replyNotificationEnabled = %t;", enabled)
+			if !strings.Contains(string(out), want) {
+				t.Errorf("%s, enabled=%t: page does not contain %q", name, enabled, want)
+			}
+		}
 	}
 }

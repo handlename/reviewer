@@ -304,6 +304,8 @@ Everything authored in the panel — a comment, each message after it in the thr
 
 ### 5.10 The page speaks up only when nobody is watching it
 
+**Experimental, and off by default.** The page raises nothing unless the server was started with `REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION`. Permission is scoped per origin and the review server's port is not stable across sessions, so the "ask once, at the first Submit" rule below would in practice ask in most sessions. The rest of this section describes the page with the gate on.
+
 The reviewer who has submitted a round has nothing to do until the agent answers, and the answer can be minutes away. The page already reloads itself when it arrives, which is enough for someone looking at it — and useless for someone who has gone elsewhere, which is the ordinary case. So an **Agent Reply** that lands while `document.hasFocus()` is false raises a **Reply Notification**, and one that lands while the page is focused raises nothing. A notification that repeats what the reader just watched happen is a notification they learn to dismiss without reading.
 
 **Only the reply.** A **Live Reload** is also pushed when the reviewed file changes on disk and when another tab submits; neither is news the reviewer walked away to wait for, so the page tells the three apart by **Reload Reason** and announces only the reply.

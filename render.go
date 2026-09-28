@@ -29,6 +29,9 @@ type SpecMetadata struct {
 	// Stats replaces Version/Date in the diff contents rail. A diff has no front matter, so those two
 	// would otherwise show a made-up version and an unknown date.
 	Stats string
+	// ReplyNotification enables the experimental Reply Notification on the page. It is off
+	// unless the process was started with REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION set.
+	ReplyNotification bool
 }
 
 // Pre-compiled global regular expressions to avoid runtime compilation overhead.
@@ -58,25 +61,41 @@ var precompiledBadges = []badgeRegex{
 // Render compiles a review target — a Markdown document or a unified diff — into the review
 // page. The kind is decided from the content, so every entry point (serve, build, GET /) feeds
 // the same bytes in and gets the right renderer without knowing which it asked for.
-func Render(content []byte) ([]byte, error) {
+func Render(content []byte, replyNotification bool) ([]byte, error) {
+	var specMeta SpecMetadata
 	if DetectKind(content) == KindDiff {
 		files, err := ParseUnifiedDiff(content)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse diff: %w", err)
 		}
-		return RenderDiff(files)
+		specMeta = diffMetadata(files)
+	} else {
+		var err error
+		specMeta, err = specMetadata(content)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return RenderSpec(content)
+	specMeta.ReplyNotification = replyNotification
+	return executeTemplate(specMeta)
 }
 
 // RenderSpec compiles markdown to fully designed interactive HTML
 func RenderSpec(mdContent []byte) ([]byte, error) {
+	specMeta, err := specMetadata(mdContent)
+	if err != nil {
+		return nil, err
+	}
+	return executeTemplate(specMeta)
+}
+
+func specMetadata(mdContent []byte) (SpecMetadata, error) {
 	markdown := newMarkdown()
 
 	var buf bytes.Buffer
 	context := parser.NewContext()
 	if err := markdown.Convert(mdContent, &buf, parser.WithContext(context)); err != nil {
-		return nil, fmt.Errorf("failed to convert markdown: %w", err)
+		return SpecMetadata{}, fmt.Errorf("failed to convert markdown: %w", err)
 	}
 
 	metaData := meta.Get(context)
@@ -96,15 +115,13 @@ func RenderSpec(mdContent []byte) ([]byte, error) {
 	htmlBody := postProcessHTML(buf.String())
 
 	// Escape strings to prevent potential XSS injection through text/template
-	specMeta := SpecMetadata{
+	return SpecMetadata{
 		Title:   html.EscapeString(title),
 		Version: html.EscapeString(version),
 		Date:    html.EscapeString(date),
 		Body:    htmlBody,
 		Mode:    string(KindMarkdown),
-	}
-
-	return executeTemplate(specMeta)
+	}, nil
 }
 
 // executeTemplate renders the page shell around an already-prepared body.

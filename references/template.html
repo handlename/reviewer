@@ -4242,6 +4242,11 @@
         // A reply also reloads the page, and a non-persistent notification does not outlive the
         // document that created it. So the intent is handed to the next document instead of being
         // raised into a document that is about to go away.
+        //
+        // Experimental: rendered true only when the server was started with
+        // REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION. Permission is scoped per origin, and the port
+        // changes between sessions, so a reviewer would be asked again in most sessions.
+        const replyNotificationEnabled = {{if .ReplyNotification}}true{{else}}false{{end}};
         const replyNotificationPendingKey = "reviewer.replyNotificationPending";
         let replyNotificationAsked = false;
         // Held beyond the call that raises it: a Notification collected while it is still on screen
@@ -4249,11 +4254,11 @@
         let lastReplyNotification = null;
 
         function replyNotificationGranted() {
-            return typeof Notification !== "undefined" && Notification.permission === "granted";
+            return replyNotificationEnabled && typeof Notification !== "undefined" && Notification.permission === "granted";
         }
 
         function requestReplyNotificationPermission() {
-            if (typeof Notification === "undefined" || replyNotificationAsked) return;
+            if (!replyNotificationEnabled || typeof Notification === "undefined" || replyNotificationAsked) return;
             replyNotificationAsked = true;
             if (Notification.permission !== "default") return;
             try { Notification.requestPermission(); } catch (_) { /* pre-promise API throws here */ }

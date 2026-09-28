@@ -24,6 +24,8 @@ type MCPOptions struct {
 	WaitTimeout time.Duration
 	NoOpen      bool
 	Port        int
+	// ReplyNotification enables the experimental Reply Notification on the review page.
+	ReplyNotification bool
 }
 
 // sessionHolder owns the one review session an MCP process may have at a time.
@@ -94,7 +96,7 @@ func (h *sessionHolder) start(in startInput, opts MCPOptions) (startOutput, erro
 		return startOutput{}, fmt.Errorf("cannot review %s: it is a directory, not a document", in.Path)
 	}
 
-	s, err := StartSession(h.baseCtx, in.Path, opts.Port, opts.NoOpen)
+	s, err := StartSession(h.baseCtx, in.Path, opts.Port, opts.NoOpen, opts.ReplyNotification)
 	if err != nil {
 		return startOutput{}, fmt.Errorf("failed to start review of %s: %w", in.Path, err)
 	}

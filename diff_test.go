@@ -471,7 +471,7 @@ func TestRenderDispatchesOnContent(t *testing.T) {
 @@ -1 +1 @@
 -old
 +new
-`))
+`), false)
 	if err != nil {
 		t.Fatalf("Render(diff) error = %v", err)
 	}
@@ -482,7 +482,7 @@ func TestRenderDispatchesOnContent(t *testing.T) {
 		t.Error("diff mode must not run the Markdown block-comment initializer")
 	}
 
-	mdHTML, err := Render([]byte("# Heading\n\nProse.\n"))
+	mdHTML, err := Render([]byte("# Heading\n\nProse.\n"), false)
 	if err != nil {
 		t.Fatalf("Render(markdown) error = %v", err)
 	}
