@@ -35,9 +35,9 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### Agent Session Name
 * **Description**: The name of the *agent* session that started the review, handed to `review_start` by the caller. It is named for the agent because **session** on its own already means the `ReviewSession` everywhere else here — the thing the **Review Server** runs. reviewer never derives it — it reads no environment variable and parses no host's transcript — so a review started without one renders exactly as it always has.
-* **Behavior**: Trimmed and HTML-escaped once on the way in; a name that is empty or only whitespace counts as no name. It reaches the page as the first half of the **Page Title** and nowhere else: the **Contents Rail** header still shows the document's own title.
+* **Behavior**: Set by `Render`, which is the only place it is written, and trimmed and HTML-escaped there; a name that is empty or only whitespace counts as no name. It reaches the page as the first half of the **Page Title** and nowhere else: the **Contents Rail** header still shows the document's own title.
 * **One stem, no exception**: §11's wire-format exception protects names that have *already* been published. This one is new, so the term governs the wire too and every identifier is spelled from the same stem, the MCP JSON key included. `SpecMetadata` is never serialised and is not a wire format.
-* **Implementation**: `agentSessionName` — the `ReviewSession` field, and the parameter on `Render`, `RenderSpec`, `RenderDiff` and `StartSession`; `AgentSessionName` — the `startInput` and `SpecMetadata` fields; `normalizeAgentSessionName` in `render.go`; `{{.AgentSessionName}}` in `references/template.html`; the `agentSessionName` JSON key on `review_start`.
+* **Implementation**: `agentSessionName` — the `ReviewSession` field, and the parameter on `Render` and `StartSession`; `AgentSessionName` — the `startInput` and `SpecMetadata` fields; `normalizeAgentSessionName` in `render.go`; `{{.AgentSessionName}}` in `references/template.html`; the `agentSessionName` JSON key on `review_start`.
 
 ---
 
@@ -135,6 +135,24 @@ This document defines the core domain terms used within the `reviewer` codebase 
 * **Description**: Automatic browser refresh driven by Server-Sent Events (`/api/events`).
 * **Behavior**: The server watches **the review target only** (`fsnotify`, 150 ms debounce) and pushes a typed `reload` event when it changes, so the agent's edits appear without a manual refresh. The sidecar is not watched: the session is its only writer and announces its own changes. A reload is deferred (shown as a prompt) while the user has unsent edits.
 
+### Reload Reason
+* **Description**: What caused a **Live Reload** to be pushed, carried on the event so the page can tell one cause from another. Three causes exist and they are not interchangeable: an **Agent Reply** landing, a **Feedback** submit that another tab must pick up, and the **Review Target** changing on disk.
+* **Behavior**: Every `reload` event carries a reason; the page reloads the same way for all three, and only the **Reply Notification** reads the value. It exists because the page has no other way to recognise the reply: all three broadcasts are otherwise identical.
+* **Implementation**: `reloadReason`, `reloadReasonReply`, `reloadReasonSubmit`, `reloadReasonReviewTarget`, `reloadPayload` in `server.go`.
+* **Wire format**: the payload field is `reason` and its values are `reply`, `submit` and `reviewTarget`. These have left the process and keep their spelling.
+
+### Reply Notification
+* **Description**: The desktop notification raised by the review page when an **Agent Reply** lands while the page does not have focus, so a reviewer who has switched away is told the round came back.
+* **Behavior**: Raised only for a **Reload Reason** of `reply`, and only while `document.hasFocus()` is false — the page reloads itself over SSE, so someone watching it needs no notification. Its title is the page title and its body is fixed copy; the SSE payload carries no reply text to put there. Clicking it returns focus to the page. Permission is requested from the **Submit Review Button**, on the first submit only, because that is the moment the reviewer starts waiting and a user gesture is what the browser wants to see; it is never requested on load. Where permission is denied, or the browser has no Notification API, nothing is raised and nothing else changes.
+* **Experimental**: off unless the process is started with `REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION` set to a true value. Permission is scoped per origin and the review server's port changes whenever its preferred one is busy, so most sessions would ask again; the feature stays gated until the page has a stable origin. With the gate off, the page never asks for permission, never arms and never raises, and a flag left armed from an earlier run is cleared without raising anything. The **Reload Reason** is sent either way.
+* **Note**: a `granted` permission does not promise a banner. The operating system can suppress notifications for the browser itself, and the page cannot tell: `Notification.permission` still reads `granted` and the constructor still succeeds. When a notification does not appear, check the OS notification settings for the browser before suspecting this code.
+* **Implementation**: `replyNotification` is the identifier stem — `replyNotificationEnabled` (rendered from `SpecMetadata.ReplyNotification`, which `Render`, `StartSession`, `StartReviewServer` and `MCPOptions.ReplyNotification` carry from the `ExperimentalReplyNotification` field of the `serve` and `mcp` commands, the hidden `--experimental-reply-notification` flag bound to that variable), `replyNotificationGranted`, `requestReplyNotificationPermission`, `armReplyNotification`, `raiseReplyNotification`, `raiseArmedReplyNotification`, `replyNotificationPendingKey`, `replyNotificationAsked` and `lastReplyNotification` in `references/template.html`, and the `sessionStorage` key `reviewer.replyNotificationPending`, which carries the intent across the reload that the reply itself triggers. The notification's `tag` is `replyNotification`, so background tabs collapse onto one notification rather than one each.
+
+### Unload Guard
+* **Description**: The confirmation raised when the reader leaves the page — an address-bar reload, a closed tab, a browser back — while they have unsent edits.
+* **Behavior**: It runs off the same `hasUnsentEdits()` that defers **Live Reload**: what is worth deferring a reload for is worth a question before leaving. The wording is the browser's own, because `beforeunload` ignores any message the page supplies. The two controls that leave on purpose set `leavingOnPurpose` and so are not asked twice — the **Reload Prompt**'s Reload and the **End Review Button** each confirm in their own words first.
+* **Implementation**: `leavingOnPurpose`, the `beforeunload` listener, `hasUnsentEdits()`.
+
 ### Submit Long-poll (`/api/wait`)
 * **Description**: The agent-facing counterpart to Live Reload: a long-poll endpoint the agent uses to detect a human submit with near-zero latency, replacing log-string polling.
 * **Behavior**: `GET /api/wait` blocks until the next `POST /api/feedback`, then returns `200` with the current feedback JSON; an idle wait returns `204` after ~25s so the agent re-polls. A `submitNotifier` (a signal-only sibling of the SSE hub) fans one submit out to every concurrent waiter, and the session ending releases blocked waiters.
@@ -183,7 +201,7 @@ This document defines the core domain terms used within the `reviewer` codebase 
 
 ### File Status
 * **Description**: What happened to a file in this diff: added, deleted, renamed, or modified.
-* **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the file header, where there is room to say "renamed from …" in full.
+* **Behavior**: Shown as a mark in front of the name in the **Contents Rail** (`+`, `−`, `⇄`, `·`) and in words on the **File Header**, where there is room to say "renamed from …" in full.
 * **Implementation**: `.file-status`, `.file-status-added` / `-deleted` / `-renamed` / `-modified`; the name beside it is `.rail-toc-file-name`.
 
 ### Change Block
@@ -246,7 +264,8 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Document Column
 * **Description**: The middle column, holding the rendered review target. It leads: the two rails recede so that this column reads as the page.
 * **Behavior**: Uncapped in both modes: it takes whatever the two rails leave. A diff is floored at `--document-min-width`; a spec is not, because prose reflows. Takes focus on load, because it — not the page — is what scrolls.
-* **Implementation**: `.document-column`, `--document-min-width`, `documentScroller()`.
+* **In diff review** its vertical padding rides on the diff body (`.diff-view`) rather than on the column, because the column is the **Scrollport** and a scrollport's padding is inside it: left on the column, it would hold every **File Header** that distance below the top and leave a strip for diff lines to scroll through above them.
+* **Implementation**: `.document-column`, `.diff-view`, `--document-min-width`, `documentScroller()`.
 
 ### Feedback Panel
 * **Description**: The right column, present in served mode only: the **Change Summary**, the **Pending Questions Button**, the **Document Comment Control**, and one **Comment Card** per **Thread**. The **Composer** is not a fixture here: it takes its place among the cards only while a comment is being written.
@@ -267,6 +286,11 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 ### Scrollport
 * **Description**: A column that scrolls its own content. All three columns are one; the page itself does not scroll.
 * **Behavior**: JavaScript never assumes which element scrolls — it reads the column's computed `overflow-y`, because the narrow-viewport layout hands scrolling back to the page.
+
+### File Header
+* **Description**: The bar at the top of each file of a **Diff**, carrying the **Display Path** and, where there is one, the **File Status** in words. It is a comment target in its own right — the **Anchor** form `<path>#file` — for a remark about the change to the file rather than to any line of it.
+* **Behavior**: It stays at the top of the **Document Column**'s **Scrollport** while its own file's hunks scroll past, and is pushed out by the next file's header when its file ends; it looks the same pinned as it does at rest. Its **Comment Indicator** sits inside it rather than out in the **Comment Gutter**, because the file card clips what overhangs its edge.
+* **Implementation**: `.diff-file-header`, `.diff-file-note`, `data-file`, `data-status`; the card it heads is `.diff-file`. `renderDiffBody` in `diff.go` emits it.
 
 ### Comment Indicator
 * **Description**: The chip in the right **Comment Gutter** of a block that has comments — a speech-bubble glyph and the thread count. Clicking it selects **all** of them, drawing one **Connector Line** per thread; clicking it again drops the selection. It cannot name a single thread — it is one chip for all of them — so picking one out is the **Comment Card**'s job.
@@ -360,6 +384,7 @@ The figures show the light theme, and only what is on the page at rest. Missing 
 
 ### Reload Prompt
 * **Description**: The bar offering a manual reload, shown instead of reloading when the reader has unsent edits.
+* **Behavior**: Its Reload confirms before it acts — the bar reports that the document changed, which is not a warning that reloading discards a draft. Cancelling leaves the page and the bar as they were; a submit in the meantime leaves nothing to lose and nothing is asked. The **Unload Guard** does not ask again on top of it.
 * **Implementation**: `#reloadPrompt`, `#reloadNowBtn`.
 
 ### Agent Activity Panel

@@ -94,11 +94,11 @@ graph TD
 `ParseUnifiedDiff` + `RenderDiff`. Both produce a body and hand it to the same page template,
 which branches on `SpecMetadata.Mode`.
 
-It takes one input besides the content: the **Agent Session Name**, which `review_start` may carry
-and `build` / `serve` never can. `Render` forwards it untouched and each renderer normalises it
-once — trimmed, then escaped — because normalising in both places would escape a name containing
-`&` twice. It reaches only the **Page Title**; the Contents Rail header keeps showing the
-document's own title.
+The **Agent Session Name** joins the reply-notification flag as a per-session input `Render` sets
+on the metadata after the kind-specific helper has built it: `review_start` may carry a name, and
+`build` / `serve` never can. `Render` is the only writer, so it is also the only place the name is
+normalised — trimmed, then escaped, once. It reaches only the **Page Title**; the **Contents Rail**
+header keeps showing the document's own title.
 
 * **Content-based detection**:
   The kind comes from the bytes, never from the file name or a flag. An agent writes its diff to
@@ -267,7 +267,10 @@ goes through MCP.
   live update reaches the page over SSE.
 * **`GET /api/events` (SSE)**:
   A Server-Sent Events stream carrying **typed JSON events** so the page can react differently:
-  * `{"kind":"reload"}` — the document or feedback changed; the page calls `location.reload()`.
+  * `{"kind":"reload","reason":...}` — the document or feedback changed; the page calls `location.reload()`.
+    The reason is `reply` (an agent reply landed), `submit` (another tab's submit) or `reviewTarget`
+    (the reviewed file changed on disk). All three reload the same way; only the reply notification
+    reads the reason.
   * `{"kind":"status","state":...,"message":...}` — the agent's activity changed; the page updates the
     live activity panel **in place**, without reloading.
 * **File watching (`fsnotify`)**:

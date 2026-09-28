@@ -23,7 +23,7 @@ func startTestServer(t *testing.T, inputPath string) (string, func()) {
 	errChan := make(chan error, 1)
 
 	go func() {
-		errChan <- StartReviewServer(ctx, inputPath, 0, true, readyChan)
+		errChan <- StartReviewServer(ctx, inputPath, 0, true, false, readyChan)
 	}()
 
 	var url string
@@ -201,7 +201,7 @@ func TestStartReviewServer_CloseEndsSession(t *testing.T) {
 	ctx := t.Context()
 	readyChan := make(chan string, 1)
 	errChan := make(chan error, 1)
-	go func() { errChan <- StartReviewServer(ctx, inputPath, 0, true, readyChan) }()
+	go func() { errChan <- StartReviewServer(ctx, inputPath, 0, true, false, readyChan) }()
 
 	var url string
 	select {
@@ -244,13 +244,13 @@ func TestStartReviewServer_SSEReloadOnEdit(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	reloaded := make(chan bool, 1)
+	reloaded := make(chan string, 1)
 	go func() {
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.HasPrefix(line, "data:") && strings.Contains(line, `"kind":"reload"`) {
-				reloaded <- true
+				reloaded <- line
 				return
 			}
 		}
@@ -261,9 +261,31 @@ func TestStartReviewServer_SSEReloadOnEdit(t *testing.T) {
 	writeMarkdown(t, inputPath, "# Spec\n\nAfter.\n")
 
 	select {
-	case <-reloaded:
+	case line := <-reloaded:
+		// The page tells this apart from a reply by the reason alone, so the reason is the
+		// assertion: a document edit must never look like an Agent Reply.
+		if !strings.Contains(line, `"reason":"reviewTarget"`) {
+			t.Errorf("reload for a document edit carried the wrong reason: %s", line)
+		}
 	case <-time.After(3 * time.Second):
 		t.Error("did not receive SSE reload event after editing the document")
+	}
+}
+
+// Every reload broadcast names its cause, and the three causes are spelled the way the page and
+// any other reader of the wire format expect.
+func TestReloadPayload_NamesItsReason(t *testing.T) {
+	for _, tc := range []struct {
+		reason reloadReason
+		want   string
+	}{
+		{reloadReasonReply, `{"kind":"reload","reason":"reply"}`},
+		{reloadReasonSubmit, `{"kind":"reload","reason":"submit"}`},
+		{reloadReasonReviewTarget, `{"kind":"reload","reason":"reviewTarget"}`},
+	} {
+		if got := reloadPayload(tc.reason); got != tc.want {
+			t.Errorf("reloadPayload(%q) = %s, want %s", tc.reason, got, tc.want)
+		}
 	}
 }
 
@@ -462,7 +484,7 @@ func TestSidecars_AreNotWrittenBesideTheDocument(t *testing.T) {
 	inputPath := filepath.Join(tempDir, "spec.md")
 	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
 
-	s, err := StartSession(ctx, inputPath, 0, true, "")
+	s, err := StartSession(ctx, inputPath, 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -498,7 +520,7 @@ func TestStartReviewServer_AgentStatus(t *testing.T) {
 	// Driven through the session rather than by writing the sidecar directly: the agent no
 	// longer touches these files, so the session is their only writer and broadcasts the
 	// event itself instead of watching for its own write to come back.
-	s, err := StartSession(ctx, inputPath, 0, true, "")
+	s, err := StartSession(ctx, inputPath, 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}

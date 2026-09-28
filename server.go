@@ -219,8 +219,20 @@ type AgentStatus struct {
 	Timestamp string `json:"timestamp,omitempty"`
 }
 
+// reloadReason names what caused a Live Reload. All three broadcasts are otherwise identical, so
+// this is the page's only way to recognise the one that carries an Agent Reply.
+type reloadReason string
+
+const (
+	reloadReasonReply        reloadReason = "reply"
+	reloadReasonSubmit       reloadReason = "submit"
+	reloadReasonReviewTarget reloadReason = "reviewTarget"
+)
+
 // SSE payload builders. Events are JSON so the page can switch on "kind".
-func reloadPayload() string { return `{"kind":"reload"}` }
+func reloadPayload(reason reloadReason) string {
+	return fmt.Sprintf(`{"kind":"reload","reason":%q}`, reason)
+}
 
 func statusPayload(raw []byte) string {
 	var s AgentStatus
@@ -325,8 +337,8 @@ func (h *sseHub) broadcast(msg string) {
 // entry point for `reviewer serve`; the MCP server drives a ReviewSession directly instead.
 //
 // readyChan, when non-nil, receives the running server's URL once the port is bound.
-func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen bool, readyChan chan<- string) error {
-	s, err := StartSession(ctx, inputPath, port, noOpen, "")
+func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen bool, replyNotification bool, readyChan chan<- string) error {
+	s, err := StartSession(ctx, inputPath, port, noOpen, replyNotification, "")
 	if err != nil {
 		return err
 	}
@@ -426,7 +438,7 @@ func watchForReload(watcher *fsnotify.Watcher, inputPath string, hub *sseHub, do
 		if reloadTimer != nil {
 			reloadTimer.Stop()
 		}
-		reloadTimer = time.AfterFunc(150*time.Millisecond, func() { hub.broadcast(reloadPayload()) })
+		reloadTimer = time.AfterFunc(150*time.Millisecond, func() { hub.broadcast(reloadPayload(reloadReasonReviewTarget)) })
 	}
 
 	for {

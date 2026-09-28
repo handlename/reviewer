@@ -1382,13 +1382,25 @@
            the same reason. */
         .document-column.diff-mode {
             min-width: var(--document-min-width);
-            padding: calc(var(--u) * 4) calc(var(--u) * 3);
+            padding: 0 calc(var(--u) * 3);
         }
+        /* The column's vertical padding rides here rather than on the column, because the column
+           is the scrollport and a scrollport's padding is inside it: the file header sticks below
+           that band, and diff lines scroll through the strip left above it. Held by the content,
+           the same gap costs the header nothing — it pins flush with the top of the column. */
+        .diff-view {
+            padding: calc(var(--u) * 4) 0;
+        }
+        /* clip, not hidden: both round the card's corners onto its children, but `hidden` is a
+           scroll container, and a scroll container captures the sticky file header below —
+           .diff-file never scrolls, so the header stayed put relative to a box that was itself
+           travelling up the column. `clip` clips without scrolling, which hands the header back
+           to .document-column's scrollport. */
         .diff-file {
             border: 1px solid var(--border-color);
             border-radius: var(--radius);
             margin-bottom: calc(var(--u) * 3);
-            overflow: hidden;
+            overflow: clip;
             background: var(--bg-primary);
         }
         .document-column.diff-mode h2.diff-file-header {
@@ -1903,6 +1915,9 @@
         // discard an in-progress comment when the agent updates the document.
         let dirty = false;
         let pendingReload = false;
+        // Set by the controls that leave the page on purpose, so the unload guard does not ask
+        // again about a departure the reader has already confirmed.
+        let leavingOnPurpose = false;
 
         function markDirty() { dirty = true; }
 
@@ -4158,6 +4173,10 @@
                 if (!confirm(message)) return;
             }
 
+            // Submitting is the moment the reviewer starts waiting, and it is a user gesture —
+            // the two things the browser weighs when it is asked for notification permission.
+            requestReplyNotificationPermission();
+
             const btn = document.getElementById("submitFeedbackBtn");
             btn.disabled = true;
             // Start a fresh round: the previous agent summary is stale until the agent runs again.
@@ -4188,6 +4207,9 @@
         // End Review — stop the live session (separate from Submit).
         document.getElementById("endReviewBtn").addEventListener("click", () => {
             if (!confirm("End this review session? The review server will stop.")) return;
+            // Left set even when window.close() no-ops on a tab the script did not open: the
+            // server is stopping, so there is nothing left to submit to and nothing to warn about.
+            leavingOnPurpose = true;
             const finish = () => {
                 const status = document.getElementById("statusMsg");
                 status.textContent = "Review ended. You can close this tab.";
@@ -4204,6 +4226,83 @@
             return dirty || editingIdx !== -1 || replyingIdx !== -1 || editingMsg !== null || (!!input && input.value.trim() !== "");
         }
 
+        // The deferral above only catches the agent's own reloads. A stray Cmd-R, a closed tab or a
+        // browser back takes the same unsent work with it, so the guard runs off the same predicate:
+        // what is worth deferring a reload for is worth a question before leaving. The wording is
+        // the browser's own — assigning returnValue is what asks at all, not what it says.
+        window.addEventListener("beforeunload", (e) => {
+            if (leavingOnPurpose || !hasUnsentEdits()) return;
+            e.preventDefault();
+            e.returnValue = "";
+        });
+
+        // Reply Notification. An Agent Reply that lands while the page is elsewhere is the one
+        // event the reviewer walked away from, so it is announced through the desktop.
+        //
+        // A reply also reloads the page, and a non-persistent notification does not outlive the
+        // document that created it. So the intent is handed to the next document instead of being
+        // raised into a document that is about to go away.
+        //
+        // Experimental: rendered true only when the server was started with
+        // REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION. Permission is scoped per origin, and the port
+        // changes between sessions, so a reviewer would be asked again in most sessions.
+        const replyNotificationEnabled = {{if .ReplyNotification}}true{{else}}false{{end}};
+        const replyNotificationPendingKey = "reviewer.replyNotificationPending";
+        let replyNotificationAsked = false;
+        // Held beyond the call that raises it: a Notification collected while it is still on screen
+        // takes its click handler with it, and clicking through is the whole point of raising one.
+        let lastReplyNotification = null;
+
+        function replyNotificationGranted() {
+            return replyNotificationEnabled && typeof Notification !== "undefined" && Notification.permission === "granted";
+        }
+
+        function requestReplyNotificationPermission() {
+            if (!replyNotificationEnabled || typeof Notification === "undefined" || replyNotificationAsked) return;
+            replyNotificationAsked = true;
+            if (Notification.permission !== "default") return;
+            try { Notification.requestPermission(); } catch (_) { /* pre-promise API throws here */ }
+        }
+
+        function raiseReplyNotification() {
+            // The page reloads itself on a reply, so a reviewer who is watching is already told.
+            if (!replyNotificationGranted() || document.hasFocus()) return;
+            let notification;
+            try {
+                // tag: every background tab of this document arms its own, and without a shared tag
+                // the reviewer would come back to one notification per tab for a single reply.
+                notification = new Notification(document.title, { body: "The agent replied.", tag: "replyNotification" });
+            } catch (_) {
+                return;
+            }
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+            lastReplyNotification = notification;
+        }
+
+        function armReplyNotification() {
+            if (!replyNotificationGranted() || document.hasFocus()) return;
+            try { sessionStorage.setItem(replyNotificationPendingKey, "1"); } catch (_) { /* storage may be blocked */ }
+        }
+
+        function raiseArmedReplyNotification() {
+            let armed = null;
+            try {
+                armed = sessionStorage.getItem(replyNotificationPendingKey);
+                sessionStorage.removeItem(replyNotificationPendingKey);
+            } catch (_) {
+                return;
+            }
+            if (armed) raiseReplyNotification();
+        }
+
+        // Consumed here rather than alongside the rest of the setup below, which runs unguarded:
+        // a flag left armed by a throw further down would raise a notification on the next reload
+        // of any kind, for a reply that landed long before it.
+        raiseArmedReplyNotification();
+
         function connectLiveReload() {
             if (!isServed || typeof EventSource === "undefined") return;
             const dot = document.getElementById("liveDot");
@@ -4218,17 +4317,29 @@
                     return;
                 }
                 if (msg.kind === "reload") {
+                    const replyLanded = msg.reason === "reply";
                     if (hasUnsentEdits()) {
                         pendingReload = true;
                         document.getElementById("reloadPrompt").style.display = "flex";
+                        // No reload is coming, so this document keeps the notification itself.
+                        if (replyLanded) raiseReplyNotification();
                     } else {
+                        if (replyLanded) armReplyNotification();
                         window.location.reload();
                     }
                 }
             };
         }
 
-        document.getElementById("reloadNowBtn").addEventListener("click", () => window.location.reload());
+        document.getElementById("reloadNowBtn").addEventListener("click", () => {
+            // The Reload Prompt says only that the document changed, not that reloading throws
+            // away what the reader has not sent, so this is where that is asked — the same rule
+            // as Escape over a draft. A submit after the prompt appeared leaves nothing to lose,
+            // and then it is not asked.
+            if (hasUnsentEdits() && !confirm("Reloading will discard your unsent comments. Reload anyway?")) return;
+            leavingOnPurpose = true;
+            window.location.reload();
+        });
 
         let isProgrammaticScroll = false; // Flag to prevent scroll-spy hijacking during clicks
         let programmaticScrollTimeout = null;

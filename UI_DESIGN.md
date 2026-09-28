@@ -211,6 +211,12 @@ A single SVG overlay draws the lines between the selected comment cards and thei
 
 **Rejected:** dropping the compose-time line entirely and letting position speak for itself — it reads well until the two columns are scrolled apart, which is most of the time; and discarding the draft silently on Escape, which matches the **Reply Control**'s Escape but loses work the reader can no longer see to rescue.
 
+**Leaving the page asks too, and the two in-page exits ask in their own words.** Escape is not the only way words leave the screen: an address-bar reload, a closed tab or a browser back takes the whole page with them, and nothing stood between those and a comment that was never sent. The **Unload Guard** runs off `hasUnsentEdits` — the same predicate that defers **Live Reload** — so the question "is this worth interrupting the reader for" is answered once and used twice. The **Reload Prompt**'s Reload and the **End Review Button** each confirm in their own words and then suppress the browser's, because two dialogs for one departure is the same question asked twice.
+
+**Why:** the browser's wording cannot be set — `beforeunload` ignores any message the page supplies — so on that path the guard can only ask, never say what is at stake. The **Reload Prompt** is where that mattered: its bar reports that the document changed, which is not a warning, and its button sits one click from work the reader cannot get back.
+
+**Rejected:** exempting the **Reload Prompt** on the reading that a bar the reader chose to act on is already a confirmation — it is a notice, and its wording never mentioned the draft; and letting the browser's own dialog cover that button, which asks but cannot say what is lost.
+
 **A resolved thread in a bunch keeps its line, drawn faint.** The indicator's count is every thread on the anchor, so a bunch that dropped the resolved ones would show fewer lines than the number on the chip. Dimming keeps the count honest while leaving the open threads the ones the eye lands on. The dimming is opacity on the same accent, never a second hue (§2.1).
 
 **Rejected:** cycling the indicator through the threads one click at a time, which needs no new UI but never tells you what is coming next; a popover listing the threads, which is a new component and a new place for state to live; and dropping resolved threads from the bunch, which silently disagrees with the chip.
@@ -295,6 +301,18 @@ Everything authored in the panel — a comment, each message after it in the thr
 **A suggestion is not prose.** The ` ```suggestion ` fence is carved out before the renderer sees anything and stays a diff against the lines it replaces (§5.6) — reading a replacement as a code block was the thing §5.6 set out to avoid.
 
 **Only the rendering changes.** The comment array and the feedback file keep the author's raw text exactly as typed, so editing reopens the source that was written and the agent receives what the human wrote, not what the panel drew.
+
+### 5.10 The page speaks up only when nobody is watching it
+
+**Experimental, and off by default.** The page raises nothing unless the server was started with `REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION`. Permission is scoped per origin and the review server's port is not stable across sessions, so the "ask once, at the first Submit" rule below would in practice ask in most sessions. The rest of this section describes the page with the gate on.
+
+The reviewer who has submitted a round has nothing to do until the agent answers, and the answer can be minutes away. The page already reloads itself when it arrives, which is enough for someone looking at it — and useless for someone who has gone elsewhere, which is the ordinary case. So an **Agent Reply** that lands while `document.hasFocus()` is false raises a **Reply Notification**, and one that lands while the page is focused raises nothing. A notification that repeats what the reader just watched happen is a notification they learn to dismiss without reading.
+
+**Only the reply.** A **Live Reload** is also pushed when the reviewed file changes on disk and when another tab submits; neither is news the reviewer walked away to wait for, so the page tells the three apart by **Reload Reason** and announces only the reply.
+
+**Permission is asked for at the first Submit, never on load.** A permission prompt on load arrives with no context to justify it and is refused more often, and a refusal cannot be undone from the page — only from browser settings. The **Submit Review Button** is where the waiting starts and is a gesture the browser weighs in the request's favour, so that is where the page asks. Refusal is not an error state: nothing is raised, nothing is logged, and the rest of the page behaves exactly as it did.
+
+**No fallback was built for a refusal.** Title flashing and a favicon badge were considered and rejected: a reviewer who has declined notifications has said what they want, and the page reloading itself already tells anyone who is looking.
 
 ---
 

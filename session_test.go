@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -27,7 +28,7 @@ func writeTempSpec(t *testing.T) string {
 func TestStartSession_ServesAndCloses(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestStartSession_ServesAndCloses(t *testing.T) {
 func TestStartSession_ClosesServerAfterSessionAlreadyEnded(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestStartSession_ClosesServerAfterSessionAlreadyEnded(t *testing.T) {
 func TestSessionWait_ReturnsSubmittedComments(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -128,7 +129,7 @@ func TestSessionWait_ReturnsSubmittedComments(t *testing.T) {
 func TestSessionWait_ReturnsSubmitThatLandedBeforeTheCall(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestSessionWait_ReturnsSubmitThatLandedBeforeTheCall(t *testing.T) {
 func TestSessionWait_DoesNotRedeliverTheSameSubmit(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestSessionWait_DoesNotRedeliverTheSameSubmit(t *testing.T) {
 func TestSessionWait_TimesOutWithoutError(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -187,7 +188,7 @@ func TestSessionWait_TimesOutWithoutError(t *testing.T) {
 func TestSessionWait_ReportsSessionEnded(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -229,7 +230,7 @@ func submitComment(t *testing.T, s *ReviewSession, text string) string {
 func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -265,7 +266,7 @@ func TestSessionReply_WritesReplyAndSummary(t *testing.T) {
 func TestSessionReply_AppendsToTheThread(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -303,7 +304,7 @@ func TestSessionReply_AppendsToTheThread(t *testing.T) {
 func TestSessionReply_WithoutNeedsAnswerIsUnchanged(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -331,7 +332,7 @@ func TestSessionReply_WithoutNeedsAnswerIsUnchanged(t *testing.T) {
 func TestSessionWait_DeliversResolvedOnceThenPrunes(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -373,7 +374,7 @@ func postComments(t *testing.T, s *ReviewSession, comments string) {
 func TestSessionReply_OpensAgentThreads(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -424,7 +425,7 @@ func TestSessionReply_OpensAgentThreads(t *testing.T) {
 func TestSessionReply_AcceptsAQuoteThatMatchesNothing(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -440,7 +441,7 @@ func TestSessionReply_AcceptsAQuoteThatMatchesNothing(t *testing.T) {
 func TestSessionReply_IsOneReloadForTheWholeRound(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -457,12 +458,12 @@ func TestSessionReply_IsOneReloadForTheWholeRound(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	reloads := make(chan struct{}, 8)
+	reloads := make(chan string, 8)
 	go func() {
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
 			if line := scanner.Text(); strings.HasPrefix(line, "data:") && strings.Contains(line, `"kind":"reload"`) {
-				reloads <- struct{}{}
+				reloads <- line
 			}
 		}
 	}()
@@ -478,7 +479,12 @@ func TestSessionReply_IsOneReloadForTheWholeRound(t *testing.T) {
 	}
 
 	select {
-	case <-reloads:
+	case line := <-reloads:
+		// The Reply Notification is raised off this reason alone, so a round that lands without
+		// it is a round the page cannot announce.
+		if !strings.Contains(line, `"reason":"reply"`) {
+			t.Errorf("the round's reload did not name the Agent Reply as its reason: %s", line)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no reload was pushed for the round")
 	}
@@ -492,7 +498,7 @@ func TestSessionReply_IsOneReloadForTheWholeRound(t *testing.T) {
 func TestSessionReply_CannotResolveComment(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -513,7 +519,7 @@ func TestSessionReply_CannotResolveComment(t *testing.T) {
 func TestSessionReply_RejectsUnknownCommentID(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -529,7 +535,7 @@ func TestSessionReply_RejectsUnknownCommentID(t *testing.T) {
 func TestSessionProgress_WritesStatusFile(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -555,7 +561,7 @@ func TestSessionProgress_WritesStatusFile(t *testing.T) {
 func TestSessionProgress_RejectsUnknownState(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -691,7 +697,7 @@ func TestMergeFeedback(t *testing.T) {
 func TestFeedbackPost_KeepsWhatTheAgentWroteWhileTheHumanWasTyping(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -729,7 +735,7 @@ func TestFeedbackPost_KeepsWhatTheAgentWroteWhileTheHumanWasTyping(t *testing.T)
 func TestFeedbackPost_HonoursDeletingAThreadTheAgentHasSinceAnswered(t *testing.T) {
 	ctx := t.Context()
 
-	s, err := StartSession(ctx, writeTempSpec(t), 0, true, "")
+	s, err := StartSession(ctx, writeTempSpec(t), 0, true, false, "")
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -751,6 +757,31 @@ func TestFeedbackPost_HonoursDeletingAThreadTheAgentHasSinceAnswered(t *testing.
 	}
 }
 
+func TestStartSession_ServesReplyNotificationGate(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		s, err := StartSession(t.Context(), writeTempSpec(t), 0, true, enabled, "")
+		if err != nil {
+			t.Fatalf("StartSession failed: %v", err)
+		}
+		resp, err := http.Get(s.URL())
+		if err != nil {
+			t.Fatalf("GET %s failed: %v", s.URL(), err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		want := fmt.Sprintf("const replyNotificationEnabled = %t;", enabled)
+		if !strings.Contains(string(body), want) {
+			t.Errorf("enabled=%t: served page does not contain %q", enabled, want)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+	}
+}
+
 // writeTempDiff creates a minimal one-file unified diff and returns its path.
 func writeTempDiff(t *testing.T) string {
 	t.Helper()
@@ -764,8 +795,8 @@ func writeTempDiff(t *testing.T) string {
 }
 
 // GET / re-renders on every request, so the Agent Session Name has to survive on the session
-// rather than on one render. Both kinds are covered: the two renderers compose the Page Title
-// separately, and a name that reached only one of them would still pass a unit test.
+// rather than on one render. Both kinds are covered: a name that reached only one of the two
+// renderers would still pass the unit tests.
 func TestStartSession_PageTitleCarriesAgentSessionName(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -782,7 +813,7 @@ func TestStartSession_PageTitleCarriesAgentSessionName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, err := StartSession(t.Context(), tt.target(t), 0, true, tt.agentSessionName)
+			s, err := StartSession(t.Context(), tt.target(t), 0, true, false, tt.agentSessionName)
 			if err != nil {
 				t.Fatalf("StartSession failed: %v", err)
 			}

@@ -24,6 +24,8 @@ type ReviewSession struct {
 	statusPath   string
 	url          string
 
+	replyNotification bool
+
 	// agentSessionName names the agent session this review belongs to. It arrives at
 	// construction rather than by assignment because Serve is already running by the time
 	// StartSession returns, and the first GET / would race a later write.
@@ -64,9 +66,7 @@ type ReviewSession struct {
 // StartSession binds a port, begins serving, and returns as soon as the URL is known. The
 // caller decides how to wait: `reviewer serve` blocks on Done(), the MCP server keeps the
 // handle and drives it through Wait/Reply/Progress.
-//
-// agentSessionName may be empty; `reviewer serve` has no way to know one and passes "".
-func StartSession(ctx context.Context, inputPath string, port int, noOpen bool, agentSessionName string) (*ReviewSession, error) {
+func StartSession(ctx context.Context, inputPath string, port int, noOpen bool, replyNotification bool, agentSessionName string) (*ReviewSession, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		log.Warn().Err(err).Msgf("port %d busy, probing for auto-assigned port", port)
@@ -78,15 +78,17 @@ func StartSession(ctx context.Context, inputPath string, port int, noOpen bool, 
 
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 	s := &ReviewSession{
-		inputPath:        inputPath,
-		agentSessionName: agentSessionName,
-		feedbackPath:     FeedbackPath(inputPath),
-		statusPath:       StatusPath(inputPath),
-		url:              fmt.Sprintf("http://127.0.0.1:%d", actualPort),
-		hub:              newSSEHub(),
-		notifier:         newSubmitNotifier(),
-		done:             make(chan struct{}),
-		listener:         listener,
+		inputPath:    inputPath,
+		feedbackPath: FeedbackPath(inputPath),
+		statusPath:   StatusPath(inputPath),
+		url:          fmt.Sprintf("http://127.0.0.1:%d", actualPort),
+		hub:          newSSEHub(),
+		notifier:     newSubmitNotifier(),
+		done:         make(chan struct{}),
+		listener:     listener,
+
+		replyNotification: replyNotification,
+		agentSessionName:  agentSessionName,
 	}
 	log.Info().Msgf("Review server running at %s", s.url)
 
@@ -407,7 +409,7 @@ func (s *ReviewSession) Reply(replies []ReplyInput, newThreads []AskInput, summa
 	}
 	// The session is the only writer, so it announces its own change rather than waiting for a
 	// file watcher to notice it.
-	s.hub.broadcast(reloadPayload())
+	s.hub.broadcast(reloadPayload(reloadReasonReply))
 	return nil
 }
 
@@ -523,7 +525,7 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			http.Error(w, "Failed to read document: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		htmlContent, err := Render(content, s.agentSessionName)
+		htmlContent, err := Render(content, s.replyNotification, s.agentSessionName)
 		if err != nil {
 			http.Error(w, "Failed to render document: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -580,7 +582,7 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			_ = writeSidecar(s.statusPath, seeded)
 			s.hub.broadcast(statusPayload(seeded))
 			// Other tabs viewing the same document pick up the new comments.
-			s.hub.broadcast(reloadPayload())
+			s.hub.broadcast(reloadPayload(reloadReasonSubmit))
 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
