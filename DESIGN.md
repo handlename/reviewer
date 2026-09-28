@@ -83,9 +83,10 @@ graph TD
 ### A. CLI Commands (`cli/command/`)
 * **`root.go`**: Establishes global parameters and instantiates command context.
 * **`build.go`**: Compiles the input — a Markdown document or a unified diff — into a standalone, styled HTML file. Output defaults to the same directory as the input.
-* **`serve.go`**: Compiles the input, spins up the local HTTP web server, and triggers the operating system's default browser to load the review application.
+* **`serve.go`**: Compiles the input, spins up the local HTTP web server, and triggers the operating system's default browser to load the review application. The hidden `--experimental-reply-notification` flag (environment `REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION`) turns on the **Reply Notification**. The page then raises one on an **Agent Reply** that arrives while the page does not have focus, if notification permission was granted. Without the flag, the page never asks for permission.
 * **`mcp.go`**: Runs the MCP server over stdio. `--wait-timeout` (default `15m`) bounds one
-  `review_wait` call; `--port` and `--no-open` mirror `serve`.
+  `review_wait` call; `--port`, `--no-open` and the hidden `--experimental-reply-notification`
+  (`REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION`) mirror `serve`.
 
 ### B. Renderer (`reviewer/render.go`, `reviewer/diff.go`)
 
@@ -292,10 +293,13 @@ goes through MCP.
 The agent-facing contract. `reviewer mcp` serves four tools over stdio; a `sessionHolder` owns at
 most one live `ReviewSession` per process.
 
-* **`review_start(path)` → `{url, path}`**:
+* **`review_start(path, agentSessionName?)` → `{url, path}`**:
   Stats the document before binding a port, so a path that cannot be read fails instead of
   yielding a URL to a page that only renders an error. Refuses a second start while a review is
-  live, but allows one after the human ended the previous review.
+  live, but allows one after the human ended the previous review. `agentSessionName` is optional
+  and exists only on this tool (`serve` always renders without one). When it is given, it becomes
+  the first half of the **Page Title**, so that several open reviews can be told apart. A review
+  started without it renders as before.
 * **`review_wait()` → `{outcome, comments, summary}`**:
   `outcome` is `submitted`, `timeout`, or `session_ended`. Waiting on a review that already ended
   reports `session_ended` rather than failing, because the human can click **End Review** while the
@@ -348,7 +352,7 @@ is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisi
   * **Main Content (Middle)**: Renders the compiled body. The column is uncapped in both modes —
     it takes whatever the rails leave. A diff is floored at `--document-min-width`; a spec is
     not, because prose reflows.
-  * **Feedback Panel (Right)**: Shows the comment inbox, list of active critiques, and submission options (visible only when served via HTTP). Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider drops the stored value and removes the custom property.
+  * **Feedback Panel (Right)**: Shows the round's **Change Summary Block**, the **Comment Cards** and the submission controls (visible only when served via HTTP). It carries no input at rest: the **Document Comment Control** at its top opens a **Composer** for a comment on the whole document, and a targeted comment's **Composer** opens in the slot its **Comment Card** will occupy. Unsubmitted comments can be edited inline or deleted before submission. Its width is draggable and remembered in `localStorage`; double-clicking the divider drops the stored value and removes the custom property.
 * **Width and state live in custom properties and `<body>` classes, never in inline styles**:
   `--feedback-panel-width` and `--document-min-width` are read by the stylesheet, the resize handle
   and the narrow-viewport media queries alike; mode and layout state ride classes on `<body>`
@@ -359,11 +363,13 @@ is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisi
   document. `commentsInAppearanceOrder()` builds an `anchor → position` map from the live DOM
   (`.document-column [data-anchor]`) and stable-sorts a `{comment, originalIndex}` view — so comments
   on the same block keep creation order, and the `idx`-based handlers (`editingIdx`,
-  `deleteComment`, `saveComment`) continue to address the untouched `comments` array. Comments
-  with no anchor, or whose anchored element disappeared after an agent edit, sink to the end in
-  creation order. **Only the rendering is reordered** — the `comments` array and the feedback file
-  written from it stay in creation order, so a later change must not "fix" the JSON order to match
-  the panel. UI_DESIGN.md §5.4 records why the scope is drawn there.
+  `deleteComment`, `saveComment`) continue to address the untouched `comments` array. A comment
+  with no anchor is about the document as a whole and comes first, under the **Panel Sections**
+  heading *About this document*. One whose anchored element disappeared after an agent edit, or
+  whose diff lines are gone, sinks to the end. Both keep creation order among themselves, and
+  resolved threads sort below open ones. **Only the rendering is reordered** — the `comments`
+  array and the feedback file written from it stay in creation order, so a later change must not
+  "fix" the JSON order to match the panel. UI_DESIGN.md §5.4 records why the scope is drawn there.
 * **Interactive DOM Initialization**:
   Upon load, the frontend JS runs `initializeCommentableElements()` for a spec — attaching
   `data-anchor` attributes to all root block elements (excluding headers, code tags, or nested
@@ -440,7 +446,10 @@ inexpressible.
   the whole of it must light up.
 * **Selections never cross a hunk.** The coordinate system could express it, but lines on either
   side of a `@@` header are far apart in the real file, and recording them as adjacent would make
-  them unfindable next round. The re-anchoring search obeys the same boundary.
+  them unfindable next round. The re-anchoring search obeys the same boundary. Inside a
+  **Foldable Hunk** two more limits apply, because a folded hunk is a whole file in one element:
+  a range may not reach across lines the fold is hiding (the **Selection Notice** reads "Open the
+  hidden lines first"), and it may cover at most the **Selection Cap** of 200 lines.
 * **The file header is a target too**, carrying `data-file` and `data-status`. A whole-file
   comment sorts above the comments on that file's lines, because the header precedes them in the
   DOM.
