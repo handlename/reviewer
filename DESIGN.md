@@ -367,9 +367,9 @@ is recorded in [UI_DESIGN.md](UI_DESIGN.md), which is normative for those decisi
   with no anchor is about the document as a whole and comes first, under the **Panel Sections**
   heading *About this document*. One whose anchored element disappeared after an agent edit, or
   whose diff lines are gone, sinks to the end. Both keep creation order among themselves, and
-  resolved threads sort below open ones. **Only the rendering is reordered** — the `comments` array and the feedback file
-  written from it stay in creation order, so a later change must not "fix" the JSON order to match
-  the panel. UI_DESIGN.md §5.4 records why the scope is drawn there.
+  resolved threads sort below open ones. **Only the rendering is reordered** — the `comments`
+  array and the feedback file written from it stay in creation order, so a later change must not
+  "fix" the JSON order to match the panel. UI_DESIGN.md §5.4 records why the scope is drawn there.
 * **Interactive DOM Initialization**:
   Upon load, the frontend JS runs `initializeCommentableElements()` for a spec — attaching
   `data-anchor` attributes to all root block elements (excluding headers, code tags, or nested
