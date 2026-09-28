@@ -2,9 +2,15 @@ package reviewer
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestReviewStart_OpensSessionAndReturnsURL(t *testing.T) {
@@ -367,5 +373,85 @@ func TestReviewReply_DoesNotHoldTheSidecarLockWhileWaiting(t *testing.T) {
 	case <-posted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Submit blocked while review_reply was waiting")
+	}
+}
+
+// startInput is the review_start wire schema. A struct literal cannot see a tag, so the JSON
+// key an agent has to type is only pinned by reflecting on it.
+func TestStartInput_AgentSessionNameWireSpelling(t *testing.T) {
+	field, ok := reflect.TypeOf(startInput{}).FieldByName("AgentSessionName")
+	if !ok {
+		t.Fatal("startInput has no AgentSessionName field")
+	}
+	if got, want := field.Tag.Get("json"), "agentSessionName,omitempty"; got != want {
+		t.Errorf("json tag = %q, want %q", got, want)
+	}
+	if field.Tag.Get("jsonschema") == "" {
+		t.Error("AgentSessionName needs a jsonschema description: it is what an agent reads to learn the field exists")
+	}
+}
+
+// What an agent actually receives is the registered tool's schema, not the Go struct. The
+// server's own tool list is unexported, so the only way to read it back is to connect a client.
+func TestReviewStart_SchemaAdvertisesAgentSessionName(t *testing.T) {
+	ctx := t.Context()
+
+	h := newSessionHolder(ctx)
+	defer h.closeCurrent()
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	server := newMCPServer(h, MCPOptions{NoOpen: true})
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server Connect failed: %v", err)
+	}
+	defer serverSession.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client Connect failed: %v", err)
+	}
+	defer clientSession.Close()
+
+	tools, err := clientSession.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools failed: %v", err)
+	}
+
+	var start *mcp.Tool
+	for _, tool := range tools.Tools {
+		if tool.Name == "review_start" {
+			start = tool
+			break
+		}
+	}
+	if start == nil {
+		t.Fatal("review_start is not advertised")
+	}
+	// InputSchema is untyped on the wire, so the assertion is made against the JSON an agent
+	// actually receives rather than against a Go shape it never sees.
+	schema, err := json.Marshal(start.InputSchema)
+	if err != nil {
+		t.Fatalf("marshalling the advertised input schema failed: %v", err)
+	}
+	if !strings.Contains(string(schema), `"agentSessionName"`) {
+		t.Errorf("review_start input schema has no agentSessionName; schema: %s", schema)
+	}
+	if !strings.Contains(string(schema), `"path"`) {
+		t.Errorf("review_start input schema lost path; schema: %s", schema)
+	}
+	if !strings.Contains(start.Description, "agentSessionName") {
+		t.Error("the review_start description must mention agentSessionName, or no agent learns it exists")
+	}
+	// Advertising it as required would break every existing caller, which passes only a path.
+	var advertised struct {
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(schema, &advertised); err != nil {
+		t.Fatalf("the advertised input schema is not an object: %v", err)
+	}
+	if slices.Contains(advertised.Required, "agentSessionName") {
+		t.Errorf("agentSessionName must be optional on the wire; required = %v", advertised.Required)
 	}
 }

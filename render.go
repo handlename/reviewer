@@ -32,6 +32,10 @@ type SpecMetadata struct {
 	// ReplyNotification enables the experimental Reply Notification on the page. It is off
 	// unless the process was started with REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION set.
 	ReplyNotification bool
+	// AgentSessionName prefixes the Page Title — the browser tab — and nothing else; the
+	// Contents Rail header keeps showing Title alone. Empty when the review was started
+	// without a name, which is what makes the page identical to what it was before.
+	AgentSessionName string
 }
 
 // Pre-compiled global regular expressions to avoid runtime compilation overhead.
@@ -61,7 +65,7 @@ var precompiledBadges = []badgeRegex{
 // Render compiles a review target — a Markdown document or a unified diff — into the review
 // page. The kind is decided from the content, so every entry point (serve, build, GET /) feeds
 // the same bytes in and gets the right renderer without knowing which it asked for.
-func Render(content []byte, replyNotification bool) ([]byte, error) {
+func Render(content []byte, replyNotification bool, agentSessionName string) ([]byte, error) {
 	var specMeta SpecMetadata
 	if DetectKind(content) == KindDiff {
 		files, err := ParseUnifiedDiff(content)
@@ -77,7 +81,17 @@ func Render(content []byte, replyNotification bool) ([]byte, error) {
 		}
 	}
 	specMeta.ReplyNotification = replyNotification
+	specMeta.AgentSessionName = normalizeAgentSessionName(agentSessionName)
 	return executeTemplate(specMeta)
+}
+
+// normalizeAgentSessionName prepares a name for the page. Render is the only caller because it
+// is the only place the field is set, and the page shell is text/template: a name that skipped
+// the escape would be injected into the page verbatim.
+//
+// Trimming to empty is what makes "no name given" and "a name of spaces" render the same page.
+func normalizeAgentSessionName(name string) string {
+	return html.EscapeString(strings.TrimSpace(name))
 }
 
 // RenderSpec compiles markdown to fully designed interactive HTML

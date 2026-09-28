@@ -21,7 +21,7 @@ func (b *Build) Run(c *Context) error {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
 
-	htmlContent, err := reviewer.Render(content, false)
+	htmlContent, err := reviewer.Render(content, false, "")
 	if err != nil {
 		return fmt.Errorf("failed to render document: %w", err)
 	}

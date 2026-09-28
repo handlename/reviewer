@@ -94,6 +94,12 @@ graph TD
 `ParseUnifiedDiff` + `RenderDiff`. Both produce a body and hand it to the same page template,
 which branches on `SpecMetadata.Mode`.
 
+The **Agent Session Name** joins the reply-notification flag as a per-session input `Render` sets
+on the metadata after the kind-specific helper has built it: `review_start` may carry a name, and
+`build` / `serve` never can. `Render` is the only writer, so it is also the only place the name is
+normalised — trimmed, then escaped, once. It reaches only the **Page Title**; the **Contents Rail**
+header keeps showing the document's own title.
+
 * **Content-based detection**:
   The kind comes from the bytes, never from the file name or a flag. An agent writes its diff to
   a temp file whose name says nothing, and a flag would have to be threaded through every entry

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
+    <title>{{if .AgentSessionName}}{{.AgentSessionName}} — {{end}}{{.Title}}</title>
     <meta name="color-scheme" content="light dark">
     <meta name="theme-color" content="#f6f4f1" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">

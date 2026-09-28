@@ -26,6 +26,11 @@ type ReviewSession struct {
 
 	replyNotification bool
 
+	// agentSessionName names the agent session this review belongs to. It arrives at
+	// construction rather than by assignment because Serve is already running by the time
+	// StartSession returns, and the first GET / would race a later write.
+	agentSessionName string
+
 	hub      *sseHub
 	notifier *submitNotifier
 
@@ -61,7 +66,7 @@ type ReviewSession struct {
 // StartSession binds a port, begins serving, and returns as soon as the URL is known. The
 // caller decides how to wait: `reviewer serve` blocks on Done(), the MCP server keeps the
 // handle and drives it through Wait/Reply/Progress.
-func StartSession(ctx context.Context, inputPath string, port int, noOpen bool, replyNotification bool) (*ReviewSession, error) {
+func StartSession(ctx context.Context, inputPath string, port int, noOpen bool, replyNotification bool, agentSessionName string) (*ReviewSession, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		log.Warn().Err(err).Msgf("port %d busy, probing for auto-assigned port", port)
@@ -83,6 +88,7 @@ func StartSession(ctx context.Context, inputPath string, port int, noOpen bool, 
 		listener:     listener,
 
 		replyNotification: replyNotification,
+		agentSessionName:  agentSessionName,
 	}
 	log.Info().Msgf("Review server running at %s", s.url)
 
@@ -519,7 +525,7 @@ func (s *ReviewSession) newMux() *http.ServeMux {
 			http.Error(w, "Failed to read document: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		htmlContent, err := Render(content, s.replyNotification)
+		htmlContent, err := Render(content, s.replyNotification, s.agentSessionName)
 		if err != nil {
 			http.Error(w, "Failed to render document: "+err.Error(), http.StatusInternalServerError)
 			return

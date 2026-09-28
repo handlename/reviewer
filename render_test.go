@@ -93,7 +93,7 @@ func TestRender_ReplyNotificationGate(t *testing.T) {
 	}
 	for name, content := range inputs {
 		for _, enabled := range []bool{false, true} {
-			out, err := Render(content, enabled)
+			out, err := Render(content, enabled, "")
 			if err != nil {
 				t.Fatalf("%s: Render error = %v", name, err)
 			}
@@ -101,6 +101,71 @@ func TestRender_ReplyNotificationGate(t *testing.T) {
 			if !strings.Contains(string(out), want) {
 				t.Errorf("%s, enabled=%t: page does not contain %q", name, enabled, want)
 			}
+		}
+	}
+}
+
+// The Page Title is the only place an Agent Session Name appears. The Contents Rail header shows
+// the document's own title, so a test that only looked for the name somewhere in the page would
+// pass even if the two had been swapped.
+//
+// Both kinds go through Render, which is where the name is set: RenderSpec and RenderDiff never
+// see it.
+func TestRenderPageTitle(t *testing.T) {
+	const md = "---\ntitle: Spec\n---\n\n# Spec\n\nBody.\n"
+	const oneFile = "diff --git a/diff.go b/diff.go\n--- a/diff.go\n+++ b/diff.go\n@@ -1 +1 @@\n-old\n+new\n"
+	const twoFiles = oneFile + "diff --git a/render.go b/render.go\n--- a/render.go\n+++ b/render.go\n@@ -1 +1 @@\n-old\n+new\n"
+
+	tests := []struct {
+		name             string
+		content          string
+		agentSessionName string
+		wantTitle        string
+		wantRailHeader   string
+	}{
+		{"markdown, no name", md, "", "<title>Spec</title>", "<h2>Spec</h2>"},
+		{"markdown, a name", md, "demo", "<title>demo — Spec</title>", "<h2>Spec</h2>"},
+		{"markdown, whitespace only", md, "   ", "<title>Spec</title>", "<h2>Spec</h2>"},
+		{"markdown, a name is escaped", md, `a<b&c"d`, "<title>a&lt;b&amp;c&#34;d — Spec</title>", "<h2>Spec</h2>"},
+		{"one file, no name", oneFile, "", "<title>diff.go</title>", "<h2>diff.go</h2>"},
+		{"one file, a name", oneFile, "demo", "<title>demo — diff.go</title>", "<h2>diff.go</h2>"},
+		{"several files, no name", twoFiles, "", "<title>Diff review</title>", "<h2>Diff review</h2>"},
+		{"several files, a name", twoFiles, "demo", "<title>demo — Diff review</title>", "<h2>Diff review</h2>"},
+		{"diff, a name is escaped", oneFile, `a<b&c"d`, "<title>a&lt;b&amp;c&#34;d — diff.go</title>", "<h2>diff.go</h2>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := Render([]byte(tt.content), false, tt.agentSessionName)
+			if err != nil {
+				t.Fatalf("Render failed: %v", err)
+			}
+			got := string(output)
+			if !strings.Contains(got, tt.wantTitle) {
+				t.Errorf("Page Title missing %q", tt.wantTitle)
+			}
+			if !strings.Contains(got, tt.wantRailHeader) {
+				t.Errorf("Contents Rail header missing %q", tt.wantRailHeader)
+			}
+		})
+	}
+}
+
+// A name arrives from an agent, and the page shell is text/template: nothing downstream escapes.
+func TestNormalizeAgentSessionName(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"   ", ""},
+		{"\t\n ", ""},
+		{"demo", "demo"},
+		{"  demo  ", "demo"},
+		{`a<b&c"d`, "a&lt;b&amp;c&#34;d"},
+	}
+	for _, tt := range tests {
+		if got := normalizeAgentSessionName(tt.in); got != tt.want {
+			t.Errorf("normalizeAgentSessionName(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }
