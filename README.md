@@ -63,7 +63,7 @@ it, opens the browser, and exposes four tools.
 
 | Tool | Purpose |
 | --- | --- |
-| `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. |
+| `review_start` | Open a Markdown document or a unified diff for review. Returns the review URL. An optional `agentSessionName` prefixes the Page Title (the browser tab). |
 | `review_wait` | Block until the human submits. Returns their comments. |
 | `review_reply` | Reply in each comment's thread — asking a question if you need one — open threads of your own, summarise the round, then wait for the next submit and return it. |
 | `review_progress` | Report the agent's current activity, live, on the review page. |

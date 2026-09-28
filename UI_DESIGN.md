@@ -177,7 +177,7 @@ In a Markdown review, clicking anywhere on a commentable block targets it. Targe
 
 ### 5.2 A diff selects line ranges
 
-In a diff review the unit is the line, not the block. Clicking a line targets it and shift-clicking extends the range from the line clicked last; a file header is a target in its own right, for the comments that are about the change to a file rather than to any line of it. The anchor forms, and the constraints that shape them — the anchor on the first line only, no selection across a hunk boundary — are in [`DESIGN.md` §3](DESIGN.md#3-comment-targeting--dom-traversal-constraints).
+In a diff review the unit is the line, not the block. Clicking a line targets it and shift-clicking extends the range from the line clicked last; a file header is a target in its own right, for the comments that are about the change to a file rather than to any line of it. The anchor forms, and the constraints that shape them — the anchor on the first line only, no selection across a hunk boundary or across folded lines, and at most the **Selection Cap** inside a **Foldable Hunk** — are in [`DESIGN.md` §3](DESIGN.md#3-comment-targeting--dom-traversal-constraints).
 
 What matters here is that both are **selections a reviewer makes with the pointer**, so the states in §4 apply to a range as a band and to a file header as a single element.
 
@@ -265,7 +265,7 @@ reviewer never edits source. Applying a suggestion is the agent's job. Marking a
 
 A comment card renders the whole exchange: the human's own remark as the head, then every message after it, attributed and timestamped, in the order it was said. The two authors are separated by **depth** — the agent's message is a filled block, the human's answer is unfilled — never by a second hue (§2.1).
 
-A **Reply** control sits under a thread that has started. It is a text-weight button until it is pressed, and only then a composer, so a thread at rest stays as quiet as it was before it could be replied to. Ctrl/Cmd+Enter sends and Escape cancels, matching the composer and inline editing (§8).
+A **Reply** control sits under a thread that has started. It is a text-weight button until it is pressed, and only then a composer, so a thread at rest stays as quiet as it was before it could be replied to. Ctrl/Cmd+Enter sends and Escape cancels without asking, as inline editing does; the **Composer** asks first when it holds a draft (§8).
 
 The **Document Comment Control** at the top of the panel is the same shape of thing, for a comment about the document or the diff as a whole: text-weight until pressed, and the only way into a composer with no target. **Why it has to exist:** once the composer stops being a fixture, an untargeted comment has no way in at all. **Why it is quiet:** it is on screen whenever nothing is being written, which is most of the time, and a panel whose resting state is a button shouting for input is the thing §5.4 just removed.
 
@@ -279,7 +279,7 @@ The **Document Comment Control** at the top of the panel is the same shape of th
 
 ### 5.8 An unanswered question cannot be closed silently
 
-A thread the agent is waiting on is marked twice: an **Awaiting your answer** tag on the card and an inset rule down its left edge — position and the single accent, no second hue and no `padding` or `border` (§4). Above the composer, a count of every such thread doubles as the way to reach the first one: pressing it scrolls to that card and opens its composer.
+A thread the agent is waiting on is marked twice: an **Awaiting your answer** tag on the card and an inset rule down its left edge — position and the single accent, no second hue and no `padding` or `border` (§4). At the top of the **Feedback Panel**, a count of every such thread doubles as the way to reach the first one: pressing it scrolls to that card and opens its composer.
 
 Two moments then ask before the question is lost:
 
@@ -378,7 +378,7 @@ Because there is no toggle, anything that captures the page (a screenshot, a pri
 
 ## 8. Accessibility and motion
 
-Every control reachable by pointer is reachable by keyboard: the edit and delete affordances carry `tabindex` and handle Enter and Space, and the composer saves on Ctrl/Cmd+Enter and cancels on Escape. `:focus-visible` is styled with the accent rather than suppressed, and `prefers-reduced-motion` is honoured — including by the connector line.
+Every control reachable by pointer is reachable by keyboard: the edit and delete affordances carry `tabindex` and handle Enter and Space, and the composer saves on Ctrl/Cmd+Enter and closes on Escape, asking first when it holds a draft. `:focus-visible` is styled with the accent rather than suppressed, and `prefers-reduced-motion` is honoured — including by the connector line.
 
 The document column is the one exception, and only for the focus the page takes itself on load (§3.6). Focus the reader moves there rings like everything else.
 

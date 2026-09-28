@@ -329,8 +329,9 @@ review page. It is not a summary written after the fact — it is where a name i
 * **The one exception — wire formats.** A name that has already left the process keeps the spelling
   it was published with: the **Sidecar**'s JSON keys, the **Anchor** string forms
   (`spec-element-N`, `<path>#<start>-<end>`, `<path>#file`), the MCP tool names, the `/api/…` paths,
-  and the `-feedback.json` / `-status.json` filenames. A rename there breaks a sidecar written
-  yesterday, or an agent built against those names. Where such a name differs from its term, the
+  the `reason` field of the SSE `reload` event (the **Reload Reason**), and the `-feedback.json` /
+  `-status.json` filenames. A rename there breaks a sidecar written yesterday, or an agent built
+  against those names. Where such a name differs from its term, the
   term's entry records the difference; the code does not "fix" it.
 
 * **Why**: the review page is worked on by people and by agents, in prose and in code, across a
