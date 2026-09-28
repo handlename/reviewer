@@ -131,6 +131,33 @@ workflow description with the GitHub CLI, then register the server the way that 
 $ gh skill install handlename/reviewer review-doc
 ```
 
+## Experimental features
+
+Experimental features are off by default and may change or go away without notice.
+
+### Reply Notification
+
+The review page raises a desktop notification when the agent replies while the page is not
+focused. Enable it by setting `REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION` for `reviewer serve` or
+`reviewer mcp`:
+
+```console
+$ REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION=1 reviewer serve spec.md
+```
+
+The value is read as a boolean (`1`, `true`, `yes` / `0`, `false`, `no`); anything else, including
+an empty string, stops the command at startup. `reviewer mcp` is started by your AI agent, so the
+variable has to be in the agent's environment — with the Claude Code plugin, export it in the
+shell that launches `claude`.
+
+Known limitations:
+
+- The browser asks for notification permission at the first Submit, and permission is scoped to
+  the page's origin, port included. The review server falls back to a free port when its
+  preferred one is busy, so a session that lands on a new port asks again.
+- A `granted` permission does not guarantee a banner: the operating system can suppress
+  notifications for the browser itself, and the page cannot tell.
+
 ## License
 
 MIT

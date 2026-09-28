@@ -337,8 +337,8 @@ func (h *sseHub) broadcast(msg string) {
 // entry point for `reviewer serve`; the MCP server drives a ReviewSession directly instead.
 //
 // readyChan, when non-nil, receives the running server's URL once the port is bound.
-func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen bool, readyChan chan<- string) error {
-	s, err := StartSession(ctx, inputPath, port, noOpen)
+func StartReviewServer(ctx context.Context, inputPath string, port int, noOpen bool, replyNotification bool, readyChan chan<- string) error {
+	s, err := StartSession(ctx, inputPath, port, noOpen, replyNotification)
 	if err != nil {
 		return err
 	}

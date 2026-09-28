@@ -23,7 +23,7 @@ func startTestServer(t *testing.T, inputPath string) (string, func()) {
 	errChan := make(chan error, 1)
 
 	go func() {
-		errChan <- StartReviewServer(ctx, inputPath, 0, true, readyChan)
+		errChan <- StartReviewServer(ctx, inputPath, 0, true, false, readyChan)
 	}()
 
 	var url string
@@ -201,7 +201,7 @@ func TestStartReviewServer_CloseEndsSession(t *testing.T) {
 	ctx := t.Context()
 	readyChan := make(chan string, 1)
 	errChan := make(chan error, 1)
-	go func() { errChan <- StartReviewServer(ctx, inputPath, 0, true, readyChan) }()
+	go func() { errChan <- StartReviewServer(ctx, inputPath, 0, true, false, readyChan) }()
 
 	var url string
 	select {
@@ -484,7 +484,7 @@ func TestSidecars_AreNotWrittenBesideTheDocument(t *testing.T) {
 	inputPath := filepath.Join(tempDir, "spec.md")
 	writeMarkdown(t, inputPath, "# Spec\n\nContent.\n")
 
-	s, err := StartSession(ctx, inputPath, 0, true)
+	s, err := StartSession(ctx, inputPath, 0, true, false)
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}
@@ -520,7 +520,7 @@ func TestStartReviewServer_AgentStatus(t *testing.T) {
 	// Driven through the session rather than by writing the sidecar directly: the agent no
 	// longer touches these files, so the session is their only writer and broadcasts the
 	// event itself instead of watching for its own write to come back.
-	s, err := StartSession(ctx, inputPath, 0, true)
+	s, err := StartSession(ctx, inputPath, 0, true, false)
 	if err != nil {
 		t.Fatalf("StartSession failed: %v", err)
 	}

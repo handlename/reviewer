@@ -15,6 +15,8 @@ type Serve struct {
 	Output string `short:"o" help:"Output HTML spec file path (defaults to same folder as input)."`
 	Port   int    `short:"p" default:"5500" help:"Target port for HTTP server."`
 	NoOpen bool   `name:"no-open" help:"Do not automatically open the default web browser."`
+
+	ExperimentalReplyNotification bool `name:"experimental-reply-notification" env:"REVIEWER_EXPERIMENTAL_REPLY_NOTIFICATION" hidden:"" help:"Raise a desktop notification when an agent reply lands. Experimental."`
 }
 
 func (s *Serve) Run(c *Context) error {
@@ -23,7 +25,7 @@ func (s *Serve) Run(c *Context) error {
 		return fmt.Errorf("failed to read input file: %w", err)
 	}
 
-	htmlContent, err := reviewer.Render(content)
+	htmlContent, err := reviewer.Render(content, s.ExperimentalReplyNotification)
 	if err != nil {
 		return fmt.Errorf("failed to render document: %w", err)
 	}
@@ -42,5 +44,5 @@ func (s *Serve) Run(c *Context) error {
 
 	log.Info().Msgf("Compiled review spec saved to %s", outPath)
 
-	return reviewer.StartReviewServer(c.Ctx, s.Input, s.Port, s.NoOpen, nil)
+	return reviewer.StartReviewServer(c.Ctx, s.Input, s.Port, s.NoOpen, s.ExperimentalReplyNotification, nil)
 }
